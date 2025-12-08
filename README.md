@@ -13,24 +13,31 @@ Management and oversight application for aggregating data from multiple MeshMoni
 
 ## Quick Start
 
-### Development
+### Development (Single Command)
 
-1. Start the development environment:
-   ```bash
-   docker compose -f docker-compose.dev.yml up -d
-   ```
+Run the entire stack with a single command:
 
-2. Start the frontend development server:
-   ```bash
-   cd frontend
-   npm install
-   npm run dev
-   ```
+```bash
+docker compose -f docker-compose.dev.yml up -d --build
+```
 
-3. Access the application:
-   - Frontend: http://localhost:5173
-   - Backend API: http://localhost:8000
-   - API Docs: http://localhost:8000/docs
+Access the application at http://localhost:8080
+
+This starts:
+- PostgreSQL database
+- FastAPI backend
+- React frontend
+- Nginx reverse proxy
+
+To view logs:
+```bash
+docker compose -f docker-compose.dev.yml logs -f
+```
+
+To stop:
+```bash
+docker compose -f docker-compose.dev.yml down
+```
 
 ### Production
 

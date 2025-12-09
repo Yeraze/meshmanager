@@ -1,8 +1,10 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { MapContainer as LeafletMapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import { useNodes } from '../../hooks/useNodes'
 import { useDataContext } from '../../contexts/DataContext'
+import { getTilesetById, DEFAULT_TILESET_ID, type TilesetId } from '../../config/tilesets'
+import TilesetSelector from './TilesetSelector'
 import type { Node } from '../../types/api'
 import 'leaflet/dist/leaflet.css'
 
@@ -71,6 +73,9 @@ function MapCenterHandler({ node }: { node: Node | null }) {
 
 export default function MapContainer() {
   const { enabledSourceIds, showActiveOnly, selectedNode, setSelectedNode } = useDataContext()
+  const [tilesetId, setTilesetId] = useState<TilesetId>(DEFAULT_TILESET_ID)
+  const tileset = getTilesetById(tilesetId)
+
   const { data: allNodes = [] } = useNodes({
     activeOnly: showActiveOnly,
   })
@@ -126,8 +131,10 @@ export default function MapContainer() {
         style={{ height: '100%', width: '100%' }}
       >
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+          key={tileset.id}
+          attribution={tileset.attribution}
+          url={tileset.url}
+          maxZoom={tileset.maxZoom}
         />
         <MapCenterHandler node={selectedNode} />
 
@@ -163,6 +170,10 @@ export default function MapContainer() {
           )
         })}
       </LeafletMapContainer>
+      <TilesetSelector
+        selectedTilesetId={tilesetId}
+        onTilesetChange={setTilesetId}
+      />
     </div>
   )
 }

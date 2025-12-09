@@ -375,6 +375,162 @@ body {
   margin: var(--spacing-md);
 }
 
+/* Tileset Selector */
+.tileset-selector {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  z-index: 1000;
+}
+
+.tileset-selector.collapsed {
+  padding: var(--spacing-sm) var(--spacing-md);
+  bottom: 10px;
+}
+
+.tileset-selector-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.tileset-buttons {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.tileset-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-xs);
+  background: var(--color-bg-tertiary);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  min-width: 80px;
+}
+
+.tileset-button:hover {
+  border-color: var(--color-primary);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(137, 180, 250, 0.2);
+}
+
+.tileset-button.active {
+  border-color: var(--color-primary);
+  background: rgba(137, 180, 250, 0.1);
+}
+
+.tileset-preview {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-sm);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.tileset-name {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  text-align: center;
+  line-height: 1.2;
+  max-width: 80px;
+  word-wrap: break-word;
+}
+
+.tileset-button.active .tileset-name {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.tileset-collapse-button {
+  background: var(--color-bg-tertiary);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all var(--transition-fast);
+  color: var(--color-text-secondary);
+}
+
+.tileset-collapse-button:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.tileset-expand-button {
+  background: var(--color-bg-tertiary);
+  border: 2px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: all var(--transition-fast);
+  color: var(--color-primary);
+  white-space: nowrap;
+}
+
+.tileset-expand-button:hover {
+  background: var(--color-primary);
+  color: var(--color-bg);
+}
+
+/* Hide tileset selector on small screens */
+@media (max-width: 768px) {
+  .tileset-selector {
+    display: none;
+  }
+}
+
+/* Responsive tileset selector */
+@media (max-width: 1024px) {
+  .tileset-selector {
+    bottom: 10px;
+    padding: var(--spacing-sm);
+  }
+
+  .tileset-selector-label {
+    font-size: 0.75rem;
+  }
+
+  .tileset-buttons {
+    gap: 6px;
+  }
+
+  .tileset-button {
+    min-width: 70px;
+    padding: var(--spacing-xs);
+  }
+
+  .tileset-preview {
+    width: 56px;
+    height: 56px;
+  }
+
+  .tileset-name {
+    font-size: 0.625rem;
+    max-width: 70px;
+  }
+}
+
 /* Forms */
 .form-group {
   margin-bottom: var(--spacing-md);

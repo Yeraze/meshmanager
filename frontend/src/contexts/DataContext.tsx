@@ -4,8 +4,9 @@ import type { Node } from '../types/api'
 interface DataContextValue {
   selectedNode: Node | null
   setSelectedNode: (node: Node | null) => void
-  filterSourceId: string | null
-  setFilterSourceId: (sourceId: string | null) => void
+  enabledSourceIds: Set<string>
+  toggleSource: (sourceId: string) => void
+  enableAllSources: (sourceIds: string[]) => void
   showActiveOnly: boolean
   setShowActiveOnly: (active: boolean) => void
 }
@@ -14,14 +15,31 @@ const DataContext = createContext<DataContextValue | null>(null)
 
 export function DataProvider({ children }: { children: ReactNode }) {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
-  const [filterSourceId, setFilterSourceId] = useState<string | null>(null)
+  const [enabledSourceIds, setEnabledSourceIds] = useState<Set<string>>(new Set())
   const [showActiveOnly, setShowActiveOnly] = useState(false)
+
+  const toggleSource = (sourceId: string) => {
+    setEnabledSourceIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(sourceId)) {
+        next.delete(sourceId)
+      } else {
+        next.add(sourceId)
+      }
+      return next
+    })
+  }
+
+  const enableAllSources = (sourceIds: string[]) => {
+    setEnabledSourceIds(new Set(sourceIds))
+  }
 
   const value: DataContextValue = {
     selectedNode,
     setSelectedNode,
-    filterSourceId,
-    setFilterSourceId,
+    enabledSourceIds,
+    toggleSource,
+    enableAllSources,
     showActiveOnly,
     setShowActiveOnly,
   }

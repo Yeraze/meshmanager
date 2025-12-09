@@ -70,18 +70,39 @@ function MapCenterHandler({ node }: { node: Node | null }) {
 }
 
 export default function MapContainer() {
-  const { filterSourceId, showActiveOnly, selectedNode, setSelectedNode } = useDataContext()
-  const { data: nodes = [] } = useNodes({
-    sourceId: filterSourceId ?? undefined,
+  const { enabledSourceIds, showActiveOnly, selectedNode, setSelectedNode } = useDataContext()
+  const { data: allNodes = [] } = useNodes({
     activeOnly: showActiveOnly,
   })
 
+  // Filter by enabled sources and deduplicate (same logic as Sidebar)
+  const deduplicatedNodes = useMemo(() => {
+    const filteredNodes = allNodes.filter((node) => enabledSourceIds.has(node.source_id))
+
+    const nodeMap = new Map<string, Node>()
+    for (const node of filteredNodes) {
+      const key = node.node_id || `num_${node.node_num}`
+      const existing = nodeMap.get(key)
+      if (!existing) {
+        nodeMap.set(key, node)
+      } else {
+        const existingTime = existing.last_heard ? new Date(existing.last_heard).getTime() : 0
+        const newTime = node.last_heard ? new Date(node.last_heard).getTime() : 0
+        if (newTime > existingTime) {
+          nodeMap.set(key, node)
+        }
+      }
+    }
+
+    return Array.from(nodeMap.values())
+  }, [allNodes, enabledSourceIds])
+
   // Filter nodes with positions
   const nodesWithPosition = useMemo(
-    () => nodes.filter((n): n is Node & { latitude: number; longitude: number } =>
+    () => deduplicatedNodes.filter((n): n is Node & { latitude: number; longitude: number } =>
       n.latitude !== null && n.longitude !== null
     ),
-    [nodes]
+    [deduplicatedNodes]
   )
 
   // Calculate map center

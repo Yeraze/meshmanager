@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import Node, Source, Telemetry
+from app.models import Node, Source, Telemetry, Traceroute
 from app.schemas.node import NodeResponse, NodeSummary
 from app.schemas.telemetry import TelemetryResponse, TelemetryHistory, TelemetryHistoryPoint
 from app.services.collector_manager import collector_manager
@@ -123,6 +123,18 @@ async def get_nodes_by_node_num(
         )
         for node, source_name in rows
     ]
+
+
+@router.get("/nodes/roles")
+async def list_node_roles(
+    db: AsyncSession = Depends(get_db),
+) -> list[str]:
+    """Get list of unique node roles in the database."""
+    result = await db.execute(
+        select(Node.role).distinct().where(Node.role.isnot(None))
+    )
+    roles = [row[0] for row in result.all() if row[0]]
+    return sorted(roles)
 
 
 @router.get("/nodes/{node_id}", response_model=NodeResponse)
@@ -260,3 +272,34 @@ async def get_collection_statuses() -> dict[str, dict]:
     - last_error: error message if status is "error"
     """
     return collector_manager.get_all_collection_statuses()
+
+
+@router.get("/traceroutes")
+async def list_traceroutes(
+    db: AsyncSession = Depends(get_db),
+    hours: int = Query(default=24, ge=1, le=168, description="Hours of history"),
+) -> list[dict]:
+    """Get recent traceroutes for rendering on the map."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+    result = await db.execute(
+        select(Traceroute)
+        .where(Traceroute.received_at >= cutoff)
+        .order_by(Traceroute.received_at.desc())
+    )
+    traceroutes = result.scalars().all()
+
+    return [
+        {
+            "id": t.id,
+            "source_id": t.source_id,
+            "from_node_num": t.from_node_num,
+            "to_node_num": t.to_node_num,
+            "route": t.route,
+            "route_back": t.route_back,
+            "received_at": t.received_at.isoformat(),
+        }
+        for t in traceroutes
+    ]
+
+

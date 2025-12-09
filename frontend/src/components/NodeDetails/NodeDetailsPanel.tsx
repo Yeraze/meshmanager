@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Node } from '../../types/api'
 import { useTelemetryHistory } from '../../hooks/useTelemetry'
+import { getRoleName } from '../../utils/meshtastic'
 import TelemetryChart from './TelemetryChart'
 
 interface NodeDetailsPanelProps {
@@ -91,7 +92,7 @@ export default function NodeDetailsPanel({ node }: NodeDetailsPanelProps) {
         {node.role && (
           <div className="node-info-card">
             <div className="node-info-label">Role</div>
-            <div className="node-info-value">{node.role}</div>
+            <div className="node-info-value">{getRoleName(node.role)}</div>
           </div>
         )}
 

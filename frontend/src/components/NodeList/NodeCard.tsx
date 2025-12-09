@@ -1,23 +1,7 @@
 import { useMemo } from 'react'
 import { useDataContext } from '../../contexts/DataContext'
+import { getRoleName } from '../../utils/meshtastic'
 import type { Node } from '../../types/api'
-
-// Meshtastic role mappings
-const ROLE_NAMES: Record<string, string> = {
-  '0': 'Client',
-  '1': 'Client Mute',
-  '2': 'Router',
-  '3': 'Router Client',
-  '4': 'Repeater',
-  '5': 'Tracker',
-  '6': 'Sensor',
-  '7': 'TAK',
-  '8': 'Client Hidden',
-  '9': 'Lost and Found',
-  '10': 'TAK Tracker',
-  '11': 'Router Late',
-  '12': 'Router Client Late',
-}
 
 interface NodeCardProps {
   node: Node
@@ -49,7 +33,7 @@ export default function NodeCard({ node }: NodeCardProps) {
     return `${diffDays}d ago`
   }, [node.last_heard])
 
-  const roleName = node.role ? ROLE_NAMES[node.role] || node.role : null
+  const roleName = node.role ? getRoleName(node.role) : null
 
   const displayName = node.long_name || node.short_name || node.node_id || `Node ${node.node_num}`
 

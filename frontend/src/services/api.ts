@@ -10,6 +10,7 @@ import type {
   Source,
   Telemetry,
   TelemetryHistory,
+  Traceroute,
   UserInfo,
 } from '../types/api'
 
@@ -120,5 +121,20 @@ export async function fetchHealth(): Promise<{ status: string; database: string;
 // Collection Status
 export async function fetchCollectionStatuses(): Promise<Record<string, CollectionStatus>> {
   const response = await api.get<Record<string, CollectionStatus>>('/api/sources/collection-status')
+  return response.data
+}
+
+// Traceroutes
+export async function fetchTraceroutes(hours?: number): Promise<Traceroute[]> {
+  const params = new URLSearchParams()
+  if (hours) params.append('hours', hours.toString())
+
+  const response = await api.get<Traceroute[]>(`/api/traceroutes?${params.toString()}`)
+  return response.data
+}
+
+// Node Roles
+export async function fetchNodeRoles(): Promise<string[]> {
+  const response = await api.get<string[]>('/api/nodes/roles')
   return response.data
 }

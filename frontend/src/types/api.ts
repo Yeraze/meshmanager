@@ -132,3 +132,13 @@ export interface CollectionStatus {
   total_collected: number
   last_error: string | null
 }
+
+export interface Traceroute {
+  id: string
+  source_id: string
+  from_node_num: number
+  to_node_num: number
+  route: number[]
+  route_back: number[] | null
+  received_at: string
+}

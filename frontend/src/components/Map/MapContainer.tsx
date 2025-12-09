@@ -1,12 +1,38 @@
-import { useEffect, useMemo, useState } from 'react'
-import { MapContainer as LeafletMapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
+import { useEffect, useMemo, useState, useCallback } from 'react'
+import { MapContainer as LeafletMapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import { useNodes } from '../../hooks/useNodes'
+import { useTraceroutes } from '../../hooks/useMapData'
 import { useDataContext } from '../../contexts/DataContext'
 import { getTilesetById, DEFAULT_TILESET_ID, type TilesetId } from '../../config/tilesets'
-import TilesetSelector from './TilesetSelector'
+import MapControls from './MapControls'
 import type { Node } from '../../types/api'
 import 'leaflet/dist/leaflet.css'
+
+// LocalStorage keys
+const STORAGE_KEY_TILESET = 'meshmanager_map_tileset'
+const STORAGE_KEY_SHOW_ROUTES = 'meshmanager_map_show_routes'
+const STORAGE_KEY_ENABLED_ROLES = 'meshmanager_map_enabled_roles'
+
+// Load settings from localStorage
+function loadSetting<T>(key: string, defaultValue: T, parser?: (value: string) => T): T {
+  try {
+    const stored = localStorage.getItem(key)
+    if (stored === null) return defaultValue
+    if (parser) return parser(stored)
+    return JSON.parse(stored) as T
+  } catch {
+    return defaultValue
+  }
+}
+
+function saveSetting<T>(key: string, value: T): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    // Ignore storage errors
+  }
+}
 
 // Fix for default marker icons in Leaflet with Vite
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
@@ -73,7 +99,20 @@ function MapCenterHandler({ node }: { node: Node | null }) {
 
 export default function MapContainer() {
   const { enabledSourceIds, showActiveOnly, activeHours, selectedNode, setSelectedNode } = useDataContext()
-  const [tilesetId, setTilesetId] = useState<TilesetId>(DEFAULT_TILESET_ID)
+
+  // Load persisted settings from localStorage
+  const [tilesetId, setTilesetId] = useState<TilesetId>(() =>
+    loadSetting(STORAGE_KEY_TILESET, DEFAULT_TILESET_ID)
+  )
+  const [showRoutes, setShowRoutes] = useState<boolean>(() =>
+    loadSetting(STORAGE_KEY_SHOW_ROUTES, true)
+  )
+  const [enabledRoles, setEnabledRoles] = useState<Set<string>>(() => {
+    const stored = loadSetting<string[] | null>(STORAGE_KEY_ENABLED_ROLES, null)
+    return stored ? new Set(stored) : new Set<string>()
+  })
+  const [rolesInitialized, setRolesInitialized] = useState(false)
+
   const tileset = getTilesetById(tilesetId)
 
   const { data: allNodes = [] } = useNodes({
@@ -81,9 +120,47 @@ export default function MapContainer() {
     activeHours: showActiveOnly ? activeHours : undefined,
   })
 
-  // Filter by enabled sources and deduplicate (same logic as Sidebar)
+  // Use same time filtering as nodes - default to activeHours, or 24h if not filtering
+  const { data: traceroutes = [] } = useTraceroutes(showActiveOnly ? activeHours : 24)
+
+  // Initialize enabled roles when first load - if no stored value, enable all
+  useEffect(() => {
+    if (!rolesInitialized && allNodes.length > 0) {
+      const storedRoles = localStorage.getItem(STORAGE_KEY_ENABLED_ROLES)
+      if (storedRoles === null) {
+        // First time - enable all unique roles
+        const uniqueRoles = new Set(allNodes.map(n => n.role).filter((r): r is string => r !== null))
+        setEnabledRoles(uniqueRoles)
+      }
+      setRolesInitialized(true)
+    }
+  }, [allNodes, rolesInitialized])
+
+  // Persist settings to localStorage
+  const handleTilesetChange = useCallback((id: TilesetId) => {
+    setTilesetId(id)
+    saveSetting(STORAGE_KEY_TILESET, id)
+  }, [])
+
+  const handleShowRoutesChange = useCallback((show: boolean) => {
+    setShowRoutes(show)
+    saveSetting(STORAGE_KEY_SHOW_ROUTES, show)
+  }, [])
+
+  const handleEnabledRolesChange = useCallback((roles: Set<string>) => {
+    setEnabledRoles(roles)
+    saveSetting(STORAGE_KEY_ENABLED_ROLES, Array.from(roles))
+  }, [])
+
+  // Filter by enabled sources, roles, and deduplicate (same logic as Sidebar)
   const deduplicatedNodes = useMemo(() => {
-    const filteredNodes = allNodes.filter((node) => enabledSourceIds.has(node.source_id))
+    const filteredNodes = allNodes.filter((node) => {
+      // Filter by source
+      if (!enabledSourceIds.has(node.source_id)) return false
+      // Filter by role (if no role, show if any roles are enabled)
+      if (enabledRoles.size > 0 && node.role && !enabledRoles.has(node.role)) return false
+      return true
+    })
 
     const nodeMap = new Map<string, Node>()
     for (const node of filteredNodes) {
@@ -101,7 +178,7 @@ export default function MapContainer() {
     }
 
     return Array.from(nodeMap.values())
-  }, [allNodes, enabledSourceIds])
+  }, [allNodes, enabledSourceIds, enabledRoles])
 
   // Filter nodes with positions
   const nodesWithPosition = useMemo(
@@ -124,8 +201,104 @@ export default function MapContainer() {
     return [39.8283, -98.5795] // Center of US
   }, [nodesWithPosition, selectedNode])
 
+  // Build node position lookup by node_num for traceroute rendering
+  // Use ALL nodes (not filtered) so traceroutes can render even if some nodes are filtered out
+  const nodePositionsByNum = useMemo(() => {
+    const map = new Map<number, { lat: number; lng: number }>()
+    for (const node of allNodes) {
+      if (node.latitude !== null && node.longitude !== null) {
+        // Only add if we don't have this node_num yet, or update with most recent
+        const existing = map.get(node.node_num)
+        if (!existing) {
+          map.set(node.node_num, { lat: node.latitude, lng: node.longitude })
+        }
+      }
+    }
+    return map
+  }, [allNodes])
+
+  // Build traceroute segments with usage weighting (like MeshMonitor)
+  // Processes both forward route and route_back for complete path visualization
+  const routeSegments = useMemo(() => {
+    if (!showRoutes) return []
+
+    // Track segment usage counts
+    const segmentUsage = new Map<string, number>()
+    const segmentPositions = new Map<string, { from: [number, number]; to: [number, number] }>()
+
+    // Helper to add segments from a node sequence
+    const addSegmentsFromSequence = (nodeNums: number[]) => {
+      for (let i = 0; i < nodeNums.length - 1; i++) {
+        const fromNum = nodeNums[i]
+        const toNum = nodeNums[i + 1]
+
+        // Skip broadcast address (4294967295) - it's a placeholder for unknown hops
+        if (fromNum === 4294967295 || toNum === 4294967295) continue
+
+        const fromPos = nodePositionsByNum.get(fromNum)
+        const toPos = nodePositionsByNum.get(toNum)
+
+        if (fromPos && toPos) {
+          // Use sorted key so A->B and B->A are the same segment
+          const segmentKey = [fromNum, toNum].sort((a, b) => a - b).join('-')
+          segmentUsage.set(segmentKey, (segmentUsage.get(segmentKey) || 0) + 1)
+
+          if (!segmentPositions.has(segmentKey)) {
+            segmentPositions.set(segmentKey, {
+              from: [fromPos.lat, fromPos.lng],
+              to: [toPos.lat, toPos.lng],
+            })
+          }
+        }
+      }
+    }
+
+    for (const trace of traceroutes) {
+      // Skip incomplete traceroutes (no route_back means no response received)
+      // These are failed traceroutes that shouldn't be rendered
+      if (trace.route_back === null) continue
+
+      // Forward path: from_node_num -> route hops -> to_node_num
+      // This is the path from requester to responder
+      const forwardPath = [trace.from_node_num, ...trace.route, trace.to_node_num]
+      addSegmentsFromSequence(forwardPath)
+
+      // Return path: to_node_num -> route_back hops -> from_node_num
+      // This is the path from responder back to requester
+      if (trace.route_back.length > 0) {
+        const returnPath = [trace.to_node_num, ...trace.route_back, trace.from_node_num]
+        addSegmentsFromSequence(returnPath)
+      }
+    }
+
+    // Convert to array with weight calculation
+    return Array.from(segmentPositions.entries()).map(([key, positions]) => {
+      const usage = segmentUsage.get(key) || 1
+      // Weight: base 2, +0.3 per usage, max 8
+      const weight = Math.min(2 + usage * 0.3, 8)
+      // Opacity: more usage = more visible
+      const opacity = Math.min(0.5 + usage * 0.03, 0.9)
+
+      return {
+        id: key,
+        positions: [positions.from, positions.to] as [number, number][],
+        weight,
+        opacity,
+        usage,
+      }
+    })
+  }, [traceroutes, nodePositionsByNum, showRoutes])
+
   return (
     <div className="map-container">
+      <MapControls
+        tilesetId={tilesetId}
+        onTilesetChange={handleTilesetChange}
+        showRoutes={showRoutes}
+        onShowRoutesChange={handleShowRoutesChange}
+        enabledRoles={enabledRoles}
+        onEnabledRolesChange={handleEnabledRolesChange}
+      />
       <LeafletMapContainer
         center={center}
         zoom={nodesWithPosition.length > 0 ? 10 : 4}
@@ -138,6 +311,19 @@ export default function MapContainer() {
           maxZoom={tileset.maxZoom}
         />
         <MapCenterHandler node={selectedNode} />
+
+        {/* Traceroute segments - weighted by usage */}
+        {routeSegments.map((segment) => (
+          <Polyline
+            key={segment.id}
+            positions={segment.positions}
+            pathOptions={{
+              color: '#cba6f7',
+              weight: segment.weight,
+              opacity: segment.opacity,
+            }}
+          />
+        ))}
 
         {nodesWithPosition.map((node) => {
           const isSelected = selectedNode?.id === node.id
@@ -171,10 +357,6 @@ export default function MapContainer() {
           )
         })}
       </LeafletMapContainer>
-      <TilesetSelector
-        selectedTilesetId={tilesetId}
-        onTilesetChange={setTilesetId}
-      />
     </div>
   )
 }

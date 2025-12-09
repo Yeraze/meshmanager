@@ -499,15 +499,22 @@ class MeshMonitorCollector(BaseCollector):
         """Collect traceroutes from the API."""
         try:
             response = await client.get(
-                f"{self.source.url}/api/v1/traceroutes/recent",
+                f"{self.source.url}/api/v1/traceroutes",
                 headers=headers,
+                params={"limit": 100},  # Get recent traceroutes
             )
             if response.status_code != 200:
                 logger.warning(f"Failed to fetch traceroutes: {response.status_code}")
                 return
 
             data = response.json()
-            routes_data = data if isinstance(data, list) else data.get("traceroutes", [])
+            # MeshMonitor wraps data in {"success": true, "count": N, "data": [...]}
+            if isinstance(data, dict) and "data" in data:
+                routes_data = data.get("data", [])
+            elif isinstance(data, list):
+                routes_data = data
+            else:
+                routes_data = data.get("traceroutes", [])
 
             async with async_session_maker() as db:
                 for route in routes_data:
@@ -518,16 +525,45 @@ class MeshMonitorCollector(BaseCollector):
         except Exception as e:
             logger.error(f"Error collecting traceroutes: {e}")
 
+    def _parse_array_field(self, value) -> list[int] | None:
+        """Parse an array field that may be a string, list, or None."""
+        import json
+
+        if value is None:
+            return None
+        if isinstance(value, list):
+            # Ensure all elements are integers
+            return [int(x) for x in value if x is not None]
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, list):
+                    return [int(x) for x in parsed if x is not None]
+            except (json.JSONDecodeError, ValueError):
+                pass
+        return None
+
     async def _insert_traceroute(self, db, route_data: dict) -> None:
         """Insert a traceroute."""
+        from_node = route_data.get("fromNodeNum") or route_data.get("from")
+        to_node = route_data.get("toNodeNum") or route_data.get("to")
+
+        if not from_node or not to_node:
+            return
+
+        route = self._parse_array_field(route_data.get("route"))
+        route_back = self._parse_array_field(route_data.get("routeBack"))
+        snr_towards = self._parse_array_field(route_data.get("snrTowards"))
+        snr_back = self._parse_array_field(route_data.get("snrBack"))
+
         traceroute = Traceroute(
             source_id=self.source.id,
-            from_node_num=route_data.get("fromNodeNum") or route_data.get("from"),
-            to_node_num=route_data.get("toNodeNum") or route_data.get("to"),
-            route=route_data.get("route"),
-            route_back=route_data.get("routeBack"),
-            snr_towards=route_data.get("snrTowards"),
-            snr_back=route_data.get("snrBack"),
+            from_node_num=from_node,
+            to_node_num=to_node,
+            route=route or [],
+            route_back=route_back,
+            snr_towards=snr_towards,
+            snr_back=snr_back,
         )
         db.add(traceroute)
 

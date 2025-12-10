@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete, select
 
@@ -43,7 +43,7 @@ async def cleanup_old_data() -> dict[str, int]:
 
     async with async_session_maker() as db:
         # Clean messages
-        cutoff = datetime.now(timezone.utc) - timedelta(days=retention["messages"])
+        cutoff = datetime.now(UTC) - timedelta(days=retention["messages"])
         result = await db.execute(
             delete(Message).where(Message.received_at < cutoff)
         )
@@ -51,7 +51,7 @@ async def cleanup_old_data() -> dict[str, int]:
         logger.info(f"Deleted {result.rowcount} messages older than {retention['messages']} days")
 
         # Clean telemetry
-        cutoff = datetime.now(timezone.utc) - timedelta(days=retention["telemetry"])
+        cutoff = datetime.now(UTC) - timedelta(days=retention["telemetry"])
         result = await db.execute(
             delete(Telemetry).where(Telemetry.received_at < cutoff)
         )
@@ -61,7 +61,7 @@ async def cleanup_old_data() -> dict[str, int]:
         )
 
         # Clean traceroutes
-        cutoff = datetime.now(timezone.utc) - timedelta(days=retention["traceroutes"])
+        cutoff = datetime.now(UTC) - timedelta(days=retention["traceroutes"])
         result = await db.execute(
             delete(Traceroute).where(Traceroute.received_at < cutoff)
         )

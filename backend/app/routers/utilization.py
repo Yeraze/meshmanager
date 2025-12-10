@@ -1,7 +1,7 @@
 """Utilization map API endpoints."""
 
 import math
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -220,7 +220,7 @@ async def generate_utilization(db: AsyncSession = Depends(get_db)) -> GenerateRe
     bounds_north = config.get("bounds_north")
     bounds_east = config.get("bounds_east")
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+    cutoff = datetime.now(UTC) - timedelta(days=lookback_days)
 
     # Get all nodes with positions
     nodes_result = await db.execute(
@@ -347,7 +347,7 @@ async def generate_utilization(db: AsyncSession = Depends(get_db)) -> GenerateRe
     await db.execute(delete(UtilizationCell))
 
     # Create new cells with aggregated values
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     cells_created = 0
     for key, values in cell_values.items():
         row, col = map(int, key.split(","))

@@ -1,6 +1,6 @@
 """UI data endpoints (internal use for frontend)."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models import Node, Source, Telemetry, Traceroute
 from app.schemas.node import NodeResponse, NodeSummary
-from app.schemas.telemetry import TelemetryResponse, TelemetryHistory, TelemetryHistoryPoint
+from app.schemas.telemetry import TelemetryHistory, TelemetryHistoryPoint, TelemetryResponse
 from app.services.collector_manager import collector_manager
 
 router = APIRouter(prefix="/api", tags=["ui"])
@@ -64,7 +64,7 @@ async def list_nodes(
         query = query.where(Node.source_id == source_id)
 
     if active_only:
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=active_hours)
+        cutoff = datetime.now(UTC) - timedelta(hours=active_hours)
         query = query.where(Node.last_heard >= cutoff)
 
     query = query.order_by(Node.last_heard.desc().nullslast())
@@ -180,7 +180,7 @@ async def get_telemetry(
     hours: int = Query(default=24, ge=1, le=168, description="Hours of history to fetch"),
 ) -> list[TelemetryResponse]:
     """Get recent telemetry for a node across all sources."""
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    cutoff = datetime.now(UTC) - timedelta(hours=hours)
 
     result = await db.execute(
         select(Telemetry, Source.name.label("source_name"))
@@ -244,7 +244,7 @@ async def get_telemetry_history(
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=f"Invalid metric: {metric}")
 
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    cutoff = datetime.now(UTC) - timedelta(hours=hours)
 
     result = await db.execute(
         select(Telemetry, Source.name.label("source_name"))
@@ -297,7 +297,7 @@ async def get_position_history(
     Returns all position telemetry records within the specified time range.
     Each record contains node_num, latitude, longitude, and timestamp.
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff = datetime.now(UTC) - timedelta(days=days)
 
     result = await db.execute(
         select(Telemetry)
@@ -351,7 +351,7 @@ async def list_traceroutes(
     hours: int = Query(default=24, ge=1, le=168, description="Hours of history"),
 ) -> list[dict]:
     """Get recent traceroutes for rendering on the map."""
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    cutoff = datetime.now(UTC) - timedelta(hours=hours)
 
     result = await db.execute(
         select(Traceroute)

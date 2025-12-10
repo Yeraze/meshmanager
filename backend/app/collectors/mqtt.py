@@ -3,7 +3,7 @@
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import aiomqtt
 
@@ -118,7 +118,7 @@ class MqttCollector(BaseCollector):
                 )
                 source = result.scalar()
                 if source:
-                    source.last_poll_at = datetime.now(timezone.utc)
+                    source.last_poll_at = datetime.now(UTC)
                     source.last_error = error
                     await db.commit()
         except Exception as e:
@@ -230,8 +230,8 @@ class MqttCollector(BaseCollector):
             node.latitude = position.get("latitude") or position.get("lat")
             node.longitude = position.get("longitude") or position.get("lon")
             node.altitude = position.get("altitude") or position.get("alt")
-            node.position_time = datetime.now(timezone.utc)
-            node.last_heard = datetime.now(timezone.utc)
+            node.position_time = datetime.now(UTC)
+            node.last_heard = datetime.now(UTC)
         else:
             node = Node(
                 source_id=self.source.id,
@@ -239,8 +239,8 @@ class MqttCollector(BaseCollector):
                 latitude=position.get("latitude") or position.get("lat"),
                 longitude=position.get("longitude") or position.get("lon"),
                 altitude=position.get("altitude") or position.get("alt"),
-                position_time=datetime.now(timezone.utc),
-                last_heard=datetime.now(timezone.utc),
+                position_time=datetime.now(UTC),
+                last_heard=datetime.now(UTC),
             )
             db.add(node)
 
@@ -306,7 +306,7 @@ class MqttCollector(BaseCollector):
             node.hw_model = user.get("hwModel")
             node.role = user.get("role")
             node.is_licensed = user.get("isLicensed", False)
-            node.last_heard = datetime.now(timezone.utc)
+            node.last_heard = datetime.now(UTC)
         else:
             node = Node(
                 source_id=self.source.id,
@@ -317,7 +317,7 @@ class MqttCollector(BaseCollector):
                 hw_model=user.get("hwModel"),
                 role=user.get("role"),
                 is_licensed=user.get("isLicensed", False),
-                last_heard=datetime.now(timezone.utc),
+                last_heard=datetime.now(UTC),
             )
             db.add(node)
 

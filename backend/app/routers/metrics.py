@@ -1,6 +1,6 @@
 """Prometheus metrics endpoint."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import PlainTextResponse
@@ -90,7 +90,7 @@ async def collect_metrics(db: AsyncSession) -> bytes:
     sources_result = await db.execute(select(Source))
     sources = sources_result.scalars().all()
 
-    one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
+    one_hour_ago = datetime.now(UTC) - timedelta(hours=1)
 
     for source in sources:
         source_name = source.name

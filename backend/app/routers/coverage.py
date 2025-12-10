@@ -2,7 +2,7 @@
 
 import math
 import tempfile
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from xml.etree import ElementTree as ET
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -215,7 +215,7 @@ async def generate_coverage(db: AsyncSession = Depends(get_db)) -> GenerateRespo
     bounds_east = config.get("bounds_east")
 
     # Fetch position data
-    cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+    cutoff = datetime.now(UTC) - timedelta(days=lookback_days)
 
     # Get latitude records
     lat_query = (
@@ -323,7 +323,7 @@ async def generate_coverage(db: AsyncSession = Depends(get_db)) -> GenerateRespo
     await db.execute(delete(CoverageCell))
 
     # Create new cells
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     cells_created = 0
     for key, count in cell_counts.items():
         row, col = map(int, key.split(","))
@@ -394,7 +394,7 @@ async def get_position_history(
     db: AsyncSession = Depends(get_db),
 ) -> list[PositionPoint]:
     """Get raw position points for heatmap rendering."""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+    cutoff = datetime.now(UTC) - timedelta(days=lookback_days)
 
     # Get latitude records
     lat_query = (
@@ -458,7 +458,7 @@ async def export_kml(db: AsyncSession = Depends(get_db)) -> Response:
     ET.SubElement(doc, "name").text = "MeshManager Coverage Map"
     ET.SubElement(doc, "description").text = (
         f"Coverage map with {len(cells)} cells, "
-        f"generated {datetime.now(timezone.utc).isoformat()}"
+        f"generated {datetime.now(UTC).isoformat()}"
     )
 
     # Define styles for each count range
@@ -536,7 +536,7 @@ async def _get_position_points(
     bounds_east: float | None = None,
 ) -> list[dict]:
     """Get position points for export (internal helper)."""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+    cutoff = datetime.now(UTC) - timedelta(days=lookback_days)
 
     # Get latitude records
     lat_query = (
@@ -641,10 +641,11 @@ async def export_shapefile(
 ) -> Response:
     """Export position points as Shapefile (.shp in a ZIP archive)."""
     try:
+        import os
+        import zipfile
+
         import fiona
         from fiona.crs import CRS
-        import zipfile
-        import os
     except ImportError as e:
         raise HTTPException(
             status_code=501,
@@ -721,9 +722,10 @@ async def export_geopackage(
 ) -> Response:
     """Export position points as GeoPackage (.gpkg) - OGC standard geodatabase format."""
     try:
+        import os
+
         import fiona
         from fiona.crs import CRS
-        import os
     except ImportError as e:
         raise HTTPException(
             status_code=501,
@@ -855,7 +857,7 @@ async def export_geotiff(db: AsyncSession = Depends(get_db)) -> Response:
             TIFFTAG_IMAGEDESCRIPTION="MeshManager Coverage Map",
             TIFFTAG_SOFTWARE="MeshManager",
             coverage_cells=str(len(cells)),
-            generated_at=datetime.now(timezone.utc).isoformat(),
+            generated_at=datetime.now(UTC).isoformat(),
         )
 
     # Read the file content

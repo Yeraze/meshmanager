@@ -67,3 +67,4 @@ logs/
 htmlcov/
 .pytest_cache/
 coverage/
+backend/static/

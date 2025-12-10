@@ -1,6 +1,6 @@
 """Authentication endpoints."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
@@ -81,7 +81,7 @@ async def login(
         )
 
     # Update last login
-    user.last_login_at = datetime.now(timezone.utc)
+    user.last_login_at = datetime.now(UTC)
     await db.commit()
 
     # Store user ID in session
@@ -138,7 +138,7 @@ async def register(
         email=registration.email,
         display_name=registration.display_name or registration.username,
         is_admin=user_count == 0,  # First user is admin
-        last_login_at=datetime.now(timezone.utc),
+        last_login_at=datetime.now(UTC),
     )
     db.add(user)
     await db.commit()

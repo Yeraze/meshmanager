@@ -9,7 +9,15 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import get_settings
 from app.database import close_db, init_db
-from app.routers import auth_router, coverage_router, health_router, metrics_router, sources_router, ui_router, utilization_router
+from app.routers import (
+    auth_router,
+    coverage_router,
+    health_router,
+    metrics_router,
+    sources_router,
+    ui_router,
+    utilization_router,
+)
 from app.services.collector_manager import collector_manager
 from app.services.retention import retention_service
 

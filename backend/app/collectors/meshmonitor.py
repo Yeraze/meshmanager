@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from urllib.parse import quote
 
 import httpx
@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.collectors.base import BaseCollector
 from app.database import async_session_maker
-from app.models import Channel, Message, Node, Source, Telemetry, Traceroute
+from app.models import Message, Node, Source, Telemetry, Traceroute
 from app.schemas.source import SourceTestResult
 
 logger = logging.getLogger(__name__)
@@ -149,7 +149,7 @@ class MeshMonitorCollector(BaseCollector):
                 )
                 source = result.scalar()
                 if source:
-                    source.last_poll_at = datetime.now(timezone.utc)
+                    source.last_poll_at = datetime.now(UTC)
                     source.last_error = None
                     if remote_version:
                         source.remote_version = remote_version
@@ -240,7 +240,7 @@ class MeshMonitorCollector(BaseCollector):
             node.altitude = position.get("altitude") or position.get("alt")
             if position.get("time"):
                 node.position_time = datetime.fromtimestamp(
-                    position["time"], tz=timezone.utc
+                    position["time"], tz=UTC
                 )
             node.position_precision_bits = position.get("precisionBits")
             node.snr = snr
@@ -248,10 +248,10 @@ class MeshMonitorCollector(BaseCollector):
             node.hops_away = hops_away
             if node_data.get("lastHeard"):
                 node.last_heard = datetime.fromtimestamp(
-                    node_data["lastHeard"], tz=timezone.utc
+                    node_data["lastHeard"], tz=UTC
                 )
             node.is_licensed = node_data.get("isLicensed", False)
-            node.updated_at = datetime.now(timezone.utc)
+            node.updated_at = datetime.now(UTC)
         else:
             # Create new node
             node = Node(
@@ -273,11 +273,11 @@ class MeshMonitorCollector(BaseCollector):
             )
             if position.get("time"):
                 node.position_time = datetime.fromtimestamp(
-                    position["time"], tz=timezone.utc
+                    position["time"], tz=UTC
                 )
             if node_data.get("lastHeard"):
                 node.last_heard = datetime.fromtimestamp(
-                    node_data["lastHeard"], tz=timezone.utc
+                    node_data["lastHeard"], tz=UTC
                 )
             db.add(node)
 
@@ -336,7 +336,7 @@ class MeshMonitorCollector(BaseCollector):
             rx_rssi=msg_data.get("rxRssi"),
         )
         if msg_data.get("rxTime"):
-            message.rx_time = datetime.fromtimestamp(msg_data["rxTime"], tz=timezone.utc)
+            message.rx_time = datetime.fromtimestamp(msg_data["rxTime"], tz=UTC)
         db.add(message)
 
     async def _collect_telemetry(self, client: httpx.AsyncClient, headers: dict) -> None:
@@ -414,9 +414,9 @@ class MeshMonitorCollector(BaseCollector):
         if telem_type_field and value is not None:
             # Get timestamp from MeshMonitor data
             timestamp_ms = telem_data.get("timestamp") or telem_data.get("createdAt")
-            received_at = datetime.now(timezone.utc)
+            received_at = datetime.now(UTC)
             if timestamp_ms:
-                received_at = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
+                received_at = datetime.fromtimestamp(timestamp_ms / 1000, tz=UTC)
 
             # Use metric_name for deduplication (the telemetryType field)
             metric_name = telem_type_field
@@ -463,7 +463,7 @@ class MeshMonitorCollector(BaseCollector):
                 return False
 
             inserted = False
-            received_at = datetime.now(timezone.utc)
+            received_at = datetime.now(UTC)
 
             # Insert device metrics one by one
             metric_mapping = [
@@ -934,7 +934,7 @@ class MeshMonitorCollector(BaseCollector):
 
         # Calculate the cutoff timestamp
         cutoff_ms = int(
-            (datetime.now(timezone.utc) - timedelta(days=days_back)).timestamp() * 1000
+            (datetime.now(UTC) - timedelta(days=days_back)).timestamp() * 1000
         )
 
         logger.info(

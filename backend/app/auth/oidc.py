@@ -1,6 +1,6 @@
 """OIDC authentication client."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from authlib.integrations.starlette_client import OAuth
 from sqlalchemy import func, select
@@ -54,7 +54,7 @@ async def process_oidc_callback(token: dict) -> User:
             # Update existing user
             user.email = email
             user.display_name = display_name
-            user.last_login_at = datetime.now(timezone.utc)
+            user.last_login_at = datetime.now(UTC)
         else:
             # Check if this is the first user (make them admin)
             count_result = await db.execute(select(func.count()).select_from(User))
@@ -67,7 +67,7 @@ async def process_oidc_callback(token: dict) -> User:
                 email=email,
                 display_name=display_name,
                 is_admin=user_count == 0,  # First user is admin
-                last_login_at=datetime.now(timezone.utc),
+                last_login_at=datetime.now(UTC),
             )
             db.add(user)
 

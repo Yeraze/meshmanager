@@ -139,22 +139,6 @@ export async function fetchNodeRoles(): Promise<string[]> {
   return response.data
 }
 
-// Position History
-export interface PositionRecord {
-  node_num: number
-  latitude: number
-  longitude: number
-  timestamp: string
-}
-
-export async function fetchPositionHistory(days?: number): Promise<PositionRecord[]> {
-  const params = new URLSearchParams()
-  if (days) params.append('days', days.toString())
-
-  const response = await api.get<PositionRecord[]>(`/api/position-history?${params.toString()}`)
-  return response.data
-}
-
 // Coverage Map
 export interface CoverageConfig {
   enabled: boolean
@@ -212,5 +196,23 @@ export async function generateCoverage(): Promise<CoverageGenerateResponse> {
 
 export async function fetchCoverageCells(): Promise<CoverageCell[]> {
   const response = await api.get<CoverageCell[]>('/api/coverage/cells')
+  return response.data
+}
+
+export interface PositionPoint {
+  lat: number
+  lng: number
+}
+
+export interface PositionHistoryParams {
+  lookback_days?: number
+  bounds_south?: number
+  bounds_west?: number
+  bounds_north?: number
+  bounds_east?: number
+}
+
+export async function fetchPositionHistory(params?: PositionHistoryParams): Promise<PositionPoint[]> {
+  const response = await api.get<PositionPoint[]>('/api/coverage/positions', { params })
   return response.data
 }

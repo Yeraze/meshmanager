@@ -1,29 +1,10 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet.heat'
 
-// Extend Leaflet types for heat layer
-declare module 'leaflet' {
-  function heatLayer(
-    latlngs: Array<[number, number, number?]>,
-    options?: {
-      minOpacity?: number
-      maxZoom?: number
-      max?: number
-      radius?: number
-      blur?: number
-      gradient?: Record<number, string>
-    }
-  ): L.Layer
-}
-
 interface HeatmapLayerProps {
-  points: Array<{
-    lat: number
-    lng: number
-    intensity: number
-  }>
+  points: Array<{ lat: number; lng: number }>
   radius?: number
   blur?: number
   maxZoom?: number
@@ -31,16 +12,19 @@ interface HeatmapLayerProps {
   minOpacity?: number
 }
 
-// Gradient matching our coverage color scale
-const COVERAGE_GRADIENT = {
-  0.0: 'rgba(65, 105, 225, 0.0)',   // Transparent at 0
-  0.1: 'rgba(65, 105, 225, 0.6)',   // Royal Blue
-  0.2: 'rgba(50, 205, 50, 0.7)',    // Lime Green
-  0.3: 'rgba(255, 255, 0, 0.7)',    // Yellow
-  0.5: 'rgba(255, 165, 0, 0.8)',    // Orange
-  0.7: 'rgba(255, 69, 0, 0.8)',     // Red-Orange
-  0.85: 'rgba(255, 0, 0, 0.9)',     // Red
-  1.0: 'rgba(139, 0, 0, 0.9)',      // Dark Red
+// Extend L to include heatLayer
+declare module 'leaflet' {
+  function heatLayer(
+    latlngs: Array<[number, number] | [number, number, number]>,
+    options?: {
+      radius?: number
+      blur?: number
+      maxZoom?: number
+      max?: number
+      minOpacity?: number
+      gradient?: Record<number, string>
+    }
+  ): L.Layer
 }
 
 export default function HeatmapLayer({
@@ -48,38 +32,59 @@ export default function HeatmapLayer({
   radius = 25,
   blur = 15,
   maxZoom = 18,
-  max = 10,
+  max = 1.0,
   minOpacity = 0.4,
 }: HeatmapLayerProps) {
   const map = useMap()
+  const heatLayerRef = useRef<L.Layer | null>(null)
 
   useEffect(() => {
-    if (!points || points.length === 0) return
+    if (!points || points.length === 0) {
+      // Remove existing layer if no points
+      if (heatLayerRef.current) {
+        map.removeLayer(heatLayerRef.current)
+        heatLayerRef.current = null
+      }
+      return
+    }
 
-    // Convert points to heatmap format [lat, lng, intensity]
-    const heatData: Array<[number, number, number]> = points.map(p => [
-      p.lat,
-      p.lng,
-      p.intensity,
-    ])
+    // Convert points to format expected by leaflet.heat
+    // Each point is [lat, lng, intensity] - intensity defaults to 1
+    const heatData: Array<[number, number, number]> = points.map(p => [p.lat, p.lng, 1])
 
-    // Create heat layer
+    // Remove existing layer
+    if (heatLayerRef.current) {
+      map.removeLayer(heatLayerRef.current)
+    }
+
+    // Create new heat layer with density-based gradient
     const heatLayer = L.heatLayer(heatData, {
       radius,
       blur,
       maxZoom,
       max,
       minOpacity,
-      gradient: COVERAGE_GRADIENT,
+      // Classic density heatmap gradient (blue -> green -> yellow -> red)
+      gradient: {
+        0.0: 'blue',
+        0.25: 'cyan',
+        0.5: 'lime',
+        0.75: 'yellow',
+        1.0: 'red',
+      },
     })
 
     heatLayer.addTo(map)
+    heatLayerRef.current = heatLayer
 
-    // Cleanup on unmount or when points change
+    // Cleanup
     return () => {
-      map.removeLayer(heatLayer)
+      if (heatLayerRef.current) {
+        map.removeLayer(heatLayerRef.current)
+        heatLayerRef.current = null
+      }
     }
-  }, [map, points, radius, blur, maxZoom, max, minOpacity])
+  }, [points, map, radius, blur, maxZoom, max, minOpacity])
 
   return null
 }

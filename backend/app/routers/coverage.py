@@ -1,9 +1,12 @@
 """Coverage map API endpoints."""
 
 import math
+import tempfile
 from datetime import datetime, timedelta, timezone
+from xml.etree import ElementTree as ET
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -372,3 +375,245 @@ async def get_coverage_cells(db: AsyncSession = Depends(get_db)) -> list[Coverag
         )
         for cell in cells
     ]
+
+
+class PositionPoint(BaseModel):
+    """A single position point for heatmap rendering."""
+
+    lat: float
+    lng: float
+
+
+@router.get("/positions", response_model=list[PositionPoint])
+async def get_position_history(
+    lookback_days: int = 7,
+    bounds_south: float | None = None,
+    bounds_west: float | None = None,
+    bounds_north: float | None = None,
+    bounds_east: float | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> list[PositionPoint]:
+    """Get raw position points for heatmap rendering."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+
+    # Get latitude records
+    lat_query = (
+        select(Telemetry)
+        .where(Telemetry.received_at >= cutoff)
+        .where(Telemetry.metric_name.in_(["latitude", "estimated_latitude"]))
+        .where(Telemetry.latitude.isnot(None))
+    )
+    lat_result = await db.execute(lat_query)
+    lat_records = lat_result.scalars().all()
+
+    # Get longitude records
+    lng_query = (
+        select(Telemetry)
+        .where(Telemetry.received_at >= cutoff)
+        .where(Telemetry.metric_name.in_(["longitude", "estimated_longitude"]))
+        .where(Telemetry.longitude.isnot(None))
+    )
+    lng_result = await db.execute(lng_query)
+    lng_records = lng_result.scalars().all()
+
+    # Match lat/lng by timestamp
+    lng_lookup = {}
+    for lng in lng_records:
+        ts_key = lng.received_at.replace(second=0, microsecond=0)
+        key = (str(lng.source_id), lng.node_num, ts_key)
+        if key not in lng_lookup:
+            lng_lookup[key] = lng.longitude
+
+    positions = []
+    for lat in lat_records:
+        ts_key = lat.received_at.replace(second=0, microsecond=0)
+        key = (str(lat.source_id), lat.node_num, ts_key)
+        lng_value = lng_lookup.get(key)
+        if lng_value is not None:
+            positions.append(PositionPoint(lat=lat.latitude, lng=lng_value))
+
+    # Filter by bounds if specified
+    if all([bounds_south, bounds_west, bounds_north, bounds_east]):
+        positions = [
+            p for p in positions
+            if bounds_south <= p.lat <= bounds_north
+            and bounds_west <= p.lng <= bounds_east
+        ]
+
+    return positions
+
+
+@router.get("/export/kml")
+async def export_kml(db: AsyncSession = Depends(get_db)) -> Response:
+    """Export coverage grid as KML file."""
+    result = await db.execute(select(CoverageCell))
+    cells = result.scalars().all()
+
+    if not cells:
+        raise HTTPException(status_code=404, detail="No coverage data to export")
+
+    # Create KML document
+    kml = ET.Element("kml", xmlns="http://www.opengis.net/kml/2.2")
+    doc = ET.SubElement(kml, "Document")
+    ET.SubElement(doc, "name").text = "MeshManager Coverage Map"
+    ET.SubElement(doc, "description").text = (
+        f"Coverage map with {len(cells)} cells, "
+        f"generated {datetime.now(timezone.utc).isoformat()}"
+    )
+
+    # Define styles for each count range
+    style_colors = [
+        ("style1", "99E36941"),      # Blue (AABBGGRR format)
+        ("style2", "9932CD32"),      # Green
+        ("style3", "9900FFFF"),      # Yellow
+        ("style4", "9900A5FF"),      # Orange
+        ("style5", "990045FF"),      # Red-Orange
+        ("style6", "990000FF"),      # Red
+        ("style7", "99000088"),      # Dark Red
+    ]
+
+    for style_id, color in style_colors:
+        style = ET.SubElement(doc, "Style", id=style_id)
+        poly_style = ET.SubElement(style, "PolyStyle")
+        ET.SubElement(poly_style, "color").text = color
+        ET.SubElement(poly_style, "outline").text = "0"
+
+    def get_style_id(count: int) -> str:
+        if count <= 1:
+            return "#style1"
+        if count <= 2:
+            return "#style2"
+        if count <= 3:
+            return "#style3"
+        if count <= 5:
+            return "#style4"
+        if count <= 7:
+            return "#style5"
+        if count <= 9:
+            return "#style6"
+        return "#style7"
+
+    # Create placemarks for each cell
+    for cell in cells:
+        placemark = ET.SubElement(doc, "Placemark")
+        ET.SubElement(placemark, "name").text = f"Count: {cell.count}"
+        ET.SubElement(placemark, "description").text = (
+            f"Position reports: {cell.count}\n"
+            f"Bounds: {cell.south:.6f}, {cell.west:.6f} to {cell.north:.6f}, {cell.east:.6f}"
+        )
+        ET.SubElement(placemark, "styleUrl").text = get_style_id(cell.count)
+
+        polygon = ET.SubElement(placemark, "Polygon")
+        ET.SubElement(polygon, "altitudeMode").text = "clampToGround"
+        outer = ET.SubElement(polygon, "outerBoundaryIs")
+        ring = ET.SubElement(outer, "LinearRing")
+        # KML coordinates: lon,lat,altitude (altitude optional)
+        coords = (
+            f"{cell.west},{cell.south},0 "
+            f"{cell.east},{cell.south},0 "
+            f"{cell.east},{cell.north},0 "
+            f"{cell.west},{cell.north},0 "
+            f"{cell.west},{cell.south},0"
+        )
+        ET.SubElement(ring, "coordinates").text = coords
+
+    # Generate XML
+    kml_content = ET.tostring(kml, encoding="unicode", xml_declaration=True)
+
+    return Response(
+        content=kml_content,
+        media_type="application/vnd.google-earth.kml+xml",
+        headers={"Content-Disposition": "attachment; filename=coverage.kml"},
+    )
+
+
+@router.get("/export/geotiff")
+async def export_geotiff(db: AsyncSession = Depends(get_db)) -> Response:
+    """Export coverage grid as GeoTIFF with 32-bit count values."""
+    # Lazy import to avoid breaking startup if GDAL libraries are missing
+    try:
+        import numpy as np
+        import rasterio
+        from rasterio.crs import CRS
+        from rasterio.transform import from_bounds
+    except ImportError as e:
+        raise HTTPException(
+            status_code=501,
+            detail=f"GeoTIFF export requires numpy and rasterio with GDAL libraries: {e}",
+        )
+
+    result = await db.execute(select(CoverageCell))
+    cells = result.scalars().all()
+
+    if not cells:
+        raise HTTPException(status_code=404, detail="No coverage data to export")
+
+    # Calculate grid bounds and cell size
+    min_lat = min(c.south for c in cells)
+    max_lat = max(c.north for c in cells)
+    min_lng = min(c.west for c in cells)
+    max_lng = max(c.east for c in cells)
+
+    # Get cell size from first cell (assuming uniform grid)
+    cell_height = cells[0].north - cells[0].south
+    cell_width = cells[0].east - cells[0].west
+
+    # Calculate grid dimensions
+    num_rows = round((max_lat - min_lat) / cell_height)
+    num_cols = round((max_lng - min_lng) / cell_width)
+
+    # Create the raster array (initialize with nodata value)
+    nodata_value = -1
+    raster = np.full((num_rows, num_cols), nodata_value, dtype=np.int32)
+
+    # Fill in cell values
+    for cell in cells:
+        # Calculate row/col indices (row 0 is at top/north)
+        row = num_rows - 1 - round((cell.south - min_lat) / cell_height)
+        col = round((cell.west - min_lng) / cell_width)
+
+        if 0 <= row < num_rows and 0 <= col < num_cols:
+            raster[row, col] = cell.count
+
+    # Create transform (from bounds)
+    transform = from_bounds(min_lng, min_lat, max_lng, max_lat, num_cols, num_rows)
+
+    # Write to in-memory file
+    with tempfile.NamedTemporaryFile(suffix=".tif", delete=False) as tmp:
+        tmp_path = tmp.name
+
+    with rasterio.open(
+        tmp_path,
+        "w",
+        driver="GTiff",
+        height=num_rows,
+        width=num_cols,
+        count=1,
+        dtype=np.int32,
+        crs=CRS.from_epsg(4326),  # WGS84
+        transform=transform,
+        nodata=nodata_value,
+    ) as dst:
+        dst.write(raster, 1)
+        # Add metadata
+        dst.update_tags(
+            TIFFTAG_IMAGEDESCRIPTION="MeshManager Coverage Map",
+            TIFFTAG_SOFTWARE="MeshManager",
+            coverage_cells=str(len(cells)),
+            generated_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    # Read the file content
+    with open(tmp_path, "rb") as f:
+        geotiff_content = f.read()
+
+    # Clean up temp file
+    import os
+
+    os.unlink(tmp_path)
+
+    return Response(
+        content=geotiff_content,
+        media_type="image/tiff",
+        headers={"Content-Disposition": "attachment; filename=coverage.tif"},
+    )

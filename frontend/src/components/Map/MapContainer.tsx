@@ -6,8 +6,9 @@ import { useNodes } from '../../hooks/useNodes'
 import { useTraceroutes } from '../../hooks/useMapData'
 import { useDataContext } from '../../contexts/DataContext'
 import { getTilesetById, DEFAULT_TILESET_ID, type TilesetId } from '../../config/tilesets'
-import { fetchCoverageConfig, fetchCoverageCells } from '../../services/api'
+import { fetchCoverageConfig, fetchCoverageCells, fetchPositionHistory } from '../../services/api'
 import MapControls from './MapControls'
+import CoverageImageOverlay from './CoverageImageOverlay'
 import HeatmapLayer from './HeatmapLayer'
 import type { Node } from '../../types/api'
 import 'leaflet/dist/leaflet.css'
@@ -17,15 +18,17 @@ const STORAGE_KEY_TILESET = 'meshmanager_map_tileset'
 const STORAGE_KEY_SHOW_ROUTES = 'meshmanager_map_show_routes'
 const STORAGE_KEY_ENABLED_ROLES = 'meshmanager_map_enabled_roles'
 const STORAGE_KEY_SHOW_COVERAGE = 'meshmanager_map_show_coverage'
+const STORAGE_KEY_SHOW_POSITION_HISTORY = 'meshmanager_map_show_position_history'
+const STORAGE_KEY_POSITION_HISTORY_DAYS = 'meshmanager_map_position_history_days'
 
 // Coverage legend colors (matching backend)
 const COVERAGE_LEGEND = [
-  { color: 'rgba(65, 105, 225, 0.4)', label: '1' },
-  { color: 'rgba(50, 205, 50, 0.5)', label: '2' },
-  { color: 'rgba(255, 255, 0, 0.5)', label: '3' },
-  { color: 'rgba(255, 165, 0, 0.6)', label: '4-5' },
-  { color: 'rgba(255, 69, 0, 0.6)', label: '6-7' },
-  { color: 'rgba(255, 0, 0, 0.7)', label: '8-9' },
+  { color: 'rgba(65, 105, 225, 0.6)', label: '1' },
+  { color: 'rgba(50, 205, 50, 0.6)', label: '2' },
+  { color: 'rgba(255, 255, 0, 0.6)', label: '3' },
+  { color: 'rgba(255, 165, 0, 0.7)', label: '4-5' },
+  { color: 'rgba(255, 69, 0, 0.7)', label: '6-7' },
+  { color: 'rgba(255, 0, 0, 0.8)', label: '8-9' },
   { color: 'rgba(139, 0, 0, 0.8)', label: '10+' },
 ]
 
@@ -130,6 +133,12 @@ export default function MapContainer() {
   const [showCoverage, setShowCoverage] = useState<boolean>(() =>
     loadSetting(STORAGE_KEY_SHOW_COVERAGE, false)
   )
+  const [showPositionHistory, setShowPositionHistory] = useState<boolean>(() =>
+    loadSetting(STORAGE_KEY_SHOW_POSITION_HISTORY, false)
+  )
+  const [positionHistoryDays, setPositionHistoryDays] = useState<number>(() =>
+    loadSetting(STORAGE_KEY_POSITION_HISTORY_DAYS, 7)
+  )
 
   const tileset = getTilesetById(tilesetId)
 
@@ -145,14 +154,12 @@ export default function MapContainer() {
     enabled: showCoverage && (coverageConfig?.enabled ?? false) && (coverageConfig?.cell_count ?? 0) > 0,
   })
 
-  // Convert coverage cells to heatmap points (center of each cell with count as intensity)
-  const heatmapPoints = useMemo(() => {
-    return coverageCells.map(cell => ({
-      lat: (cell.south + cell.north) / 2,
-      lng: (cell.west + cell.east) / 2,
-      intensity: cell.count,
-    }))
-  }, [coverageCells])
+  // Position history for heatmap
+  const { data: positionHistory = [] } = useQuery({
+    queryKey: ['position-history', positionHistoryDays],
+    queryFn: () => fetchPositionHistory({ lookback_days: positionHistoryDays }),
+    enabled: showPositionHistory,
+  })
 
   const { data: allNodes = [] } = useNodes({
     activeOnly: showActiveOnly,
@@ -194,6 +201,16 @@ export default function MapContainer() {
   const handleShowCoverageChange = useCallback((show: boolean) => {
     setShowCoverage(show)
     saveSetting(STORAGE_KEY_SHOW_COVERAGE, show)
+  }, [])
+
+  const handleShowPositionHistoryChange = useCallback((show: boolean) => {
+    setShowPositionHistory(show)
+    saveSetting(STORAGE_KEY_SHOW_POSITION_HISTORY, show)
+  }, [])
+
+  const handlePositionHistoryDaysChange = useCallback((days: number) => {
+    setPositionHistoryDays(days)
+    saveSetting(STORAGE_KEY_POSITION_HISTORY_DAYS, days)
   }, [])
 
   // Filter by enabled sources, roles, and deduplicate (same logic as Sidebar)
@@ -346,6 +363,11 @@ export default function MapContainer() {
         onShowCoverageChange={handleShowCoverageChange}
         coverageEnabled={coverageConfig?.enabled ?? false}
         coverageCellCount={coverageConfig?.cell_count ?? 0}
+        showPositionHistory={showPositionHistory}
+        onShowPositionHistoryChange={handleShowPositionHistoryChange}
+        positionHistoryDays={positionHistoryDays}
+        onPositionHistoryDaysChange={handlePositionHistoryDaysChange}
+        positionHistoryCount={positionHistory.length}
       />
       <LeafletMapContainer
         center={center}
@@ -360,15 +382,14 @@ export default function MapContainer() {
         />
         <MapCenterHandler node={selectedNode} />
 
-        {/* Coverage heatmap overlay - render before other elements so they appear on top */}
-        {showCoverage && heatmapPoints.length > 0 && (
-          <HeatmapLayer
-            points={heatmapPoints}
-            radius={30}
-            blur={20}
-            max={10}
-            minOpacity={0.3}
-          />
+        {/* Coverage overlay - Image rendered from grid */}
+        {showCoverage && coverageCells.length > 0 && (
+          <CoverageImageOverlay cells={coverageCells} blur={8} />
+        )}
+
+        {/* Position history heatmap */}
+        {showPositionHistory && positionHistory.length > 0 && (
+          <HeatmapLayer points={positionHistory} radius={25} blur={15} />
         )}
 
         {/* Traceroute segments - weighted by usage */}
@@ -418,7 +439,7 @@ export default function MapContainer() {
       </LeafletMapContainer>
 
       {/* Coverage Legend */}
-      {showCoverage && heatmapPoints.length > 0 && (
+      {showCoverage && coverageCells.length > 0 && (
         <div style={{
           position: 'absolute',
           bottom: '20px',

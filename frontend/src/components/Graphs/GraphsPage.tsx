@@ -367,6 +367,7 @@ export default function GraphsPage() {
               display: 'flex',
               gap: '2rem',
               flexWrap: 'wrap',
+              alignItems: 'center',
             }}>
               <span>
                 <strong>Cells:</strong> {config.cell_count.toLocaleString()}
@@ -385,6 +386,41 @@ export default function GraphsPage() {
                 <span style={{ color: 'var(--color-error)' }}>
                   Generation failed
                 </span>
+              )}
+              {config.cell_count > 0 && (
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem' }}>
+                  <span style={{ color: 'var(--color-text-muted)', marginRight: '0.25rem' }}>Export:</span>
+                  <a
+                    href="/api/coverage/export/kml"
+                    download="coverage.kml"
+                    style={{
+                      padding: '0.25rem 0.5rem',
+                      borderRadius: '4px',
+                      border: '1px solid var(--color-border)',
+                      background: 'var(--color-surface)',
+                      color: 'var(--color-text)',
+                      textDecoration: 'none',
+                      fontSize: '0.75rem',
+                    }}
+                  >
+                    KML
+                  </a>
+                  <a
+                    href="/api/coverage/export/geotiff"
+                    download="coverage.tif"
+                    style={{
+                      padding: '0.25rem 0.5rem',
+                      borderRadius: '4px',
+                      border: '1px solid var(--color-border)',
+                      background: 'var(--color-surface)',
+                      color: 'var(--color-text)',
+                      textDecoration: 'none',
+                      fontSize: '0.75rem',
+                    }}
+                  >
+                    GeoTIFF
+                  </a>
+                </div>
               )}
             </div>
           )}

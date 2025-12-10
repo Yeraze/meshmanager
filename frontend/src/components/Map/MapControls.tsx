@@ -14,6 +14,11 @@ interface MapControlsProps {
   onShowCoverageChange: (show: boolean) => void
   coverageEnabled: boolean
   coverageCellCount: number
+  showPositionHistory: boolean
+  onShowPositionHistoryChange: (show: boolean) => void
+  positionHistoryDays: number
+  onPositionHistoryDaysChange: (days: number) => void
+  positionHistoryCount: number
 }
 
 export default function MapControls({
@@ -27,6 +32,11 @@ export default function MapControls({
   onShowCoverageChange,
   coverageEnabled,
   coverageCellCount,
+  showPositionHistory,
+  onShowPositionHistoryChange,
+  positionHistoryDays,
+  onPositionHistoryDaysChange,
+  positionHistoryCount,
 }: MapControlsProps) {
   const { data: allRoles = [] } = useNodeRoles()
   const tilesets = getAllTilesets()
@@ -138,6 +148,48 @@ export default function MapControls({
             />
             <span className="toggle-slider"></span>
           </label>
+        </div>
+
+        {/* Position History Heatmap */}
+        <div className="map-control-group">
+          <label className="map-control-label">
+            Position History
+            {showPositionHistory && positionHistoryCount > 0 && (
+              <span style={{ fontSize: '0.7rem', opacity: 0.7, marginLeft: '0.25rem' }}>
+                ({positionHistoryCount.toLocaleString()})
+              </span>
+            )}
+          </label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <label className="toggle-switch">
+              <input
+                type="checkbox"
+                checked={showPositionHistory}
+                onChange={(e) => onShowPositionHistoryChange(e.target.checked)}
+              />
+              <span className="toggle-slider"></span>
+            </label>
+            {showPositionHistory && (
+              <select
+                value={positionHistoryDays}
+                onChange={(e) => onPositionHistoryDaysChange(Number(e.target.value))}
+                style={{
+                  padding: '0.25rem',
+                  fontSize: '0.75rem',
+                  borderRadius: '4px',
+                  border: '1px solid var(--border-color, #ccc)',
+                  background: 'var(--bg-secondary, #fff)',
+                  color: 'var(--text-primary, #333)',
+                }}
+              >
+                <option value={1}>1 day</option>
+                <option value={3}>3 days</option>
+                <option value={7}>7 days</option>
+                <option value={14}>14 days</option>
+                <option value={30}>30 days</option>
+              </select>
+            )}
+          </div>
         </div>
 
         {/* Device Roles Filter */}

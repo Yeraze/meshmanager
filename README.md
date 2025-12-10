@@ -4,7 +4,7 @@
 [![Release](https://github.com/Yeraze/meshmanager/actions/workflows/release.yml/badge.svg)](https://github.com/Yeraze/meshmanager/actions/workflows/release.yml)
 [![Backend Docker](https://img.shields.io/badge/docker-backend-blue?logo=docker)](https://ghcr.io/yeraze/meshmanager-backend)
 [![Frontend Docker](https://img.shields.io/badge/docker-frontend-blue?logo=docker)](https://ghcr.io/yeraze/meshmanager-frontend)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
 Management and oversight application for aggregating data from multiple MeshMonitor instances and Meshtastic MQTT servers.
 
@@ -167,4 +167,4 @@ npm run lint
 
 ## License
 
-MIT
+BSD-3-Clause

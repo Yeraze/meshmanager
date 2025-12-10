@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
-import { MapContainer as LeafletMapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet'
+import { MapContainer as LeafletMapContainer, TileLayer, Marker, Popup, Polyline, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
 import { useQuery } from '@tanstack/react-query'
 import { useNodes } from '../../hooks/useNodes'
@@ -23,6 +23,8 @@ const STORAGE_KEY_SHOW_UTILIZATION = 'meshmanager_map_show_utilization'
 const STORAGE_KEY_SHOW_POSITION_HISTORY = 'meshmanager_map_show_position_history'
 const STORAGE_KEY_POSITION_HISTORY_DAYS = 'meshmanager_map_position_history_days'
 const STORAGE_KEY_SHOW_NODES = 'meshmanager_map_show_nodes'
+const STORAGE_KEY_MAP_CENTER = 'meshmanager_map_center'
+const STORAGE_KEY_MAP_ZOOM = 'meshmanager_map_zoom'
 
 // Coverage legend colors (matching backend)
 const COVERAGE_LEGEND = [
@@ -116,7 +118,7 @@ function getIcon(node: Node, isSelected: boolean, onlineHours: number) {
   return unknownIcon
 }
 
-// Component to handle map center changes
+// Component to handle map center changes when a node is selected
 function MapCenterHandler({ node }: { node: Node | null }) {
   const map = useMap()
 
@@ -125,6 +127,21 @@ function MapCenterHandler({ node }: { node: Node | null }) {
       map.flyTo([node.latitude, node.longitude], 14, { duration: 0.5 })
     }
   }, [node, map])
+
+  return null
+}
+
+// Component to persist map view (pan/zoom) to localStorage
+function MapViewHandler() {
+  const map = useMapEvents({
+    moveend: () => {
+      const center = map.getCenter()
+      saveSetting(STORAGE_KEY_MAP_CENTER, [center.lat, center.lng])
+    },
+    zoomend: () => {
+      saveSetting(STORAGE_KEY_MAP_ZOOM, map.getZoom())
+    },
+  })
 
   return null
 }
@@ -159,6 +176,10 @@ export default function MapContainer() {
   const [showNodes, setShowNodes] = useState<boolean>(() =>
     loadSetting(STORAGE_KEY_SHOW_NODES, true)
   )
+
+  // Load stored map view (center and zoom)
+  const storedCenter = loadSetting<[number, number] | null>(STORAGE_KEY_MAP_CENTER, null)
+  const storedZoom = loadSetting<number | null>(STORAGE_KEY_MAP_ZOOM, null)
 
   const tileset = getTilesetById(tilesetId)
 
@@ -291,18 +312,30 @@ export default function MapContainer() {
     [deduplicatedNodes]
   )
 
-  // Calculate map center
-  const center = useMemo<[number, number]>(() => {
-    if (selectedNode?.latitude && selectedNode?.longitude) {
-      return [selectedNode.latitude, selectedNode.longitude]
+  // Calculate initial map center - prefer stored value, then calculate from nodes
+  const initialCenter = useMemo<[number, number]>(() => {
+    // Use stored center if available
+    if (storedCenter) {
+      return storedCenter
     }
+    // Otherwise calculate from nodes
     if (nodesWithPosition.length > 0) {
       const avgLat = nodesWithPosition.reduce((sum, n) => sum + n.latitude, 0) / nodesWithPosition.length
       const avgLng = nodesWithPosition.reduce((sum, n) => sum + n.longitude, 0) / nodesWithPosition.length
       return [avgLat, avgLng]
     }
     return [39.8283, -98.5795] // Center of US
-  }, [nodesWithPosition, selectedNode])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Only calculate once on mount - storedCenter and nodes won't change initial view
+
+  // Calculate initial zoom - prefer stored value
+  const initialZoom = useMemo<number>(() => {
+    if (storedZoom !== null) {
+      return storedZoom
+    }
+    return nodesWithPosition.length > 0 ? 10 : 4
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Only calculate once on mount
 
   // Build node position lookup by node_num for traceroute rendering
   // Use ALL nodes (not filtered) so traceroutes can render even if some nodes are filtered out
@@ -418,8 +451,8 @@ export default function MapContainer() {
         onShowNodesChange={handleShowNodesChange}
       />
       <LeafletMapContainer
-        center={center}
-        zoom={nodesWithPosition.length > 0 ? 10 : 4}
+        center={initialCenter}
+        zoom={initialZoom}
         style={{ height: '100%', width: '100%' }}
       >
         <TileLayer
@@ -429,6 +462,7 @@ export default function MapContainer() {
           maxZoom={tileset.maxZoom}
         />
         <MapCenterHandler node={selectedNode} />
+        <MapViewHandler />
 
         {/* Coverage overlay - Image rendered from grid */}
         {showCoverage && coverageCells.length > 0 && (

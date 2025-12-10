@@ -69,16 +69,16 @@ const offlineIcon = createIcon('#f38ba8')
 const unknownIcon = createIcon('#7f849c')
 const selectedIcon = createIcon('#89b4fa')
 
-function getNodeStatus(node: Node): 'online' | 'offline' | 'unknown' {
+function getNodeStatus(node: Node, onlineHours: number): 'online' | 'offline' | 'unknown' {
   if (!node.last_heard) return 'unknown'
   const lastHeard = new Date(node.last_heard)
-  const hourAgo = new Date(Date.now() - 60 * 60 * 1000)
-  return lastHeard > hourAgo ? 'online' : 'offline'
+  const threshold = new Date(Date.now() - onlineHours * 60 * 60 * 1000)
+  return lastHeard > threshold ? 'online' : 'offline'
 }
 
-function getIcon(node: Node, isSelected: boolean) {
+function getIcon(node: Node, isSelected: boolean, onlineHours: number) {
   if (isSelected) return selectedIcon
-  const status = getNodeStatus(node)
+  const status = getNodeStatus(node, onlineHours)
   if (status === 'online') return onlineIcon
   if (status === 'offline') return offlineIcon
   return unknownIcon
@@ -98,7 +98,7 @@ function MapCenterHandler({ node }: { node: Node | null }) {
 }
 
 export default function MapContainer() {
-  const { enabledSourceIds, showActiveOnly, activeHours, selectedNode, setSelectedNode } = useDataContext()
+  const { enabledSourceIds, showActiveOnly, activeHours, onlineHours, selectedNode, setSelectedNode } = useDataContext()
 
   // Load persisted settings from localStorage
   const [tilesetId, setTilesetId] = useState<TilesetId>(() =>
@@ -333,7 +333,7 @@ export default function MapContainer() {
             <Marker
               key={node.id}
               position={[node.latitude, node.longitude]}
-              icon={getIcon(node, isSelected)}
+              icon={getIcon(node, isSelected, onlineHours)}
               eventHandlers={{
                 click: () => setSelectedNode(isSelected ? null : node),
               }}

@@ -138,3 +138,19 @@ export async function fetchNodeRoles(): Promise<string[]> {
   const response = await api.get<string[]>('/api/nodes/roles')
   return response.data
 }
+
+// Position History
+export interface PositionRecord {
+  node_num: number
+  latitude: number
+  longitude: number
+  timestamp: string
+}
+
+export async function fetchPositionHistory(days?: number): Promise<PositionRecord[]> {
+  const params = new URLSearchParams()
+  if (days) params.append('days', days.toString())
+
+  const response = await api.get<PositionRecord[]>(`/api/position-history?${params.toString()}`)
+  return response.data
+}

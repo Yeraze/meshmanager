@@ -11,6 +11,8 @@ interface DataContextValue {
   setShowActiveOnly: (active: boolean) => void
   activeHours: number
   setActiveHours: (hours: number) => void
+  onlineHours: number
+  setOnlineHours: (hours: number) => void
 }
 
 const DataContext = createContext<DataContextValue | null>(null)
@@ -20,6 +22,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [enabledSourceIds, setEnabledSourceIds] = useState<Set<string>>(new Set())
   const [showActiveOnly, setShowActiveOnly] = useState(false)
   const [activeHours, setActiveHours] = useState(24)
+  const [onlineHours, setOnlineHours] = useState(1)
 
   const toggleSource = (sourceId: string) => {
     setEnabledSourceIds((prev) => {
@@ -47,6 +50,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setShowActiveOnly,
     activeHours,
     setActiveHours,
+    onlineHours,
+    setOnlineHours,
   }
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>

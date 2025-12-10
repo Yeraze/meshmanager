@@ -1,9 +1,10 @@
 import { useDataContext } from '../../contexts/DataContext'
 
 const PRESET_HOURS = [1, 6, 12, 24, 48, 72, 168, 720]
+const ONLINE_PRESET_HOURS = [1, 2, 4, 6, 12, 24]
 
 export default function DisplaySettings() {
-  const { activeHours, setActiveHours } = useDataContext()
+  const { activeHours, setActiveHours, onlineHours, setOnlineHours } = useDataContext()
 
   return (
     <div className="settings-section">
@@ -54,6 +55,52 @@ export default function DisplaySettings() {
 
         <p className="settings-hint">
           Current setting: Nodes are considered active if heard within the last {formatHours(activeHours)}.
+        </p>
+      </div>
+
+      <div className="settings-card">
+        <h3>Online Status Threshold</h3>
+        <p className="settings-description">
+          Nodes that haven't been heard from within this time period will be shown as "Offline" in the UI.
+        </p>
+
+        <div className="form-group">
+          <label className="form-label">Consider nodes online if heard within:</label>
+          <div className="active-hours-selector">
+            {ONLINE_PRESET_HOURS.map((hours) => (
+              <button
+                key={hours}
+                className={`active-hours-button ${onlineHours === hours ? 'active' : ''}`}
+                onClick={() => setOnlineHours(hours)}
+              >
+                {formatHours(hours)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">Or enter custom hours (1-168):</label>
+          <div className="custom-hours-input">
+            <input
+              type="number"
+              className="form-input"
+              min={1}
+              max={168}
+              value={onlineHours}
+              onChange={(e) => {
+                const value = parseInt(e.target.value, 10)
+                if (!isNaN(value) && value >= 1 && value <= 168) {
+                  setOnlineHours(value)
+                }
+              }}
+            />
+            <span className="hours-label">hours</span>
+          </div>
+        </div>
+
+        <p className="settings-hint">
+          Current setting: Nodes are considered online if heard within the last {formatHours(onlineHours)}.
         </p>
       </div>
     </div>

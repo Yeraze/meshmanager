@@ -42,10 +42,19 @@
 - [x] Docker development build
 - [x] Documentation (README.md)
 
+### Phase 7: Coverage Analysis
+- [x] Position telemetry storage (latitude, longitude, altitude)
+- [x] Position history API endpoint
+- [x] Coverage Map heatmap visualization
+- [x] Store ALL MeshMonitor telemetry (no longer skipping any data)
+- [x] Support estimated_latitude/estimated_longitude as position data
+
 ## Future Enhancements
 - [ ] Admin UI for managing sources (currently placeholder)
 - [ ] Settings page for retention configuration
 - [ ] Node detail panel
 - [ ] Message history view
-- [ ] Traceroute visualization
+- [ ] Signal strength graphs
+- [ ] Node connections visualization
+- [ ] Message activity graphs
 - [ ] Unit and integration tests

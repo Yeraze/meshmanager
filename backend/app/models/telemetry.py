@@ -18,6 +18,7 @@ class TelemetryType(str, enum.Enum):
     ENVIRONMENT = "environment"
     POWER = "power"
     AIR_QUALITY = "air_quality"
+    POSITION = "position"
 
 
 class Telemetry(Base):
@@ -76,6 +77,14 @@ class Telemetry(Base):
     snr_local: Mapped[float | None] = mapped_column(Float)  # dB - local SNR
     snr_remote: Mapped[float | None] = mapped_column(Float)  # dB - remote SNR
     rssi: Mapped[float | None] = mapped_column(Float)  # dBm - RSSI
+
+    # Position metrics (for coverage analysis)
+    latitude: Mapped[float | None] = mapped_column(Float)
+    longitude: Mapped[float | None] = mapped_column(Float)
+    altitude: Mapped[int | None] = mapped_column(Integer)
+
+    # Generic value for any telemetry type (stores the raw value when no specific column exists)
+    raw_value: Mapped[float | None] = mapped_column(Float)
 
     # Timestamp
     received_at: Mapped[datetime] = mapped_column(

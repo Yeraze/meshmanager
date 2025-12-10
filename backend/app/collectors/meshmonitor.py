@@ -393,10 +393,6 @@ class MeshMonitorCollector(BaseCollector):
         telem_type_field = telem_data.get("telemetryType", "")
         value = telem_data.get("value")
 
-        # Skip position telemetry (latitude, longitude, altitude) - those are handled in nodes
-        if telem_type_field in ("latitude", "longitude", "altitude"):
-            return False
-
         # Determine telemetry type based on the field
         if telem_type_field in ("batteryLevel", "voltage", "channelUtilization", "airUtilTx", "uptimeSeconds"):
             telem_type = TelemetryType.DEVICE
@@ -404,6 +400,8 @@ class MeshMonitorCollector(BaseCollector):
             telem_type = TelemetryType.ENVIRONMENT
         elif telem_type_field in ("snr_local", "snr_remote", "rssi"):
             telem_type = TelemetryType.DEVICE  # Signal metrics go with device
+        elif telem_type_field in ("latitude", "longitude", "altitude", "estimated_latitude", "estimated_longitude"):
+            telem_type = TelemetryType.POSITION
         else:
             # Check old nested format
             telem_type_str = telem_data.get("type", "device").lower()
@@ -442,6 +440,11 @@ class MeshMonitorCollector(BaseCollector):
                 "snr_local": float(value) if telem_type_field == "snr_local" else None,
                 "snr_remote": float(value) if telem_type_field == "snr_remote" else None,
                 "rssi": float(value) if telem_type_field == "rssi" else None,
+                "latitude": float(value) if telem_type_field in ("latitude", "estimated_latitude") else None,
+                "longitude": float(value) if telem_type_field in ("longitude", "estimated_longitude") else None,
+                "altitude": int(value) if telem_type_field == "altitude" else None,
+                # Always store the raw value for any metric type
+                "raw_value": float(value) if value is not None else None,
             }
 
             # Use PostgreSQL INSERT ... ON CONFLICT DO NOTHING

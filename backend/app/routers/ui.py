@@ -52,10 +52,15 @@ async def list_nodes(
     active_only: bool = Query(default=False, description="Only show recently active nodes"),
     active_hours: int = Query(default=1, ge=1, le=8760, description="Hours to consider a node active (1-8760)"),
 ) -> list[NodeSummary]:
-    """List all nodes across all sources."""
+    """List all nodes across all sources.
+
+    When no source_id filter is applied, returns deduplicated nodes by node_num,
+    showing only the record with the most recent last_heard timestamp.
+    """
     query = select(Node, Source.name.label("source_name")).join(Source)
 
     if source_id:
+        # When filtering by source, return all nodes from that source
         query = query.where(Node.source_id == source_id)
 
     if active_only:
@@ -66,6 +71,14 @@ async def list_nodes(
 
     result = await db.execute(query)
     rows = result.all()
+
+    # If no source filter, deduplicate by node_num keeping the one with newest last_heard
+    if not source_id:
+        seen_node_nums: dict[int, tuple] = {}
+        for node, source_name in rows:
+            if node.node_num not in seen_node_nums:
+                seen_node_nums[node.node_num] = (node, source_name)
+        rows = list(seen_node_nums.values())
 
     return [
         NodeSummary(
@@ -272,6 +285,63 @@ async def get_collection_statuses() -> dict[str, dict]:
     - last_error: error message if status is "error"
     """
     return collector_manager.get_all_collection_statuses()
+
+
+@router.get("/position-history")
+async def get_position_history(
+    db: AsyncSession = Depends(get_db),
+    days: int = Query(default=7, ge=1, le=365, description="Days of history"),
+) -> list[dict]:
+    """Get historical position data for coverage analysis.
+
+    Returns all position telemetry records within the specified time range.
+    Each record contains node_num, latitude, longitude, and timestamp.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+    result = await db.execute(
+        select(Telemetry)
+        .where(Telemetry.received_at >= cutoff)
+        .where(Telemetry.metric_name.in_(["latitude", "estimated_latitude"]))
+        .where(Telemetry.latitude.isnot(None))
+        .order_by(Telemetry.received_at.desc())
+    )
+    lat_records = result.scalars().all()
+
+    # Also get longitude records to pair them
+    result = await db.execute(
+        select(Telemetry)
+        .where(Telemetry.received_at >= cutoff)
+        .where(Telemetry.metric_name.in_(["longitude", "estimated_longitude"]))
+        .where(Telemetry.longitude.isnot(None))
+        .order_by(Telemetry.received_at.desc())
+    )
+    lng_records = result.scalars().all()
+
+    # Create a lookup for longitude by (source_id, node_num, received_at)
+    # We need to match latitude and longitude records that came at similar times
+    lng_lookup = {}
+    for lng in lng_records:
+        # Round timestamp to nearest minute for matching
+        ts_key = lng.received_at.replace(second=0, microsecond=0)
+        key = (lng.source_id, lng.node_num, ts_key)
+        if key not in lng_lookup:
+            lng_lookup[key] = lng.longitude
+
+    positions = []
+    for lat in lat_records:
+        ts_key = lat.received_at.replace(second=0, microsecond=0)
+        key = (lat.source_id, lat.node_num, ts_key)
+        lng_value = lng_lookup.get(key)
+        if lng_value is not None:
+            positions.append({
+                "node_num": lat.node_num,
+                "latitude": lat.latitude,
+                "longitude": lng_value,
+                "timestamp": lat.received_at.isoformat(),
+            })
+
+    return positions
 
 
 @router.get("/traceroutes")

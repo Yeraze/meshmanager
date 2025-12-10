@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Node } from '../../types/api'
 import { useTelemetryHistory } from '../../hooks/useTelemetry'
+import { useDataContext } from '../../contexts/DataContext'
 import { getRoleName } from '../../utils/meshtastic'
 import TelemetryChart from './TelemetryChart'
 
@@ -22,6 +23,7 @@ const TELEMETRY_METRICS = [
 ]
 
 export default function NodeDetailsPanel({ node }: NodeDetailsPanelProps) {
+  const { onlineHours } = useDataContext()
   const [historyHours, setHistoryHours] = useState(24)
 
   const displayName = node.long_name || node.short_name || node.node_id || `Node ${node.node_num}`
@@ -51,8 +53,8 @@ export default function NodeDetailsPanel({ node }: NodeDetailsPanelProps) {
   const getNodeStatus = () => {
     if (!node.last_heard) return 'unknown'
     const lastHeard = new Date(node.last_heard)
-    const hourAgo = new Date(Date.now() - 60 * 60 * 1000)
-    return lastHeard > hourAgo ? 'online' : 'offline'
+    const threshold = new Date(Date.now() - onlineHours * 60 * 60 * 1000)
+    return lastHeard > threshold ? 'online' : 'offline'
   }
 
   const status = getNodeStatus()

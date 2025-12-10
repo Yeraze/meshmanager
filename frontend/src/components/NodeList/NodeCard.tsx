@@ -8,15 +8,15 @@ interface NodeCardProps {
 }
 
 export default function NodeCard({ node }: NodeCardProps) {
-  const { selectedNode, setSelectedNode } = useDataContext()
+  const { selectedNode, setSelectedNode, onlineHours } = useDataContext()
   const isSelected = selectedNode?.id === node.id
 
   const status = useMemo(() => {
     if (!node.last_heard) return 'unknown'
     const lastHeard = new Date(node.last_heard)
-    const hourAgo = new Date(Date.now() - 60 * 60 * 1000)
-    return lastHeard > hourAgo ? 'online' : 'offline'
-  }, [node.last_heard])
+    const threshold = new Date(Date.now() - onlineHours * 60 * 60 * 1000)
+    return lastHeard > threshold ? 'online' : 'offline'
+  }, [node.last_heard, onlineHours])
 
   const lastHeardText = useMemo(() => {
     if (!node.last_heard) return 'Never'

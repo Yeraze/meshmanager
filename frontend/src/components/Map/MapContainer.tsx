@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { MapContainer as LeafletMapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet'
 import L from 'leaflet'
+import { useQuery } from '@tanstack/react-query'
 import { useNodes } from '../../hooks/useNodes'
 import { useTraceroutes } from '../../hooks/useMapData'
 import { useDataContext } from '../../contexts/DataContext'
 import { getTilesetById, DEFAULT_TILESET_ID, type TilesetId } from '../../config/tilesets'
+import { fetchCoverageConfig, fetchCoverageCells } from '../../services/api'
 import MapControls from './MapControls'
+import HeatmapLayer from './HeatmapLayer'
 import type { Node } from '../../types/api'
 import 'leaflet/dist/leaflet.css'
 
@@ -13,6 +16,18 @@ import 'leaflet/dist/leaflet.css'
 const STORAGE_KEY_TILESET = 'meshmanager_map_tileset'
 const STORAGE_KEY_SHOW_ROUTES = 'meshmanager_map_show_routes'
 const STORAGE_KEY_ENABLED_ROLES = 'meshmanager_map_enabled_roles'
+const STORAGE_KEY_SHOW_COVERAGE = 'meshmanager_map_show_coverage'
+
+// Coverage legend colors (matching backend)
+const COVERAGE_LEGEND = [
+  { color: 'rgba(65, 105, 225, 0.4)', label: '1' },
+  { color: 'rgba(50, 205, 50, 0.5)', label: '2' },
+  { color: 'rgba(255, 255, 0, 0.5)', label: '3' },
+  { color: 'rgba(255, 165, 0, 0.6)', label: '4-5' },
+  { color: 'rgba(255, 69, 0, 0.6)', label: '6-7' },
+  { color: 'rgba(255, 0, 0, 0.7)', label: '8-9' },
+  { color: 'rgba(139, 0, 0, 0.8)', label: '10+' },
+]
 
 // Load settings from localStorage
 function loadSetting<T>(key: string, defaultValue: T, parser?: (value: string) => T): T {
@@ -112,8 +127,32 @@ export default function MapContainer() {
     return stored ? new Set(stored) : new Set<string>()
   })
   const [rolesInitialized, setRolesInitialized] = useState(false)
+  const [showCoverage, setShowCoverage] = useState<boolean>(() =>
+    loadSetting(STORAGE_KEY_SHOW_COVERAGE, false)
+  )
 
   const tileset = getTilesetById(tilesetId)
+
+  // Coverage data queries
+  const { data: coverageConfig } = useQuery({
+    queryKey: ['coverage-config'],
+    queryFn: fetchCoverageConfig,
+  })
+
+  const { data: coverageCells = [] } = useQuery({
+    queryKey: ['coverage-cells'],
+    queryFn: fetchCoverageCells,
+    enabled: showCoverage && (coverageConfig?.enabled ?? false) && (coverageConfig?.cell_count ?? 0) > 0,
+  })
+
+  // Convert coverage cells to heatmap points (center of each cell with count as intensity)
+  const heatmapPoints = useMemo(() => {
+    return coverageCells.map(cell => ({
+      lat: (cell.south + cell.north) / 2,
+      lng: (cell.west + cell.east) / 2,
+      intensity: cell.count,
+    }))
+  }, [coverageCells])
 
   const { data: allNodes = [] } = useNodes({
     activeOnly: showActiveOnly,
@@ -150,6 +189,11 @@ export default function MapContainer() {
   const handleEnabledRolesChange = useCallback((roles: Set<string>) => {
     setEnabledRoles(roles)
     saveSetting(STORAGE_KEY_ENABLED_ROLES, Array.from(roles))
+  }, [])
+
+  const handleShowCoverageChange = useCallback((show: boolean) => {
+    setShowCoverage(show)
+    saveSetting(STORAGE_KEY_SHOW_COVERAGE, show)
   }, [])
 
   // Filter by enabled sources, roles, and deduplicate (same logic as Sidebar)
@@ -298,6 +342,10 @@ export default function MapContainer() {
         onShowRoutesChange={handleShowRoutesChange}
         enabledRoles={enabledRoles}
         onEnabledRolesChange={handleEnabledRolesChange}
+        showCoverage={showCoverage}
+        onShowCoverageChange={handleShowCoverageChange}
+        coverageEnabled={coverageConfig?.enabled ?? false}
+        coverageCellCount={coverageConfig?.cell_count ?? 0}
       />
       <LeafletMapContainer
         center={center}
@@ -311,6 +359,17 @@ export default function MapContainer() {
           maxZoom={tileset.maxZoom}
         />
         <MapCenterHandler node={selectedNode} />
+
+        {/* Coverage heatmap overlay - render before other elements so they appear on top */}
+        {showCoverage && heatmapPoints.length > 0 && (
+          <HeatmapLayer
+            points={heatmapPoints}
+            radius={30}
+            blur={20}
+            max={10}
+            minOpacity={0.3}
+          />
+        )}
 
         {/* Traceroute segments - weighted by usage */}
         {routeSegments.map((segment) => (
@@ -357,6 +416,36 @@ export default function MapContainer() {
           )
         })}
       </LeafletMapContainer>
+
+      {/* Coverage Legend */}
+      {showCoverage && heatmapPoints.length > 0 && (
+        <div style={{
+          position: 'absolute',
+          bottom: '20px',
+          right: '20px',
+          background: 'var(--color-surface)',
+          padding: '0.75rem',
+          borderRadius: '8px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+          zIndex: 1000,
+          fontSize: '0.75rem',
+        }}>
+          <div style={{ fontWeight: 'bold', marginBottom: '0.5rem' }}>Position Reports</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            {COVERAGE_LEGEND.map(({ color, label }) => (
+              <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <div style={{
+                  width: '16px',
+                  height: '16px',
+                  background: color,
+                  border: '1px solid rgba(255,255,255,0.3)',
+                }} />
+                <span>{label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

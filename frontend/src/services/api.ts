@@ -154,3 +154,63 @@ export async function fetchPositionHistory(days?: number): Promise<PositionRecor
   const response = await api.get<PositionRecord[]>(`/api/position-history?${params.toString()}`)
   return response.data
 }
+
+// Coverage Map
+export interface CoverageConfig {
+  enabled: boolean
+  resolution: number
+  unit: 'miles' | 'kilometers'
+  lookback_days: number
+  bounds_south: number | null
+  bounds_west: number | null
+  bounds_north: number | null
+  bounds_east: number | null
+  last_generated: string | null
+  cell_count: number
+}
+
+export interface CoverageConfigUpdate {
+  enabled: boolean
+  resolution: number
+  unit: 'miles' | 'kilometers'
+  lookback_days: number
+  bounds_south: number | null
+  bounds_west: number | null
+  bounds_north: number | null
+  bounds_east: number | null
+}
+
+export interface CoverageCell {
+  south: number
+  west: number
+  north: number
+  east: number
+  count: number
+  color: string
+}
+
+export interface CoverageGenerateResponse {
+  success: boolean
+  cell_count: number
+  message: string
+}
+
+export async function fetchCoverageConfig(): Promise<CoverageConfig> {
+  const response = await api.get<CoverageConfig>('/api/coverage/config')
+  return response.data
+}
+
+export async function updateCoverageConfig(config: CoverageConfigUpdate): Promise<CoverageConfig> {
+  const response = await api.put<CoverageConfig>('/api/coverage/config', config)
+  return response.data
+}
+
+export async function generateCoverage(): Promise<CoverageGenerateResponse> {
+  const response = await api.post<CoverageGenerateResponse>('/api/coverage/generate')
+  return response.data
+}
+
+export async function fetchCoverageCells(): Promise<CoverageCell[]> {
+  const response = await api.get<CoverageCell[]>('/api/coverage/cells')
+  return response.data
+}

@@ -14,6 +14,7 @@
     "@tanstack/react-query": "^5.60.0",
     "axios": "^1.7.9",
     "leaflet": "^1.9.4",
+    "leaflet.heat": "^0.2.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-leaflet": "^5.0.0",

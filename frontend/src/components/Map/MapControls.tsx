@@ -10,6 +10,10 @@ interface MapControlsProps {
   onShowRoutesChange: (show: boolean) => void
   enabledRoles: Set<string>
   onEnabledRolesChange: (roles: Set<string>) => void
+  showCoverage: boolean
+  onShowCoverageChange: (show: boolean) => void
+  coverageEnabled: boolean
+  coverageCellCount: number
 }
 
 export default function MapControls({
@@ -19,6 +23,10 @@ export default function MapControls({
   onShowRoutesChange,
   enabledRoles,
   onEnabledRolesChange,
+  showCoverage,
+  onShowCoverageChange,
+  coverageEnabled,
+  coverageCellCount,
 }: MapControlsProps) {
   const { data: allRoles = [] } = useNodeRoles()
   const tilesets = getAllTilesets()
@@ -106,6 +114,27 @@ export default function MapControls({
               type="checkbox"
               checked={showRoutes}
               onChange={(e) => onShowRoutesChange(e.target.checked)}
+            />
+            <span className="toggle-slider"></span>
+          </label>
+        </div>
+
+        {/* Coverage Overlay Toggle */}
+        <div className="map-control-group">
+          <label className="map-control-label">
+            Coverage
+            {coverageEnabled && coverageCellCount > 0 && (
+              <span style={{ fontSize: '0.7rem', opacity: 0.7, marginLeft: '0.25rem' }}>
+                ({coverageCellCount.toLocaleString()})
+              </span>
+            )}
+          </label>
+          <label className="toggle-switch">
+            <input
+              type="checkbox"
+              checked={showCoverage}
+              onChange={(e) => onShowCoverageChange(e.target.checked)}
+              disabled={!coverageEnabled || coverageCellCount === 0}
             />
             <span className="toggle-slider"></span>
           </label>

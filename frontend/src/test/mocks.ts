@@ -111,6 +111,37 @@ export const mockAdminAuthStatus: AuthStatus = {
   setup_required: false,
 }
 
+// Mock traceroute data
+export const mockTraceroutes = [
+  {
+    id: 'trace-1',
+    source_id: 'source-1',
+    from_node_num: 12345678,
+    to_node_num: 87654321,
+    route: [12345678, 11223344, 87654321],
+    route_back: [87654321, 11223344, 12345678],
+    received_at: new Date().toISOString(),
+  },
+  {
+    id: 'trace-2',
+    source_id: 'source-1',
+    from_node_num: 12345678,
+    to_node_num: 11223344,
+    route: [12345678, 11223344],
+    route_back: [11223344, 12345678],
+    received_at: new Date().toISOString(),
+  },
+  {
+    id: 'trace-3',
+    source_id: 'source-1',
+    from_node_num: 87654321,
+    to_node_num: 11223344,
+    route: [87654321, 11223344],
+    route_back: null,
+    received_at: new Date().toISOString(),
+  },
+]
+
 // Mock API functions
 export const createMockApi = () => ({
   fetchAuthStatus: vi.fn().mockResolvedValue(mockAuthStatus),
@@ -119,5 +150,6 @@ export const createMockApi = () => ({
   logout: vi.fn().mockResolvedValue({ success: true }),
   fetchSources: vi.fn().mockResolvedValue(mockSources),
   fetchNodes: vi.fn().mockResolvedValue(mockNodes),
+  fetchTraceroutes: vi.fn().mockResolvedValue(mockTraceroutes),
   fetchHealth: vi.fn().mockResolvedValue({ status: 'healthy', database: 'connected', version: '0.1.0' }),
 })

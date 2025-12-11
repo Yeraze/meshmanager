@@ -1101,6 +1101,14 @@ body {
   background-color: var(--color-bg);
 }
 
+.analysis-page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background-color: var(--color-bg);
+}
+
 .settings-header,
 .graphs-header {
   margin-bottom: var(--spacing-xl);

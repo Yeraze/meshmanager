@@ -4,6 +4,7 @@ import NavSidebar, { type Page } from './NavSidebar'
 import MapPage from '../Map/MapPage'
 import NodeDetailsPage from '../NodeDetails/NodeDetailsPage'
 import { GraphsPage } from '../Graphs'
+import { AnalysisPage } from '../Analysis'
 import { SettingsPage } from '../Settings'
 
 export default function Layout() {
@@ -17,6 +18,8 @@ export default function Layout() {
         return <NodeDetailsPage />
       case 'graphs':
         return <GraphsPage />
+      case 'analysis':
+        return <AnalysisPage />
       case 'settings':
         return <SettingsPage />
       default:

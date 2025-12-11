@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useAuthContext } from '../../contexts/AuthContext'
 
-export type Page = 'map' | 'nodes' | 'graphs' | 'settings'
+export type Page = 'map' | 'nodes' | 'graphs' | 'analysis' | 'settings'
 
 interface NavSidebarProps {
   currentPage: Page
@@ -17,6 +17,7 @@ export default function NavSidebar({ currentPage, onPageChange }: NavSidebarProp
       { id: 'map', label: 'Map', icon: '🗺️' },
       { id: 'nodes', label: 'Node Details', icon: '📡' },
       { id: 'graphs', label: 'Graphs', icon: '📊' },
+      { id: 'analysis', label: 'Analysis', icon: '🔬' },
     ]
 
     if (isAuthenticated) {

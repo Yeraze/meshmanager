@@ -1,10 +1,40 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { MapContainer as LeafletMapContainer, TileLayer, Polyline, CircleMarker, Tooltip } from 'react-leaflet'
 import { fetchTraceroutes, fetchNodes } from '../../services/api'
 import { getTilesetById, getAllTilesets, DEFAULT_TILESET_ID, type TilesetId } from '../../config/tilesets'
 import type { Traceroute } from '../../types/api'
 import 'leaflet/dist/leaflet.css'
+
+// Constants
+const EARTH_RADIUS_MILES = 3959
+const DEFAULT_MAP_CENTER: [number, number] = [0, 0] // World center as fallback
+const BASE_CLUSTER_MARKER_RADIUS = 8
+const MAX_CLUSTER_MARKER_BONUS = 10
+const MAX_CLUSTER_RADIUS_MILES = 50
+const DEBOUNCE_MS = 300
+
+// Debounce hook for slider controls
+function useDebouncedValue<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState(value)
+  const firstRender = useRef(true)
+
+  useEffect(() => {
+    // Skip debounce on first render
+    if (firstRender.current) {
+      firstRender.current = false
+      return
+    }
+
+    const timer = setTimeout(() => {
+      setDebouncedValue(value)
+    }, delay)
+
+    return () => clearTimeout(timer)
+  }, [value, delay])
+
+  return debouncedValue
+}
 
 interface EdgeData {
   from: number
@@ -34,7 +64,6 @@ interface Cluster {
 
 // Calculate distance between two lat/lng points in miles using Haversine formula
 function getDistanceMiles(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 3959 // Earth's radius in miles
   const dLat = (lat2 - lat1) * Math.PI / 180
   const dLon = (lon2 - lon1) * Math.PI / 180
   const a =
@@ -42,7 +71,7 @@ function getDistanceMiles(lat1: number, lon1: number, lat2: number, lon2: number
     Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
     Math.sin(dLon / 2) * Math.sin(dLon / 2)
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-  return R * c
+  return EARTH_RADIUS_MILES * c
 }
 
 // Count all edges from traceroutes (only interior hops, excluding source/destination edges)
@@ -202,19 +231,23 @@ export default function NetworkTopology() {
   const [showTrunkLines, setShowTrunkLines] = useState(true)
   const [showClusters, setShowClusters] = useState(true)
 
-  const { data: traceroutes, isLoading: traceroutesLoading } = useQuery({
+  // Debounce slider values to prevent lag during adjustment
+  const debouncedMinPopularity = useDebouncedValue(minPopularity, DEBOUNCE_MS)
+  const debouncedClusterRadius = useDebouncedValue(clusterRadius, DEBOUNCE_MS)
+
+  const { data: traceroutes, isLoading: traceroutesLoading, error: traceroutesError } = useQuery({
     queryKey: ['traceroutes', lookbackHours],
     queryFn: () => fetchTraceroutes(lookbackHours),
   })
 
-  const { data: nodes, isLoading: nodesLoading } = useQuery({
+  const { data: nodes, isLoading: nodesLoading, error: nodesError } = useQuery({
     queryKey: ['nodes'],
     queryFn: () => fetchNodes(),
   })
 
   const { trunkLines, clusters, mapCenter, maxTrunkCount, maxEdgeCount, totalEdges } = useMemo(() => {
     if (!traceroutes || !nodes) {
-      return { trunkLines: [], clusters: [], mapCenter: [39.8283, -98.5795] as [number, number], maxTrunkCount: 1, maxEdgeCount: 0, totalEdges: 0 }
+      return { trunkLines: [], clusters: [], mapCenter: DEFAULT_MAP_CENTER, maxTrunkCount: 1, maxEdgeCount: 0, totalEdges: 0 }
     }
 
     const nodePositions = new Map<number, [number, number]>()
@@ -245,11 +278,11 @@ export default function NetworkTopology() {
       if (edge.count > maxCount) maxCount = edge.count
     }
 
-    const trunks = getTrunkLines(edgeCounts, nodePositions, nodeNames, minPopularity, maxCount)
-    const clusterData = getClusters(edgeCounts, nodePositions, nodeNames, minPopularity, maxCount, minClusterConnections, clusterRadius)
+    const trunks = getTrunkLines(edgeCounts, nodePositions, nodeNames, debouncedMinPopularity, maxCount)
+    const clusterData = getClusters(edgeCounts, nodePositions, nodeNames, debouncedMinPopularity, maxCount, minClusterConnections, debouncedClusterRadius)
 
     const nodesWithPositions = nodes.filter(n => n.latitude && n.longitude)
-    let center: [number, number] = [39.8283, -98.5795]
+    let center: [number, number] = DEFAULT_MAP_CENTER
     if (nodesWithPositions.length > 0) {
       const avgLat = nodesWithPositions.reduce((sum, n) => sum + (n.latitude || 0), 0) / nodesWithPositions.length
       const avgLng = nodesWithPositions.reduce((sum, n) => sum + (n.longitude || 0), 0) / nodesWithPositions.length
@@ -266,12 +299,15 @@ export default function NetworkTopology() {
       maxEdgeCount: maxCount,
       totalEdges: edgeCounts.size,
     }
-  }, [traceroutes, nodes, minPopularity, minClusterConnections, clusterRadius])
+  }, [traceroutes, nodes, debouncedMinPopularity, minClusterConnections, debouncedClusterRadius])
 
   const visibleTrunkLines = trunkLines.filter(t => t.fromPosition && t.toPosition)
   const visibleClusters = clusters.filter(c => c.hubPosition)
 
   const isLoading = traceroutesLoading || nodesLoading
+  const hasError = traceroutesError || nodesError
+  const errorMessage = traceroutesError?.message || nodesError?.message || 'An error occurred'
+  const hasNoData = !isLoading && !hasError && traceroutes?.length === 0
 
   const labelStyle = { fontSize: '0.75rem', color: 'var(--color-text-muted)', textTransform: 'uppercase' as const, marginBottom: '0.25rem' }
   const controlGroupStyle = { marginBottom: '1rem' }
@@ -382,7 +418,7 @@ export default function NetworkTopology() {
             <input
               type="range"
               min="1"
-              max="50"
+              max={MAX_CLUSTER_RADIUS_MILES}
               value={clusterRadius}
               onChange={e => setClusterRadius(parseInt(e.target.value))}
               style={{ width: '100%', cursor: 'pointer' }}
@@ -444,8 +480,18 @@ export default function NetworkTopology() {
         {/* Map */}
         <div style={{ flex: 1, minHeight: 0 }}>
           {isLoading ? (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-              Loading...
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--color-text-muted)' }}>
+              Loading traceroute data...
+            </div>
+          ) : hasError ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--color-error, #ef4444)', flexDirection: 'column', gap: '0.5rem' }}>
+              <span>Error loading data</span>
+              <span style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>{errorMessage}</span>
+            </div>
+          ) : hasNoData ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--color-text-muted)', flexDirection: 'column', gap: '0.5rem' }}>
+              <span>No traceroute data available</span>
+              <span style={{ fontSize: '0.875rem' }}>Traceroute data will appear as the network collects routing information.</span>
             </div>
           ) : (
             <LeafletMapContainer
@@ -484,7 +530,7 @@ export default function NetworkTopology() {
                 <CircleMarker
                   key={`cluster-${idx}`}
                   center={cluster.hubPosition!}
-                  radius={8 + Math.min(cluster.connectionCount, 10)}
+                  radius={BASE_CLUSTER_MARKER_RADIUS + Math.min(cluster.connectionCount, MAX_CLUSTER_MARKER_BONUS)}
                   pathOptions={{
                     color: '#8b5cf6',
                     fillColor: '#8b5cf6',

@@ -31,24 +31,16 @@ class AggregationType(str, Enum):
 
 
 # Color scale for utilization heatmap (0-100%)
-# Green (low) -> Yellow (medium) -> Red (high)
+# <25% = Green, 25-50% = Orange, >50% = Red
 def get_color_for_utilization(value: float) -> str:
     """Get heatmap color for utilization value (0-100%)."""
     if value < 0:
         return "transparent"
-    if value <= 10:
-        return "rgba(0, 128, 0, 0.5)"  # Green
-    if value <= 25:
-        return "rgba(50, 205, 50, 0.5)"  # Lime Green
-    if value <= 40:
-        return "rgba(154, 205, 50, 0.5)"  # Yellow-Green
-    if value <= 55:
-        return "rgba(255, 255, 0, 0.5)"  # Yellow
-    if value <= 70:
-        return "rgba(255, 165, 0, 0.6)"  # Orange
-    if value <= 85:
-        return "rgba(255, 69, 0, 0.6)"  # Red-Orange
-    return "rgba(255, 0, 0, 0.7)"  # Red
+    if value < 25:
+        return "rgba(0, 128, 0, 0.5)"  # Green (low utilization)
+    if value <= 50:
+        return "rgba(255, 165, 0, 0.6)"  # Orange (medium utilization)
+    return "rgba(255, 0, 0, 0.7)"  # Red (high utilization)
 
 
 class UtilizationConfigRequest(BaseModel):

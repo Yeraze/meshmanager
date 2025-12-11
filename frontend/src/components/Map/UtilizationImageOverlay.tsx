@@ -18,15 +18,12 @@ interface UtilizationImageOverlayProps {
 }
 
 // Get color for utilization value (0-100%), returns [r, g, b, a]
+// <25% = Green, 25-50% = Orange, >50% = Red
 function getUtilizationRGBA(value: number): [number, number, number, number] {
   if (value < 0) return [0, 0, 0, 0]           // Transparent
-  if (value <= 10) return [0, 128, 0, 150]     // Green
-  if (value <= 25) return [50, 205, 50, 150]   // Lime Green
-  if (value <= 40) return [154, 205, 50, 150]  // Yellow-Green
-  if (value <= 55) return [255, 255, 0, 150]   // Yellow
-  if (value <= 70) return [255, 165, 0, 170]   // Orange
-  if (value <= 85) return [255, 69, 0, 170]    // Red-Orange
-  return [255, 0, 0, 190]                       // Red
+  if (value < 25) return [0, 128, 0, 150]      // Green (low utilization)
+  if (value <= 50) return [255, 165, 0, 170]   // Orange (medium utilization)
+  return [255, 0, 0, 190]                       // Red (high utilization)
 }
 
 export default function UtilizationImageOverlay({ cells, blur = 8 }: UtilizationImageOverlayProps) {

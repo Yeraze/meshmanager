@@ -304,6 +304,8 @@ export interface SolarPattern {
   sunset: { time: string; value: number }
   rise: number
   fall: number
+  charge_rate_per_hour: number
+  discharge_rate_per_hour: number | null
 }
 
 export interface SolarChartPoint {
@@ -320,6 +322,8 @@ export interface SolarNode {
   recent_patterns: SolarPattern[]
   metric_type: 'battery' | 'voltage'
   chart_data: SolarChartPoint[]
+  avg_charge_rate_per_hour: number | null
+  avg_discharge_rate_per_hour: number | null
 }
 
 export interface SolarProductionPoint {

@@ -53,6 +53,8 @@ const mockSolarAnalysis = {
           sunset: { time: '18:30', value: 88 },
           rise: 25,
           fall: 7,
+          charge_rate_per_hour: 3.85,
+          discharge_rate_per_hour: 0.54,
         },
       ],
       metric_type: 'battery' as const,
@@ -60,6 +62,8 @@ const mockSolarAnalysis = {
         { timestamp: 1705300000000, value: 70 },
         { timestamp: 1705320000000, value: 95 },
       ],
+      avg_charge_rate_per_hour: 3.85,
+      avg_discharge_rate_per_hour: 0.54,
     },
     {
       node_num: 87654321,
@@ -70,6 +74,8 @@ const mockSolarAnalysis = {
       recent_patterns: [],
       metric_type: 'voltage' as const,
       chart_data: [],
+      avg_charge_rate_per_hour: 0.08,
+      avg_discharge_rate_per_hour: 0.02,
     },
   ],
   solar_production: [

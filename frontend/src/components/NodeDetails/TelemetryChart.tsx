@@ -136,7 +136,7 @@ export default function TelemetryChart({ data, solarData }: TelemetryChartProps)
             stroke={SOLAR_COLOR}
             fontSize={10}
             width={40}
-            tickFormatter={(v) => `${v}W`}
+            tickFormatter={(v) => `${v}Wh`}
           />
         )}
         <Tooltip

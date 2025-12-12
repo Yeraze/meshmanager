@@ -299,7 +299,25 @@ function SolarNodeCard({ node, solarProduction }: { node: SolarNode; solarProduc
         }}
       >
         <div>
-          <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>{node.node_name}</div>
+          <div style={{ fontWeight: 600, marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            {node.node_name}
+            {node.insufficient_solar && (
+              <span
+                title="Insufficient solar output: charge rate does not sufficiently exceed discharge rate"
+                style={{
+                  background: 'var(--color-warning, #f59e0b)',
+                  color: '#000',
+                  fontSize: '0.65rem',
+                  fontWeight: 700,
+                  padding: '0.15rem 0.4rem',
+                  borderRadius: '4px',
+                  textTransform: 'uppercase',
+                }}
+              >
+                Low Solar
+              </span>
+            )}
+          </div>
           <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
             !{node.node_num.toString(16).padStart(8, '0')}
           </div>

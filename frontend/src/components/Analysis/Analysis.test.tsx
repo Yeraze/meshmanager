@@ -66,6 +66,7 @@ const mockSolarAnalysis = {
       ],
       avg_charge_rate_per_hour: 3.85,
       avg_discharge_rate_per_hour: 0.54,
+      insufficient_solar: false,
     },
     {
       node_num: 87654321,
@@ -78,6 +79,7 @@ const mockSolarAnalysis = {
       chart_data: [],
       avg_charge_rate_per_hour: 0.08,
       avg_discharge_rate_per_hour: 0.02,
+      insufficient_solar: true,
     },
   ],
   solar_production: [
@@ -465,5 +467,25 @@ describe('SolarMonitoring', () => {
     fireEvent.change(input, { target: { value: '14' } })
 
     expect(input).toHaveValue(14)
+  })
+
+  it('displays "Low Solar" warning for nodes with insufficient solar output', async () => {
+    render(<AnalysisPage />)
+
+    // Open solar monitoring
+    const card = screen.getByText('Solar Monitoring Analysis').closest('button')
+    fireEvent.click(card!)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Identify Solar Nodes/i })).toBeInTheDocument()
+    })
+
+    // Click analyze button
+    fireEvent.click(screen.getByRole('button', { name: /Identify Solar Nodes/i }))
+
+    // Should show "Low Solar" warning for the second node (insufficient_solar: true)
+    await waitFor(() => {
+      expect(screen.getByText('Low Solar')).toBeInTheDocument()
+    })
   })
 })

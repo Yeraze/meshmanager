@@ -301,6 +301,7 @@ describe('API Service', () => {
             chart_data: [],
             avg_charge_rate_per_hour: 3.85,
             avg_discharge_rate_per_hour: 0.54,
+            insufficient_solar: false,
           },
         ],
         solar_production: [],

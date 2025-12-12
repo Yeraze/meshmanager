@@ -324,6 +324,7 @@ export interface SolarNode {
   chart_data: SolarChartPoint[]
   avg_charge_rate_per_hour: number | null
   avg_discharge_rate_per_hour: number | null
+  insufficient_solar: boolean | null
 }
 
 export interface SolarProductionPoint {

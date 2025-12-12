@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.collectors.base import BaseCollector
 from app.database import async_session_maker
-from app.models import Message, Node, Source, Telemetry, Traceroute
+from app.models import Message, Node, SolarProduction, Source, Telemetry, Traceroute
 from app.schemas.source import SourceTestResult
 
 logger = logging.getLogger(__name__)
@@ -141,6 +141,9 @@ class MeshMonitorCollector(BaseCollector):
 
                 # Collect traceroutes
                 await self._collect_traceroutes(client, headers)
+
+                # Collect solar production data
+                await self._collect_solar(client, headers)
 
             # Update last poll time and version
             async with async_session_maker() as db:
@@ -570,6 +573,186 @@ class MeshMonitorCollector(BaseCollector):
             snr_back=snr_back,
         )
         db.add(traceroute)
+
+    async def _collect_solar(self, client: httpx.AsyncClient, headers: dict) -> None:
+        """Collect solar production data from the API."""
+        try:
+            response = await client.get(
+                f"{self.source.url}/api/v1/solar",
+                headers=headers,
+                params={"limit": 100},
+            )
+            if response.status_code == 404:
+                # Solar endpoint not available on this MeshMonitor instance
+                logger.debug(f"Solar endpoint not available for {self.source.name}")
+                return
+            if response.status_code != 200:
+                logger.warning(f"Failed to fetch solar data: {response.status_code}")
+                return
+
+            data = response.json()
+            # MeshMonitor wraps data in {"success": true, "count": N, "data": [...]}
+            if isinstance(data, dict) and "data" in data:
+                solar_data = data.get("data", [])
+            elif isinstance(data, list):
+                solar_data = data
+            else:
+                solar_data = []
+
+            if not solar_data:
+                return
+
+            async with async_session_maker() as db:
+                for record in solar_data:
+                    await self._insert_solar_record(db, record)
+                await db.commit()
+
+            logger.debug(f"Collected {len(solar_data)} solar production records")
+        except Exception as e:
+            logger.error(f"Error collecting solar data: {e}")
+
+    async def _insert_solar_record(self, db, record: dict) -> bool:
+        """Insert a solar production record using ON CONFLICT DO NOTHING.
+
+        Args:
+            db: Database session
+            record: Solar production data dict with timestamp, wattHours, fetchedAt
+
+        Returns:
+            True if record was inserted, False if skipped (duplicate)
+        """
+        from uuid import uuid4
+
+        # Get timestamp (Unix seconds)
+        timestamp_sec = record.get("timestamp")
+        if not timestamp_sec:
+            return False
+
+        # Convert to datetime
+        timestamp = datetime.fromtimestamp(timestamp_sec, tz=UTC)
+
+        # Get watt hours
+        watt_hours = record.get("wattHours")
+        if watt_hours is None:
+            return False
+
+        # Get fetchedAt if available
+        fetched_at = None
+        if record.get("fetchedAt"):
+            fetched_at = datetime.fromtimestamp(record["fetchedAt"], tz=UTC)
+
+        # Build values dict for the insert
+        values = {
+            "id": str(uuid4()),
+            "source_id": self.source.id,
+            "timestamp": timestamp,
+            "watt_hours": float(watt_hours),
+            "fetched_at": fetched_at,
+            "received_at": datetime.now(UTC),
+        }
+
+        # Use PostgreSQL INSERT ... ON CONFLICT DO NOTHING
+        stmt = pg_insert(SolarProduction).values(**values).on_conflict_do_nothing(
+            index_elements=["source_id", "timestamp"]
+        )
+        result = await db.execute(stmt)
+        return result.rowcount > 0
+
+    async def collect_solar_historical(
+        self,
+        batch_size: int = 500,
+        delay_seconds: float = 2.0,
+        max_batches: int = 100,
+    ) -> int:
+        """Collect all historical solar production data.
+
+        Fetches solar data going back as far as available.
+
+        Args:
+            batch_size: Records per batch
+            delay_seconds: Delay between batches
+            max_batches: Maximum batches to fetch
+
+        Returns:
+            Total number of records collected
+        """
+        if not self.source.url:
+            return 0
+
+        logger.info(
+            f"Starting historical solar collection for {self.source.name}"
+        )
+
+        total_collected = 0
+        offset = 0
+
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                headers = self._get_headers()
+
+                for batch_num in range(max_batches):
+                    params: dict = {"limit": batch_size}
+                    if offset > 0:
+                        params["offset"] = offset
+
+                    response = await client.get(
+                        f"{self.source.url}/api/v1/solar",
+                        headers=headers,
+                        params=params,
+                    )
+
+                    if response.status_code == 404:
+                        logger.debug(f"Solar endpoint not available for {self.source.name}")
+                        break
+
+                    if response.status_code != 200:
+                        logger.warning(f"Failed to fetch solar data: {response.status_code}")
+                        break
+
+                    data = response.json()
+                    if isinstance(data, dict) and "data" in data:
+                        solar_data = data.get("data", [])
+                    elif isinstance(data, list):
+                        solar_data = data
+                    else:
+                        solar_data = []
+
+                    if not solar_data:
+                        logger.debug(f"No more solar data for {self.source.name}")
+                        break
+
+                    # Insert records
+                    batch_inserted = 0
+                    async with async_session_maker() as db:
+                        for record in solar_data:
+                            inserted = await self._insert_solar_record(db, record)
+                            if inserted:
+                                batch_inserted += 1
+                        await db.commit()
+
+                    total_collected += batch_inserted
+                    offset += batch_size
+
+                    logger.debug(
+                        f"Solar batch {batch_num + 1}: fetched {len(solar_data)}, "
+                        f"inserted {batch_inserted} (total: {total_collected})"
+                    )
+
+                    # If we got less than requested, we've reached the end
+                    if len(solar_data) < batch_size:
+                        break
+
+                    # Delay before next batch
+                    if batch_num < max_batches - 1:
+                        await asyncio.sleep(delay_seconds)
+
+        except Exception as e:
+            logger.error(f"Error in solar historical collection: {e}")
+
+        logger.info(
+            f"Solar historical collection complete: {total_collected} records"
+        )
+        return total_collected
 
     async def collect_historical_batch(
         self, batch_size: int = 500, delay_seconds: float = 5.0, max_batches: int = 20
@@ -1121,6 +1304,11 @@ class MeshMonitorCollector(BaseCollector):
             # Collect historical data for all nodes using per-node API
             await self.collect_all_nodes_historical_telemetry(
                 days_back=7,
+                batch_size=500,
+                delay_seconds=2.0,
+            )
+            # Also collect historical solar data
+            await self.collect_solar_historical(
                 batch_size=500,
                 delay_seconds=2.0,
             )

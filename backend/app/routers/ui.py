@@ -3,11 +3,11 @@
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import Node, Source, Telemetry, Traceroute
+from app.models import Node, SolarProduction, Source, Telemetry, Traceroute
 from app.schemas.node import NodeResponse, NodeSummary
 from app.schemas.telemetry import TelemetryHistory, TelemetryHistoryPoint, TelemetryResponse
 from app.services.collector_manager import collector_manager
@@ -371,6 +371,43 @@ async def list_traceroutes(
             "received_at": t.received_at.isoformat(),
         }
         for t in traceroutes
+    ]
+
+
+@router.get("/solar")
+async def get_solar_averages(
+    db: AsyncSession = Depends(get_db),
+    hours: int = Query(default=168, ge=1, le=8760, description="Hours of history to fetch"),
+) -> list[dict]:
+    """Get averaged solar production data across all sources.
+
+    Groups solar production data by timestamp (hourly buckets) and averages
+    watt_hours across all sources that have data for each time point.
+
+    Returns data suitable for rendering a solar background on telemetry charts.
+    """
+    cutoff = datetime.now(UTC) - timedelta(hours=hours)
+
+    # Query to group by timestamp and average watt_hours across sources
+    result = await db.execute(
+        select(
+            SolarProduction.timestamp,
+            func.avg(SolarProduction.watt_hours).label("avg_watt_hours"),
+            func.count(SolarProduction.source_id).label("source_count"),
+        )
+        .where(SolarProduction.timestamp >= cutoff)
+        .group_by(SolarProduction.timestamp)
+        .order_by(SolarProduction.timestamp.asc())
+    )
+    rows = result.all()
+
+    return [
+        {
+            "timestamp": int(row.timestamp.timestamp() * 1000),  # milliseconds for JS
+            "wattHours": round(row.avg_watt_hours, 2),
+            "sourceCount": row.source_count,
+        }
+        for row in rows
     ]
 
 

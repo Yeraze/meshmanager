@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { Node } from '../../types/api'
-import { useTelemetryHistory } from '../../hooks/useTelemetry'
+import { useSolarData, useTelemetryHistory } from '../../hooks/useTelemetry'
 import { useDataContext } from '../../contexts/DataContext'
 import { getRoleName } from '../../utils/meshtastic'
 import TelemetryChart from './TelemetryChart'
@@ -25,6 +25,9 @@ const TELEMETRY_METRICS = [
 export default function NodeDetailsPanel({ node }: NodeDetailsPanelProps) {
   const { onlineHours } = useDataContext()
   const [historyHours, setHistoryHours] = useState(24)
+
+  // Fetch solar data for background on charts
+  const { solarMap } = useSolarData(historyHours)
 
   const displayName = node.long_name || node.short_name || node.node_id || `Node ${node.node_num}`
 
@@ -169,6 +172,7 @@ export default function NodeDetailsPanel({ node }: NodeDetailsPanelProps) {
               metricKey={metric.key}
               metricLabel={metric.label}
               hours={historyHours}
+              solarData={solarMap}
             />
           ))}
         </div>
@@ -182,11 +186,13 @@ function TelemetryChartWrapper({
   metricKey,
   metricLabel,
   hours,
+  solarData,
 }: {
   nodeNum: number
   metricKey: string
   metricLabel: string
   hours: number
+  solarData?: Map<number, number>
 }) {
   const { data, isLoading, error } = useTelemetryHistory(nodeNum, metricKey, hours)
 
@@ -206,7 +212,7 @@ function TelemetryChartWrapper({
   return (
     <div className="telemetry-chart-card">
       <div className="telemetry-chart-title">{data.metric} ({data.unit})</div>
-      <TelemetryChart data={data} />
+      <TelemetryChart data={data} solarData={solarData} />
     </div>
   )
 }

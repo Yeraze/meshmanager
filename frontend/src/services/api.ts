@@ -280,3 +280,18 @@ export async function fetchUtilizationCells(): Promise<UtilizationCell[]> {
   const response = await api.get<UtilizationCell[]>('/api/utilization/cells')
   return response.data
 }
+
+// Solar Production
+export interface SolarDataPoint {
+  timestamp: number
+  wattHours: number
+  sourceCount: number
+}
+
+export async function fetchSolarData(hours?: number): Promise<SolarDataPoint[]> {
+  const params = new URLSearchParams()
+  if (hours) params.append('hours', hours.toString())
+
+  const response = await api.get<SolarDataPoint[]>(`/api/solar?${params.toString()}`)
+  return response.data
+}

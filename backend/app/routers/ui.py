@@ -578,9 +578,21 @@ async def identify_solar_nodes(
             if has_solar_pattern:
                 days_with_pattern += 1
 
-                # Calculate charge rate per hour (sunrise -> peak)
-                charging_hours = (peak_time - sunrise_time).total_seconds() / 3600
-                charge_rate = (peak_value - sunrise_value) / charging_hours if charging_hours > 0 else 0
+                # Calculate charge rate per hour (sunrise -> peak/100%)
+                # If battery hits 100% before peak, use that time instead
+                effective_peak_time = peak_time
+                effective_peak_value = peak_value
+                if is_battery:
+                    # Find if battery hits 100% between sunrise and sunset
+                    for v in values:
+                        if v["time"] > sunrise_time and v["time"] <= sunset_time and v["value"] >= 100:
+                            # Use the first time it hits 100%
+                            effective_peak_time = v["time"]
+                            effective_peak_value = v["value"]
+                            break
+
+                charging_hours = (effective_peak_time - sunrise_time).total_seconds() / 3600
+                charge_rate = (effective_peak_value - sunrise_value) / charging_hours if charging_hours > 0 else 0
                 charge_rates.append(charge_rate)
 
                 # Track daylight/charging hours (sunrise -> sunset)
@@ -700,6 +712,21 @@ async def identify_solar_nodes(
     # Calculate global averages
     avg_charging_hours_per_day = round(sum(all_charging_hours) / len(all_charging_hours), 1) if all_charging_hours else None
     avg_discharge_hours_per_day = round(sum(all_discharge_hours) / len(all_discharge_hours), 1) if all_discharge_hours else None
+
+    # Add insufficient_solar flag to each node
+    # Formula: if (charge_rate * charging_hours) <= (discharge_rate * discharge_hours) * 1.1
+    # This means the node isn't generating enough to keep up with its overnight discharge
+    for node in solar_candidates:
+        charge_rate = node.get("avg_charge_rate_per_hour")
+        discharge_rate = node.get("avg_discharge_rate_per_hour")
+
+        if charge_rate is not None and discharge_rate is not None and avg_charging_hours_per_day and avg_discharge_hours_per_day:
+            total_charge = charge_rate * avg_charging_hours_per_day
+            total_discharge = discharge_rate * avg_discharge_hours_per_day
+            # Flag if charging doesn't exceed discharge by at least 10%
+            node["insufficient_solar"] = total_charge <= (total_discharge * 1.1)
+        else:
+            node["insufficient_solar"] = None  # Unknown - insufficient data
 
     return {
         "lookback_days": lookback_days,

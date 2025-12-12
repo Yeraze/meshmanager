@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import NetworkTopology from './NetworkTopology'
+import SolarMonitoring from './SolarMonitoring'
 
-type AnalysisType = 'network-topology' | null
+type AnalysisType = 'network-topology' | 'solar-monitoring' | null
 
 interface AnalysisCard {
   id: AnalysisType
@@ -17,7 +18,12 @@ const analyses: AnalysisCard[] = [
     description: 'Analyze traceroute data to identify trunk lines (high-traffic routes) and clusters (hubs with many connections).',
     icon: '🔗',
   },
-  // Future analyses can be added here
+  {
+    id: 'solar-monitoring',
+    title: 'Solar Monitoring Analysis',
+    description: 'Identify solar-powered nodes by analyzing battery and voltage patterns that show daytime charging and nighttime discharge.',
+    icon: '☀️',
+  },
 ]
 
 export default function AnalysisPage() {
@@ -27,6 +33,8 @@ export default function AnalysisPage() {
     switch (selectedAnalysis) {
       case 'network-topology':
         return <NetworkTopology />
+      case 'solar-monitoring':
+        return <SolarMonitoring />
       default:
         return null
     }

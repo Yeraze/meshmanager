@@ -295,3 +295,50 @@ export async function fetchSolarData(hours?: number): Promise<SolarDataPoint[]> 
   const response = await api.get<SolarDataPoint[]>(`/api/solar?${params.toString()}`)
   return response.data
 }
+
+// Solar Analysis
+export interface SolarPattern {
+  date: string
+  sunrise: { time: string; value: number }
+  peak: { time: string; value: number }
+  sunset: { time: string; value: number }
+  rise: number
+  fall: number
+}
+
+export interface SolarChartPoint {
+  timestamp: number
+  value: number
+}
+
+export interface SolarNode {
+  node_num: number
+  node_name: string
+  solar_score: number
+  days_analyzed: number
+  days_with_pattern: number
+  recent_patterns: SolarPattern[]
+  metric_type: 'battery' | 'voltage'
+  chart_data: SolarChartPoint[]
+}
+
+export interface SolarProductionPoint {
+  timestamp: number
+  wattHours: number
+}
+
+export interface SolarNodesAnalysis {
+  lookback_days: number
+  total_nodes_analyzed: number
+  solar_nodes_count: number
+  solar_nodes: SolarNode[]
+  solar_production: SolarProductionPoint[]
+}
+
+export async function fetchSolarNodesAnalysis(lookbackDays?: number): Promise<SolarNodesAnalysis> {
+  const params = new URLSearchParams()
+  if (lookbackDays) params.append('lookback_days', lookbackDays.toString())
+
+  const response = await api.get<SolarNodesAnalysis>(`/api/analysis/solar-nodes?${params.toString()}`)
+  return response.data
+}

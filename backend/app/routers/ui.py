@@ -374,6 +374,246 @@ async def list_traceroutes(
     ]
 
 
+@router.get("/analysis/solar-nodes")
+async def identify_solar_nodes(
+    db: AsyncSession = Depends(get_db),
+    lookback_days: int = Query(default=7, ge=1, le=90, description="Days of history to analyze"),
+) -> dict:
+    """Analyze telemetry to identify nodes that are likely solar-powered.
+
+    Examines battery_level and voltage patterns over time to identify
+    nodes that show a solar charging profile:
+    - Rising values during daylight hours (sunrise to peak)
+    - Falling values during night hours (peak to next sunrise)
+
+    Returns a list of nodes with their solar score and daily patterns.
+    """
+    from collections import defaultdict
+
+    cutoff = datetime.now(UTC) - timedelta(days=lookback_days)
+
+    # Fetch all battery_level and voltage telemetry for the period
+    result = await db.execute(
+        select(Telemetry, Source.name.label("source_name"))
+        .join(Source)
+        .where(Telemetry.received_at >= cutoff)
+        .where(
+            (Telemetry.battery_level.isnot(None)) | (Telemetry.voltage.isnot(None))
+        )
+        .order_by(Telemetry.received_at.asc())
+    )
+    rows = result.all()
+
+    # Get node names for display
+    node_result = await db.execute(select(Node))
+    nodes = node_result.scalars().all()
+    node_names: dict[int, str] = {}
+    for node in nodes:
+        if node.long_name:
+            node_names[node.node_num] = node.long_name
+        elif node.short_name:
+            node_names[node.node_num] = node.short_name
+        else:
+            node_names[node.node_num] = f"!{node.node_num:08x}"
+
+    # Group data by node_num and date
+    # Structure: {node_num: {date: [{"time": datetime, "battery": val, "voltage": val}]}}
+    node_data: dict[int, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
+
+    for telemetry, source_name in rows:
+        date_str = telemetry.received_at.strftime("%Y-%m-%d")
+        node_data[telemetry.node_num][date_str].append({
+            "time": telemetry.received_at,
+            "battery": telemetry.battery_level,
+            "voltage": telemetry.voltage,
+        })
+
+    # Analyze each node's daily patterns
+    solar_candidates = []
+
+    for node_num, daily_data in node_data.items():
+        days_with_pattern = 0
+        total_days = 0
+        daily_patterns = []
+
+        for date_str, readings in daily_data.items():
+            if len(readings) < 3:  # Need at least 3 readings to detect a pattern
+                continue
+
+            total_days += 1
+
+            # Sort by time
+            readings.sort(key=lambda x: x["time"])
+
+            # Separate battery and voltage readings to avoid mixing scales
+            battery_values = []
+            voltage_values = []
+            for r in readings:
+                if r["battery"] is not None:
+                    battery_values.append({"time": r["time"], "value": r["battery"]})
+                if r["voltage"] is not None:
+                    voltage_values.append({"time": r["time"], "value": r["voltage"]})
+
+            # Prefer battery readings if we have enough, otherwise use voltage
+            # Don't mix the two as they're on different scales
+            if len(battery_values) >= 3:
+                values = battery_values
+                min_variance = 10  # Battery: require at least 10% swing
+            elif len(voltage_values) >= 3:
+                values = voltage_values
+                min_variance = 0.3  # Voltage: require at least 0.3V swing
+            else:
+                continue
+
+            # Calculate daily variance - nodes on wall power have near-constant values
+            all_values = [v["value"] for v in values]
+            min_value = min(all_values)
+            max_value = max(all_values)
+            daily_range = max_value - min_value
+            if daily_range < min_variance:
+                continue
+
+            # Find morning values (6am-10am) and afternoon values (12pm-6pm)
+            morning_values = [v for v in values if 6 <= v["time"].hour <= 10]
+            afternoon_values = [v for v in values if 12 <= v["time"].hour <= 18]
+
+            # If we don't have readings in both time windows, use simpler peak detection
+            if morning_values and afternoon_values:
+                # Solar pattern: morning low < afternoon high (charging during daylight)
+                morning_low = min(morning_values, key=lambda v: v["value"])
+                afternoon_high = max(afternoon_values, key=lambda v: v["value"])
+
+                sunrise_value = morning_low["value"]
+                sunrise_time = morning_low["time"]
+                peak_value = afternoon_high["value"]
+                peak_time = afternoon_high["time"]
+
+                # Rise is the key solar indicator: morning-to-afternoon charge
+                rise = peak_value - sunrise_value
+
+                # Find the last reading of the day as "sunset" for display
+                sunset_value = values[-1]["value"]
+                sunset_time = values[-1]["time"]
+                fall = peak_value - sunset_value
+
+            else:
+                # Fallback: use overall min/max with time constraints
+                peak_idx = max(range(len(values)), key=lambda i: values[i]["value"])
+                peak_value = values[peak_idx]["value"]
+                peak_time = values[peak_idx]["time"]
+
+                # Find lowest value before peak as sunrise
+                sunrise_idx = 0
+                min_before_peak = float("inf")
+                for i in range(peak_idx + 1):
+                    if values[i]["value"] < min_before_peak:
+                        min_before_peak = values[i]["value"]
+                        sunrise_idx = i
+
+                sunrise_time = values[sunrise_idx]["time"]
+                sunrise_value = values[sunrise_idx]["value"]
+                sunset_value = values[-1]["value"]
+                sunset_time = values[-1]["time"]
+                rise = peak_value - sunrise_value
+                fall = peak_value - sunset_value
+
+            # Check for solar pattern:
+            # Key indicator: significant rise from morning to afternoon during daylight
+            # The fall may happen overnight, so we don't require it within same day
+            min_rise_threshold = max(min_variance, daily_range * 0.3)
+            has_solar_pattern = (
+                rise >= min_rise_threshold and
+                peak_time.hour >= 10 and peak_time.hour <= 18 and  # Peak during daylight
+                sunrise_time.hour <= 12 and  # Low should be in morning
+                sunrise_value < peak_value * 0.95  # Morning low should be noticeably lower
+            )
+
+            if has_solar_pattern:
+                days_with_pattern += 1
+                daily_patterns.append({
+                    "date": date_str,
+                    "sunrise": {
+                        "time": sunrise_time.strftime("%H:%M"),
+                        "value": round(sunrise_value, 1),
+                    },
+                    "peak": {
+                        "time": peak_time.strftime("%H:%M"),
+                        "value": round(peak_value, 1),
+                    },
+                    "sunset": {
+                        "time": sunset_time.strftime("%H:%M"),
+                        "value": round(sunset_value, 1),
+                    },
+                    "rise": round(rise, 1),
+                    "fall": round(fall, 1),
+                })
+
+        # Consider a node solar-powered if it shows the pattern on at least 50% of analyzed days
+        if total_days >= 2 and days_with_pattern / total_days >= 0.5:
+            solar_score = round((days_with_pattern / total_days) * 100, 1)
+
+            # Collect all telemetry data points for this node for charting
+            # Determine which metric type was used (battery or voltage)
+            all_chart_data = []
+            metric_type = "battery"  # default
+            for date_str, readings in daily_data.items():
+                battery_count = sum(1 for r in readings if r["battery"] is not None)
+                voltage_count = sum(1 for r in readings if r["voltage"] is not None)
+                if voltage_count > battery_count:
+                    metric_type = "voltage"
+                for r in readings:
+                    value = r["battery"] if metric_type == "battery" else r["voltage"]
+                    if value is not None:
+                        all_chart_data.append({
+                            "timestamp": int(r["time"].timestamp() * 1000),
+                            "value": round(value, 2),
+                        })
+
+            # Sort by timestamp and deduplicate
+            all_chart_data.sort(key=lambda x: x["timestamp"])
+
+            solar_candidates.append({
+                "node_num": node_num,
+                "node_name": node_names.get(node_num, f"!{node_num:08x}"),
+                "solar_score": solar_score,
+                "days_analyzed": total_days,
+                "days_with_pattern": days_with_pattern,
+                "recent_patterns": daily_patterns[-3:],  # Last 3 days with patterns
+                "metric_type": metric_type,
+                "chart_data": all_chart_data,
+            })
+
+    # Sort by solar score descending
+    solar_candidates.sort(key=lambda x: x["solar_score"], reverse=True)
+
+    # Fetch solar production data for the lookback period (for chart overlay)
+    solar_result = await db.execute(
+        select(
+            SolarProduction.timestamp,
+            func.avg(SolarProduction.watt_hours).label("avg_watt_hours"),
+        )
+        .where(SolarProduction.timestamp >= cutoff)
+        .group_by(SolarProduction.timestamp)
+        .order_by(SolarProduction.timestamp.asc())
+    )
+    solar_rows = solar_result.all()
+    solar_chart_data = [
+        {
+            "timestamp": int(row.timestamp.timestamp() * 1000),
+            "wattHours": round(row.avg_watt_hours, 2),
+        }
+        for row in solar_rows
+    ]
+
+    return {
+        "lookback_days": lookback_days,
+        "total_nodes_analyzed": len(node_data),
+        "solar_nodes_count": len(solar_candidates),
+        "solar_nodes": solar_candidates,
+        "solar_production": solar_chart_data,
+    }
+
+
 @router.get("/solar")
 async def get_solar_averages(
     db: AsyncSession = Depends(get_db),

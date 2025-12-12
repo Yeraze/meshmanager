@@ -8,6 +8,7 @@ vi.mock('../../services/api', () => ({
   fetchNodes: vi.fn(),
   fetchTraceroutes: vi.fn(),
   fetchSolarNodesAnalysis: vi.fn(),
+  fetchSolarForecastAnalysis: vi.fn(),
 }))
 
 // Mock Leaflet - jsdom doesn't support it
@@ -27,11 +28,12 @@ vi.mock('react-leaflet', () => ({
   ),
 }))
 
-import { fetchNodes, fetchTraceroutes, fetchSolarNodesAnalysis } from '../../services/api'
+import { fetchNodes, fetchTraceroutes, fetchSolarNodesAnalysis, fetchSolarForecastAnalysis } from '../../services/api'
 
 const mockedFetchNodes = vi.mocked(fetchNodes)
 const mockedFetchTraceroutes = vi.mocked(fetchTraceroutes)
 const mockedFetchSolarNodesAnalysis = vi.mocked(fetchSolarNodesAnalysis)
+const mockedFetchSolarForecastAnalysis = vi.mocked(fetchSolarForecastAnalysis)
 
 // Mock solar analysis data
 const mockSolarAnalysis = {
@@ -486,6 +488,171 @@ describe('SolarMonitoring', () => {
     // Should show "Low Solar" warning for the second node (insufficient_solar: true)
     await waitFor(() => {
       expect(screen.getByText('Low Solar')).toBeInTheDocument()
+    })
+  })
+})
+
+// Mock solar forecast data
+const mockSolarForecast = {
+  lookback_days: 7,
+  historical_days_analyzed: 7,
+  avg_historical_daily_wh: 1500.0,
+  low_output_warning: false,
+  forecast_days: [
+    {
+      date: '2024-01-16',
+      forecast_wh: 1400,
+      avg_historical_wh: 1500,
+      pct_of_average: 93.3,
+      is_low: false,
+    },
+    {
+      date: '2024-01-17',
+      forecast_wh: 1100,
+      avg_historical_wh: 1500,
+      pct_of_average: 73.3,
+      is_low: true,
+    },
+  ],
+  nodes_at_risk_count: 0,
+  nodes_at_risk: [],
+}
+
+const mockSolarForecastWithAtRisk = {
+  lookback_days: 7,
+  historical_days_analyzed: 7,
+  avg_historical_daily_wh: 1500.0,
+  low_output_warning: true,
+  forecast_days: [
+    {
+      date: '2024-01-16',
+      forecast_wh: 900,
+      avg_historical_wh: 1500,
+      pct_of_average: 60.0,
+      is_low: true,
+    },
+  ],
+  nodes_at_risk_count: 1,
+  nodes_at_risk: [
+    {
+      node_num: 12345678,
+      node_name: 'At Risk Node',
+      current_battery: 60,
+      min_simulated_battery: 35,
+      avg_charge_rate_per_hour: 3.5,
+      avg_discharge_rate_per_hour: 0.6,
+      simulation: [
+        { date: '2024-01-16', simulated_battery: 55, forecast_factor: 0.6 },
+        { date: '2024-01-17', simulated_battery: 35, forecast_factor: 0.6 },
+      ],
+    },
+  ],
+}
+
+describe('SolarForecastAnalysis', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockedFetchNodes.mockResolvedValue(mockNodes)
+    mockedFetchTraceroutes.mockResolvedValue(mockTraceroutes)
+    mockedFetchSolarNodesAnalysis.mockResolvedValue(mockSolarAnalysis)
+    mockedFetchSolarForecastAnalysis.mockResolvedValue(mockSolarForecast)
+  })
+
+  it('renders Forecast Analysis button on Solar Monitoring page', async () => {
+    render(<AnalysisPage />)
+
+    // Open solar monitoring
+    const card = screen.getByText('Solar Monitoring Analysis').closest('button')
+    fireEvent.click(card!)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Forecast Analysis/i })).toBeInTheDocument()
+    })
+  })
+
+  it('shows forecast results after clicking Forecast Analysis button', async () => {
+    render(<AnalysisPage />)
+
+    // Open solar monitoring
+    const card = screen.getByText('Solar Monitoring Analysis').closest('button')
+    fireEvent.click(card!)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Forecast Analysis/i })).toBeInTheDocument()
+    })
+
+    // Click forecast analysis button
+    fireEvent.click(screen.getByRole('button', { name: /Forecast Analysis/i }))
+
+    // Should show forecast summary
+    await waitFor(() => {
+      expect(screen.getByText(/Avg Historical:/i)).toBeInTheDocument()
+    })
+  })
+
+  it('shows low output warning when forecast is below threshold', async () => {
+    mockedFetchSolarForecastAnalysis.mockResolvedValue(mockSolarForecastWithAtRisk)
+
+    render(<AnalysisPage />)
+
+    // Open solar monitoring
+    const card = screen.getByText('Solar Monitoring Analysis').closest('button')
+    fireEvent.click(card!)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Forecast Analysis/i })).toBeInTheDocument()
+    })
+
+    // Click forecast analysis button
+    fireEvent.click(screen.getByRole('button', { name: /Forecast Analysis/i }))
+
+    // Should show low output warning
+    await waitFor(() => {
+      expect(screen.getByText(/Low Solar Output Forecast/i)).toBeInTheDocument()
+    })
+  })
+
+  it('shows nodes at risk when forecast predicts low battery', async () => {
+    mockedFetchSolarForecastAnalysis.mockResolvedValue(mockSolarForecastWithAtRisk)
+
+    render(<AnalysisPage />)
+
+    // Open solar monitoring
+    const card = screen.getByText('Solar Monitoring Analysis').closest('button')
+    fireEvent.click(card!)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Forecast Analysis/i })).toBeInTheDocument()
+    })
+
+    // Click forecast analysis button
+    fireEvent.click(screen.getByRole('button', { name: /Forecast Analysis/i }))
+
+    // Should show nodes at risk count
+    await waitFor(() => {
+      expect(screen.getByText(/Nodes at Risk:/i)).toBeInTheDocument()
+    })
+  })
+
+  it('shows error state when forecast API fails', async () => {
+    mockedFetchSolarForecastAnalysis.mockRejectedValue(new Error('Network error'))
+
+    render(<AnalysisPage />)
+
+    // Open solar monitoring
+    const card = screen.getByText('Solar Monitoring Analysis').closest('button')
+    fireEvent.click(card!)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Forecast Analysis/i })).toBeInTheDocument()
+    })
+
+    // Click forecast analysis button
+    fireEvent.click(screen.getByRole('button', { name: /Forecast Analysis/i }))
+
+    // Should show error message
+    await waitFor(() => {
+      expect(screen.getByText(/Error analyzing forecast/i)).toBeInTheDocument()
     })
   })
 })

@@ -349,3 +349,48 @@ export async function fetchSolarNodesAnalysis(lookbackDays?: number): Promise<So
   const response = await api.get<SolarNodesAnalysis>(`/api/analysis/solar-nodes?${params.toString()}`)
   return response.data
 }
+
+// Solar Forecast Analysis
+export interface ForecastDay {
+  date: string
+  forecast_wh: number
+  avg_historical_wh: number
+  pct_of_average: number
+  is_low: boolean
+}
+
+export interface ForecastSimulationDay {
+  timestamp: string
+  simulated_battery: number
+  phase: 'sunrise' | 'peak' | 'sunset'
+  forecast_factor: number
+}
+
+export interface NodeAtRisk {
+  node_num: number
+  node_name: string
+  current_battery: number
+  min_simulated_battery: number
+  avg_charge_rate_per_hour: number
+  avg_discharge_rate_per_hour: number
+  simulation: ForecastSimulationDay[]
+}
+
+export interface SolarForecastAnalysis {
+  lookback_days: number
+  historical_days_analyzed: number
+  avg_historical_daily_wh: number
+  low_output_warning: boolean
+  forecast_days: ForecastDay[]
+  nodes_at_risk_count: number
+  nodes_at_risk: NodeAtRisk[]
+  solar_simulations: NodeAtRisk[]
+}
+
+export async function fetchSolarForecastAnalysis(lookbackDays?: number): Promise<SolarForecastAnalysis> {
+  const params = new URLSearchParams()
+  if (lookbackDays) params.append('lookback_days', lookbackDays.toString())
+
+  const response = await api.get<SolarForecastAnalysis>(`/api/analysis/solar-forecast?${params.toString()}`)
+  return response.data
+}

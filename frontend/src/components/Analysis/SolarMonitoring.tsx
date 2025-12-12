@@ -2,19 +2,28 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Area,
+  Bar,
   CartesianGrid,
   ComposedChart,
   Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts'
-import { fetchSolarNodesAnalysis, type SolarNode, type SolarProductionPoint } from '../../services/api'
+import {
+  fetchSolarNodesAnalysis,
+  fetchSolarForecastAnalysis,
+  type SolarNode,
+  type SolarProductionPoint,
+  type SolarForecastAnalysis,
+} from '../../services/api'
 
 export default function SolarMonitoring() {
   const [lookbackDays, setLookbackDays] = useState(7)
   const [runAnalysis, setRunAnalysis] = useState(false)
+  const [runForecast, setRunForecast] = useState(false)
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['solar-nodes-analysis', lookbackDays],
@@ -22,9 +31,25 @@ export default function SolarMonitoring() {
     enabled: runAnalysis,
   })
 
+  const {
+    data: forecastData,
+    isLoading: isForecastLoading,
+    error: forecastError,
+    refetch: refetchForecast,
+  } = useQuery({
+    queryKey: ['solar-forecast-analysis', lookbackDays],
+    queryFn: () => fetchSolarForecastAnalysis(lookbackDays),
+    enabled: runForecast,
+  })
+
   const handleAnalyze = () => {
     setRunAnalysis(true)
     refetch()
+  }
+
+  const handleForecast = () => {
+    setRunForecast(true)
+    refetchForecast()
   }
 
   const labelStyle = {
@@ -82,7 +107,7 @@ export default function SolarMonitoring() {
             />
           </div>
 
-          {/* Analysis Button */}
+          {/* Analysis Buttons */}
           <div style={controlGroupStyle}>
             <button
               onClick={handleAnalyze}
@@ -97,9 +122,27 @@ export default function SolarMonitoring() {
                 cursor: isLoading ? 'not-allowed' : 'pointer',
                 fontWeight: 600,
                 opacity: isLoading ? 0.7 : 1,
+                marginBottom: '0.5rem',
               }}
             >
               {isLoading ? 'Analyzing...' : 'Identify Solar Nodes'}
+            </button>
+            <button
+              onClick={handleForecast}
+              disabled={isForecastLoading}
+              style={{
+                width: '100%',
+                padding: '0.75rem 1rem',
+                borderRadius: '6px',
+                border: 'none',
+                background: 'var(--color-warning, #f59e0b)',
+                color: '#000',
+                cursor: isForecastLoading ? 'not-allowed' : 'pointer',
+                fontWeight: 600,
+                opacity: isForecastLoading ? 0.7 : 1,
+              }}
+            >
+              {isForecastLoading ? 'Analyzing...' : 'Forecast Analysis'}
             </button>
           </div>
 
@@ -149,6 +192,53 @@ export default function SolarMonitoring() {
                     </strong>
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* Forecast Summary */}
+          {forecastData && (
+            <div style={controlGroupStyle}>
+              <div style={labelStyle}>Forecast Summary</div>
+              <div
+                style={{ fontSize: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}
+              >
+                {forecastData.low_output_warning && (
+                  <div
+                    style={{
+                      background: 'var(--color-error, #ef4444)',
+                      color: 'white',
+                      padding: '0.5rem',
+                      borderRadius: '4px',
+                      fontWeight: 600,
+                      textAlign: 'center',
+                      marginBottom: '0.5rem',
+                    }}
+                  >
+                    Low Solar Output Forecast
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>Avg Historical:</span>
+                  <strong>{forecastData.avg_historical_daily_wh.toLocaleString()} Wh/day</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>Forecast Days:</span>
+                  <strong>{forecastData.forecast_days.length}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>Nodes at Risk:</span>
+                  <strong
+                    style={{
+                      color:
+                        forecastData.nodes_at_risk_count > 0
+                          ? 'var(--color-error, #ef4444)'
+                          : 'var(--color-success, #22c55e)',
+                    }}
+                  >
+                    {forecastData.nodes_at_risk_count}
+                  </strong>
+                </div>
               </div>
             </div>
           )}
@@ -240,10 +330,53 @@ export default function SolarMonitoring() {
             </div>
           )}
 
+          {/* Forecast Analysis Results - shown at top */}
+          {isForecastLoading && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '2rem',
+                color: 'var(--color-text-muted)',
+              }}
+            >
+              Analyzing solar forecast...
+            </div>
+          )}
+
+          {forecastError && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '2rem',
+                color: 'var(--color-error, #ef4444)',
+                flexDirection: 'column',
+                gap: '0.5rem',
+              }}
+            >
+              <span>Error analyzing forecast</span>
+              <span style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
+                {(forecastError as Error).message}
+              </span>
+            </div>
+          )}
+
+          {forecastData && data && (
+            <ForecastResults data={forecastData} solarProduction={data.solar_production} />
+          )}
+
           {data && data.solar_nodes.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               {data.solar_nodes.map((node) => (
-                <SolarNodeCard key={node.node_num} node={node} solarProduction={data.solar_production} />
+                <SolarNodeCard
+                  key={node.node_num}
+                  node={node}
+                  solarProduction={data.solar_production}
+                  forecastData={forecastData}
+                />
               ))}
             </div>
           )}
@@ -253,10 +386,25 @@ export default function SolarMonitoring() {
   )
 }
 
-function SolarNodeCard({ node, solarProduction }: { node: SolarNode; solarProduction: SolarProductionPoint[] }) {
+function SolarNodeCard({
+  node,
+  solarProduction,
+  forecastData,
+}: {
+  node: SolarNode
+  solarProduction: SolarProductionPoint[]
+  forecastData?: SolarForecastAnalysis
+}) {
   const [expanded, setExpanded] = useState(false)
 
-  // Merge node chart data with solar production data for combined chart
+  // Find forecast simulation for this node (from solar_simulations, which includes all solar nodes)
+  const nodeForecast = forecastData?.solar_simulations?.find((n) => n.node_num === node.node_num)
+
+  // Check if this node is at risk (min simulated battery drops below 50%)
+  const isAtRisk = forecastData?.nodes_at_risk?.some((n) => n.node_num === node.node_num)
+  const atRiskData = forecastData?.nodes_at_risk?.find((n) => n.node_num === node.node_num)
+
+  // Merge node chart data with solar production and forecast simulation data
   const mergedChartData = useMemo(() => {
     if (!node.chart_data || node.chart_data.length === 0) return []
 
@@ -267,23 +415,110 @@ function SolarNodeCard({ node, solarProduction }: { node: SolarNode; solarProduc
       solarByHour.set(hourTs, sp.wattHours)
     })
 
-    // Merge solar production into node chart data
-    return node.chart_data.map((point) => {
+    // Note: We now use the actual hourly solar data from solarByHour for forecast points
+    // instead of the daily forecast totals. The solarProduction data from the API
+    // includes both historical and future forecast data from MeshMonitor/Forecast.Solar.
+
+    // Merge solar production into node chart data (historical data only, no forecast here)
+    const chartData = node.chart_data.map((point) => {
       const hourTs = Math.floor(point.timestamp / 3600000) * 3600000
       return {
         ...point,
         solarWh: solarByHour.get(hourTs) ?? null,
+        forecastBattery: null as number | null,
+        forecastSolarWh: null as number | null,
       }
     })
-  }, [node.chart_data, solarProduction])
+
+    // Get the first and last timestamps to determine the chart range
+    const firstTimestamp = chartData.length > 0 ? chartData[0].timestamp : 0
+    const lastTimestamp = chartData.length > 0 ? chartData[chartData.length - 1].timestamp : 0
+    const lastValue = chartData.length > 0 ? chartData[chartData.length - 1].value : 0
+
+    // Add ALL hourly solar data points that aren't already in the chart
+    // This ensures we show the complete solar curve even when telemetry has gaps
+    const telemetryHours = new Set(chartData.map(p => Math.floor(p.timestamp / 3600000) * 3600000))
+    solarByHour.forEach((wh, hourTs) => {
+      // Add historical solar points that don't have corresponding telemetry
+      if (!telemetryHours.has(hourTs) && hourTs >= firstTimestamp && hourTs <= lastTimestamp) {
+        chartData.push({
+          timestamp: hourTs,
+          value: null as unknown as number,
+          solarWh: wh,
+          forecastBattery: null,
+          forecastSolarWh: null,
+        })
+      }
+    })
+
+    // Get the last point info for adding forecast/future data
+    if (chartData.length > 0) {
+      // Add forecast simulation as FUTURE points extending from the end of the chart
+      if (nodeForecast?.simulation && nodeForecast.simulation.length > 0) {
+        // Add a bridge point at the last actual value to connect forecast to historical data
+        // This creates continuity between the actual battery line and forecast line
+        chartData.push({
+          timestamp: lastTimestamp + 1, // Just after last actual point
+          value: null as unknown as number,
+          solarWh: null,
+          forecastBattery: lastValue, // Start forecast from last known value
+          forecastSolarWh: null,
+        })
+
+        // Add forecast points - now includes sunrise/peak/sunset cycle points per day
+        // Only include points AFTER the last historical data point
+        nodeForecast.simulation.forEach((sim) => {
+          // Parse the timestamp directly (format: "YYYY-MM-DDTHH:MM:SSZ")
+          const forecastTimestamp = new Date(sim.timestamp).getTime()
+
+          // Only add forecast points that are after the last historical data
+          if (forecastTimestamp > lastTimestamp) {
+            // Get the hourly solar forecast from solarByHour (which includes future forecast data)
+            const hourTs = Math.floor(forecastTimestamp / 3600000) * 3600000
+            const forecastSolar = solarByHour.get(hourTs) ?? null
+
+            chartData.push({
+              timestamp: forecastTimestamp,
+              value: null as unknown as number,
+              solarWh: null,
+              forecastBattery: sim.simulated_battery,
+              forecastSolarWh: forecastSolar,
+            })
+          }
+        })
+      }
+
+      // Always add future hourly solar forecast points (independent of battery forecast)
+      // This shows the solar curve even when battery simulation isn't available
+      const addedTimestamps = new Set(chartData.map(p => Math.floor(p.timestamp / 3600000) * 3600000))
+      solarByHour.forEach((wh, hourTs) => {
+        // Only add future hours that aren't already in the chart
+        if (hourTs > lastTimestamp && !addedTimestamps.has(hourTs)) {
+          chartData.push({
+            timestamp: hourTs,
+            value: null as unknown as number,
+            solarWh: null,
+            forecastBattery: null,
+            forecastSolarWh: wh,
+          })
+        }
+      })
+    }
+
+    // Sort by timestamp to ensure proper chart rendering
+    chartData.sort((a, b) => a.timestamp - b.timestamp)
+
+    return chartData
+  }, [node.chart_data, solarProduction, nodeForecast])
 
   const hasSolarData = solarProduction.length > 0
+  const hasForecastData = nodeForecast?.simulation && nodeForecast.simulation.length > 0
 
   return (
     <div
       style={{
         background: 'var(--color-background)',
-        border: '1px solid var(--color-border)',
+        border: isAtRisk ? '2px solid var(--color-error, #ef4444)' : '1px solid var(--color-border)',
         borderRadius: '8px',
         overflow: 'hidden',
       }}
@@ -301,6 +536,22 @@ function SolarNodeCard({ node, solarProduction }: { node: SolarNode; solarProduc
         <div>
           <div style={{ fontWeight: 600, marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             {node.node_name}
+            {isAtRisk && (
+              <span
+                title={`Forecast shows battery dropping to ${atRiskData?.min_simulated_battery}%`}
+                style={{
+                  background: 'var(--color-error, #ef4444)',
+                  color: 'white',
+                  fontSize: '0.65rem',
+                  fontWeight: 700,
+                  padding: '0.15rem 0.4rem',
+                  borderRadius: '4px',
+                  textTransform: 'uppercase',
+                }}
+              >
+                At Risk
+              </span>
+            )}
             {node.insufficient_solar && (
               <span
                 title="Insufficient solar output: charge rate does not sufficiently exceed discharge rate"
@@ -400,7 +651,7 @@ function SolarNodeCard({ node, solarProduction }: { node: SolarNode; solarProduc
                   marginBottom: '0.5rem',
                 }}
               >
-                {node.metric_type === 'battery' ? 'Battery Level' : 'Voltage'} {hasSolarData ? '& Solar Production' : ''} Over Time
+                {node.metric_type === 'battery' ? 'Battery Level' : 'Voltage'}{hasSolarData ? ' & Solar Production' : ''}{hasForecastData ? ' & Forecast' : ''} Over Time
               </div>
               <div style={{ height: '200px', background: 'var(--color-background)', borderRadius: '4px', padding: '0.5rem' }}>
                 <ResponsiveContainer width="100%" height="100%">
@@ -408,13 +659,15 @@ function SolarNodeCard({ node, solarProduction }: { node: SolarNode; solarProduc
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
                     <XAxis
                       dataKey="timestamp"
+                      type="number"
+                      scale="time"
+                      domain={['dataMin', 'dataMax']}
                       tickFormatter={(ts) => {
                         const date = new Date(ts)
                         return `${(date.getMonth() + 1)}/${date.getDate()}`
                       }}
                       stroke="var(--color-text-muted)"
                       fontSize={10}
-                      interval="preserveStartEnd"
                     />
                     <YAxis
                       yAxisId="left"
@@ -446,10 +699,19 @@ function SolarNodeCard({ node, solarProduction }: { node: SolarNode; solarProduc
                         if (name === 'solarWh') {
                           return [`${(value as number).toFixed(0)} Wh`, 'Solar']
                         }
-                        return [
-                          node.metric_type === 'battery' ? `${value}%` : `${(value as number).toFixed(2)}V`,
-                          node.metric_type === 'battery' ? 'Battery' : 'Voltage',
-                        ]
+                        if (name === 'forecastSolarWh') {
+                          return [`${(value as number).toFixed(0)} Wh`, 'Forecast Solar']
+                        }
+                        if (name === 'forecastBattery') {
+                          return [`${value}%`, 'Forecast Battery']
+                        }
+                        if (name === 'value') {
+                          return [
+                            node.metric_type === 'battery' ? `${value}%` : `${(value as number).toFixed(2)}V`,
+                            node.metric_type === 'battery' ? 'Battery' : 'Voltage',
+                          ]
+                        }
+                        return [value, name]
                       }}
                     />
                     {/* Solar production background area */}
@@ -477,6 +739,45 @@ function SolarNodeCard({ node, solarProduction }: { node: SolarNode; solarProduc
                       dot={false}
                       connectNulls
                     />
+                    {/* Forecast solar production - dashed yellow area */}
+                    {hasForecastData && hasSolarData && (
+                      <Area
+                        yAxisId="right"
+                        type="monotone"
+                        dataKey="forecastSolarWh"
+                        fill="#f9e2af"
+                        fillOpacity={0.15}
+                        stroke="#f9e2af"
+                        strokeOpacity={0.8}
+                        strokeWidth={2}
+                        strokeDasharray="5 5"
+                        connectNulls
+                        isAnimationActive={false}
+                      />
+                    )}
+                    {/* Forecast battery line - dashed orange for visibility */}
+                    {hasForecastData && (
+                      <Line
+                        yAxisId="left"
+                        type="monotone"
+                        dataKey="forecastBattery"
+                        stroke="#f97316"
+                        strokeWidth={2}
+                        strokeDasharray="5 5"
+                        dot={{ fill: '#f97316', r: 3 }}
+                        connectNulls
+                        isAnimationActive={false}
+                      />
+                    )}
+                    {/* 50% warning line for battery forecast when node is at risk */}
+                    {hasForecastData && node.metric_type === 'battery' && (
+                      <ReferenceLine
+                        yAxisId="left"
+                        y={50}
+                        stroke="#ef4444"
+                        strokeDasharray="3 3"
+                      />
+                    )}
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
@@ -595,6 +896,247 @@ function SolarNodeCard({ node, solarProduction }: { node: SolarNode; solarProduc
               </table>
             </div>
           )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ForecastResults({ data, solarProduction }: { data: SolarForecastAnalysis; solarProduction: SolarProductionPoint[] }) {
+  // Aggregate hourly solar production into daily totals
+  const chartData = useMemo(() => {
+    // Group hourly data by date (YYYY-MM-DD)
+    const dailyTotals = new Map<string, number>()
+
+    solarProduction.forEach((point) => {
+      const date = new Date(point.timestamp)
+      const dateStr = date.toISOString().split('T')[0]
+      dailyTotals.set(dateStr, (dailyTotals.get(dateStr) || 0) + point.wattHours)
+    })
+
+    // Create forecast map for quick lookup
+    const forecastByDate = new Map(data.forecast_days.map((d) => [d.date, d.forecast_wh]))
+
+    // Build combined chart data: historical + forecast
+    // For days with both (like today), include both values
+    const combined: Array<{
+      date: string
+      historical_wh: number | null
+      forecast_wh: number | null
+      avg_historical_wh: number
+    }> = []
+
+    // Collect all unique dates from both sources
+    const allDates = new Set([
+      ...Array.from(dailyTotals.keys()),
+      ...data.forecast_days.map((d) => d.date),
+    ])
+
+    // Add data for each date, including both historical and forecast when available
+    Array.from(allDates)
+      .sort()
+      .forEach((date) => {
+        const historicalWh = dailyTotals.get(date)
+        const forecastWh = forecastByDate.get(date)
+
+        combined.push({
+          date,
+          historical_wh: historicalWh !== undefined ? Math.round(historicalWh) : null,
+          forecast_wh: forecastWh !== undefined ? forecastWh : null,
+          avg_historical_wh: data.avg_historical_daily_wh,
+        })
+      })
+
+    // Sort by date
+    combined.sort((a, b) => a.date.localeCompare(b.date))
+
+    return combined
+  }, [solarProduction, data.forecast_days, data.avg_historical_daily_wh])
+
+  return (
+    <div style={{ marginBottom: '1.5rem' }}>
+      {/* Section Header */}
+      <div
+        style={{
+          padding: '1rem',
+          background: 'var(--color-background)',
+          borderRadius: '8px 8px 0 0',
+          border: '1px solid var(--color-border)',
+          borderBottom: 'none',
+        }}
+      >
+        <h4 style={{ margin: 0, fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          Forecast Analysis
+          {data.low_output_warning && (
+            <span
+              style={{
+                background: 'var(--color-error, #ef4444)',
+                color: 'white',
+                fontSize: '0.65rem',
+                fontWeight: 700,
+                padding: '0.15rem 0.4rem',
+                borderRadius: '4px',
+                textTransform: 'uppercase',
+              }}
+            >
+              Low Output Warning
+            </span>
+          )}
+          {data.nodes_at_risk_count > 0 && (
+            <span
+              style={{
+                background: 'var(--color-error, #ef4444)',
+                color: 'white',
+                fontSize: '0.65rem',
+                fontWeight: 700,
+                padding: '0.15rem 0.4rem',
+                borderRadius: '4px',
+                textTransform: 'uppercase',
+              }}
+            >
+              {data.nodes_at_risk_count} Node{data.nodes_at_risk_count > 1 ? 's' : ''} at Risk
+            </span>
+          )}
+        </h4>
+        <p style={{ margin: '0.5rem 0 0', fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
+          {data.historical_days_analyzed} days of historical data (avg {data.avg_historical_daily_wh.toLocaleString()} Wh/day)
+          {data.forecast_days.length > 0 && ` + ${data.forecast_days.length} day forecast`}
+        </p>
+      </div>
+
+      {/* Combined Historical + Forecast Chart */}
+      {chartData.length > 0 && (
+        <div
+          style={{
+            padding: '1rem',
+            background: 'var(--color-surface)',
+            border: '1px solid var(--color-border)',
+            borderRadius: data.nodes_at_risk.length === 0 && data.forecast_days.length === 0 ? '0 0 8px 8px' : undefined,
+          }}
+        >
+          <div
+            style={{
+              fontSize: '0.75rem',
+              color: 'var(--color-text-muted)',
+              textTransform: 'uppercase',
+              marginBottom: '0.5rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '1rem',
+            }}
+          >
+            <span>Daily Solar Production</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+              <span style={{ width: 12, height: 12, background: '#89b4fa', borderRadius: 2 }} />
+              Historical
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+              <span style={{ width: 12, height: 12, background: '#f9e2af', borderRadius: 2 }} />
+              Forecast
+            </span>
+          </div>
+          <div style={{ height: '200px' }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+                <XAxis
+                  dataKey="date"
+                  tickFormatter={(date) => {
+                    // Parse YYYY-MM-DD directly to avoid timezone issues
+                    const parts = (date as string).split('-')
+                    return `${parseInt(parts[1])}/${parseInt(parts[2])}`
+                  }}
+                  stroke="var(--color-text-muted)"
+                  fontSize={10}
+                  interval="preserveStartEnd"
+                />
+                <YAxis stroke="var(--color-text-muted)" fontSize={10} width={60} tickFormatter={(v) => `${v.toLocaleString()}`} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: 'var(--color-bg-secondary)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: '4px',
+                    color: 'var(--color-text)',
+                  }}
+                  labelFormatter={(date) => {
+                    // Parse YYYY-MM-DD directly to avoid timezone issues
+                    const parts = (date as string).split('-')
+                    return `${parseInt(parts[1])}/${parseInt(parts[2])}/${parts[0]}`
+                  }}
+                  formatter={(value, name) => {
+                    if (name === 'historical_wh') return [`${(value as number).toLocaleString()} Wh`, 'Actual']
+                    if (name === 'forecast_wh') return [`${(value as number).toLocaleString()} Wh`, 'Forecast']
+                    if (name === 'avg_historical_wh') return [`${(value as number).toLocaleString()} Wh`, 'Average']
+                    return [value, name]
+                  }}
+                />
+                {/* 75% warning line */}
+                <ReferenceLine y={data.avg_historical_daily_wh * 0.75} stroke="#ef4444" strokeDasharray="5 5" label={{ value: '75%', fill: '#ef4444', fontSize: 10 }} />
+                {/* Historical bars (blue) */}
+                <Bar dataKey="historical_wh" fill="#89b4fa" name="Actual" />
+                {/* Forecast bars (yellow) */}
+                <Bar dataKey="forecast_wh" fill="#f9e2af" name="Forecast" />
+                {/* Average line */}
+                <Line type="monotone" dataKey="avg_historical_wh" stroke="#a6adc8" strokeWidth={2} strokeDasharray="5 5" dot={false} name="Average" />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {chartData.length === 0 && (
+        <div
+          style={{
+            padding: '2rem',
+            background: 'var(--color-surface)',
+            border: '1px solid var(--color-border)',
+            textAlign: 'center',
+            color: 'var(--color-text-muted)',
+            borderRadius: '0 0 8px 8px',
+          }}
+        >
+          No solar production data available.
+        </div>
+      )}
+
+      {/* Nodes at Risk Summary */}
+      {data.nodes_at_risk.length > 0 && (
+        <div
+          style={{
+            padding: '0.75rem 1rem',
+            background: 'var(--color-surface)',
+            border: '1px solid var(--color-border)',
+            borderTop: 'none',
+            borderRadius: '0 0 8px 8px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            fontSize: '0.85rem',
+          }}
+        >
+          <span style={{ color: 'var(--color-error, #ef4444)', fontWeight: 600 }}>
+            {data.nodes_at_risk.length} node{data.nodes_at_risk.length > 1 ? 's' : ''} predicted to drop below 50% battery:
+          </span>
+          <span style={{ color: 'var(--color-text-muted)' }}>
+            {data.nodes_at_risk.map((n) => n.node_name).join(', ')}
+          </span>
+        </div>
+      )}
+
+      {data.nodes_at_risk.length === 0 && data.forecast_days.length > 0 && (
+        <div
+          style={{
+            padding: '0.75rem 1rem',
+            background: 'var(--color-surface)',
+            border: '1px solid var(--color-border)',
+            borderTop: 'none',
+            borderRadius: '0 0 8px 8px',
+            textAlign: 'center',
+          }}
+        >
+          <span style={{ color: 'var(--color-success, #22c55e)', fontWeight: 600 }}>
+            No nodes predicted to drop below 50% battery during forecast period
+          </span>
         </div>
       )}
     </div>

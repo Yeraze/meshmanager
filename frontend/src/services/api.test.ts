@@ -34,6 +34,7 @@ import {
   deleteSource,
   testSource,
   syncSource,
+  fetchSolarNodesAnalysis,
 } from './api'
 
 describe('API Service', () => {
@@ -277,6 +278,52 @@ describe('API Service', () => {
 
       expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/utilization/config')
       expect(result).toEqual(mockConfig)
+    })
+  })
+
+  describe('Solar Analysis endpoints', () => {
+    it('fetchSolarNodesAnalysis should call GET /api/analysis/solar-nodes', async () => {
+      const mockAnalysis = {
+        lookback_days: 7,
+        total_nodes_analyzed: 50,
+        solar_nodes_count: 5,
+        solar_nodes: [
+          {
+            node_num: 12345678,
+            node_name: 'Solar Node',
+            solar_score: 85.7,
+            days_analyzed: 7,
+            days_with_pattern: 6,
+            recent_patterns: [],
+            metric_type: 'battery',
+            chart_data: [],
+          },
+        ],
+        solar_production: [],
+      }
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: mockAnalysis })
+
+      const result = await fetchSolarNodesAnalysis()
+
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/analysis/solar-nodes?')
+      expect(result).toEqual(mockAnalysis)
+    })
+
+    it('fetchSolarNodesAnalysis should include lookback_days param when provided', async () => {
+      const mockAnalysis = {
+        lookback_days: 14,
+        total_nodes_analyzed: 50,
+        solar_nodes_count: 5,
+        solar_nodes: [],
+        solar_production: [],
+      }
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: mockAnalysis })
+
+      await fetchSolarNodesAnalysis(14)
+
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith(
+        expect.stringContaining('lookback_days=14')
+      )
     })
   })
 })

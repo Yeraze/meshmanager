@@ -7,6 +7,7 @@ import { mockNodes, mockTraceroutes } from '../../test/mocks'
 vi.mock('../../services/api', () => ({
   fetchNodes: vi.fn(),
   fetchTraceroutes: vi.fn(),
+  fetchSolarNodesAnalysis: vi.fn(),
 }))
 
 // Mock Leaflet - jsdom doesn't support it
@@ -26,10 +27,56 @@ vi.mock('react-leaflet', () => ({
   ),
 }))
 
-import { fetchNodes, fetchTraceroutes } from '../../services/api'
+import { fetchNodes, fetchTraceroutes, fetchSolarNodesAnalysis } from '../../services/api'
 
 const mockedFetchNodes = vi.mocked(fetchNodes)
 const mockedFetchTraceroutes = vi.mocked(fetchTraceroutes)
+const mockedFetchSolarNodesAnalysis = vi.mocked(fetchSolarNodesAnalysis)
+
+// Mock solar analysis data
+const mockSolarAnalysis = {
+  lookback_days: 7,
+  total_nodes_analyzed: 50,
+  solar_nodes_count: 2,
+  solar_nodes: [
+    {
+      node_num: 12345678,
+      node_name: 'Solar Node 1',
+      solar_score: 85.7,
+      days_analyzed: 7,
+      days_with_pattern: 6,
+      recent_patterns: [
+        {
+          date: '2024-01-15',
+          sunrise: { time: '07:30', value: 70 },
+          peak: { time: '14:00', value: 95 },
+          sunset: { time: '18:30', value: 88 },
+          rise: 25,
+          fall: 7,
+        },
+      ],
+      metric_type: 'battery' as const,
+      chart_data: [
+        { timestamp: 1705300000000, value: 70 },
+        { timestamp: 1705320000000, value: 95 },
+      ],
+    },
+    {
+      node_num: 87654321,
+      node_name: 'Solar Node 2',
+      solar_score: 71.4,
+      days_analyzed: 7,
+      days_with_pattern: 5,
+      recent_patterns: [],
+      metric_type: 'voltage' as const,
+      chart_data: [],
+    },
+  ],
+  solar_production: [
+    { timestamp: 1705300000000, wattHours: 50 },
+    { timestamp: 1705320000000, wattHours: 150 },
+  ],
+}
 
 describe('AnalysisPage', () => {
   beforeEach(() => {
@@ -227,5 +274,186 @@ describe('Utility Functions', () => {
       // This is a placeholder for when we export the function for testing
       expect(true).toBe(true)
     })
+  })
+})
+
+describe('SolarMonitoring', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockedFetchNodes.mockResolvedValue(mockNodes)
+    mockedFetchTraceroutes.mockResolvedValue(mockTraceroutes)
+    mockedFetchSolarNodesAnalysis.mockResolvedValue(mockSolarAnalysis)
+  })
+
+  it('renders Solar Monitoring Analysis card on main page', () => {
+    render(<AnalysisPage />)
+    expect(screen.getByText('Solar Monitoring Analysis')).toBeInTheDocument()
+    expect(screen.getByText(/Identify solar-powered nodes/)).toBeInTheDocument()
+  })
+
+  it('opens SolarMonitoring when card is clicked', async () => {
+    render(<AnalysisPage />)
+
+    const card = screen.getByText('Solar Monitoring Analysis').closest('button')
+    expect(card).toBeInTheDocument()
+
+    fireEvent.click(card!)
+
+    // Should show Back button and Options header
+    await waitFor(() => {
+      expect(screen.getByText('Back')).toBeInTheDocument()
+      expect(screen.getByText('Options')).toBeInTheDocument()
+    })
+  })
+
+  it('renders lookback days input', async () => {
+    render(<AnalysisPage />)
+
+    // Open solar monitoring
+    const card = screen.getByText('Solar Monitoring Analysis').closest('button')
+    fireEvent.click(card!)
+
+    await waitFor(() => {
+      expect(screen.getByText('Lookback Period (Days)')).toBeInTheDocument()
+    })
+  })
+
+  it('renders Identify Solar Nodes button', async () => {
+    render(<AnalysisPage />)
+
+    // Open solar monitoring
+    const card = screen.getByText('Solar Monitoring Analysis').closest('button')
+    fireEvent.click(card!)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Identify Solar Nodes/i })).toBeInTheDocument()
+    })
+  })
+
+  it('shows analysis results after clicking Identify Solar Nodes', async () => {
+    render(<AnalysisPage />)
+
+    // Open solar monitoring
+    const card = screen.getByText('Solar Monitoring Analysis').closest('button')
+    fireEvent.click(card!)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Identify Solar Nodes/i })).toBeInTheDocument()
+    })
+
+    // Click analyze button
+    fireEvent.click(screen.getByRole('button', { name: /Identify Solar Nodes/i }))
+
+    // Should show results
+    await waitFor(() => {
+      expect(screen.getByText(/nodes analyzed/i)).toBeInTheDocument()
+    })
+  })
+
+  it('displays solar node count after analysis', async () => {
+    render(<AnalysisPage />)
+
+    // Open solar monitoring
+    const card = screen.getByText('Solar Monitoring Analysis').closest('button')
+    fireEvent.click(card!)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Identify Solar Nodes/i })).toBeInTheDocument()
+    })
+
+    // Click analyze button
+    fireEvent.click(screen.getByRole('button', { name: /Identify Solar Nodes/i }))
+
+    // Should show solar nodes count in "Solar Nodes Found:" section
+    await waitFor(() => {
+      expect(screen.getByText('Solar Nodes Found:')).toBeInTheDocument()
+      expect(screen.getByText('2')).toBeInTheDocument()
+    })
+  })
+
+  it('shows empty state when no solar nodes found', async () => {
+    mockedFetchSolarNodesAnalysis.mockResolvedValue({
+      ...mockSolarAnalysis,
+      solar_nodes_count: 0,
+      solar_nodes: [],
+    })
+
+    render(<AnalysisPage />)
+
+    // Open solar monitoring
+    const card = screen.getByText('Solar Monitoring Analysis').closest('button')
+    fireEvent.click(card!)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Identify Solar Nodes/i })).toBeInTheDocument()
+    })
+
+    // Click analyze button
+    fireEvent.click(screen.getByRole('button', { name: /Identify Solar Nodes/i }))
+
+    // Should show no solar nodes message
+    await waitFor(() => {
+      expect(screen.getByText(/No solar-powered nodes identified/i)).toBeInTheDocument()
+    })
+  })
+
+  it('shows error state when API fails', async () => {
+    mockedFetchSolarNodesAnalysis.mockRejectedValue(new Error('Network error'))
+
+    render(<AnalysisPage />)
+
+    // Open solar monitoring
+    const card = screen.getByText('Solar Monitoring Analysis').closest('button')
+    fireEvent.click(card!)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Identify Solar Nodes/i })).toBeInTheDocument()
+    })
+
+    // Click analyze button
+    fireEvent.click(screen.getByRole('button', { name: /Identify Solar Nodes/i }))
+
+    // Should show error message
+    await waitFor(() => {
+      expect(screen.getByText(/Error analyzing data/i)).toBeInTheDocument()
+    })
+  })
+
+  it('returns to grid when Back button is clicked from Solar Monitoring', async () => {
+    render(<AnalysisPage />)
+
+    // Open solar monitoring
+    const card = screen.getByText('Solar Monitoring Analysis').closest('button')
+    fireEvent.click(card!)
+
+    await waitFor(() => {
+      expect(screen.getByText('Back')).toBeInTheDocument()
+    })
+
+    // Click back
+    fireEvent.click(screen.getByText('Back'))
+
+    // Should show Analysis title again (grid view)
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Analysis' })).toBeInTheDocument()
+    })
+  })
+
+  it('allows changing lookback days', async () => {
+    render(<AnalysisPage />)
+
+    // Open solar monitoring
+    const card = screen.getByText('Solar Monitoring Analysis').closest('button')
+    fireEvent.click(card!)
+
+    await waitFor(() => {
+      expect(screen.getByText('Lookback Period (Days)')).toBeInTheDocument()
+    })
+
+    // Find the input and change its value
+    const input = screen.getByRole('spinbutton')
+    fireEvent.change(input, { target: { value: '14' } })
+
+    expect(input).toHaveValue(14)
   })
 })

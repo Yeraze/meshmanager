@@ -431,6 +431,10 @@ async def identify_solar_nodes(
     # Analyze each node's daily patterns
     solar_candidates = []
 
+    # Global tracking for average hours calculations
+    all_charging_hours = []  # Hours between sunrise and sunset (daylight/charging period)
+    all_discharge_hours = []  # Hours between sunset and next sunrise (overnight/discharge period)
+
     for node_num, daily_data in node_data.items():
         days_with_pattern = 0
         total_days = 0
@@ -579,6 +583,11 @@ async def identify_solar_nodes(
                 charge_rate = (peak_value - sunrise_value) / charging_hours if charging_hours > 0 else 0
                 charge_rates.append(charge_rate)
 
+                # Track daylight/charging hours (sunrise -> sunset)
+                daylight_hours = (sunset_time - sunrise_time).total_seconds() / 3600
+                if daylight_hours > 0:
+                    all_charging_hours.append(daylight_hours)
+
                 # Calculate discharge rate per hour (previous sunset -> this sunrise)
                 discharge_rate = None
                 if previous_day_sunset is not None:
@@ -590,6 +599,8 @@ async def identify_solar_nodes(
                         # Discharge is previous_sunset - current_sunrise (should be positive if discharging)
                         discharge_rate = (prev_sunset_value - sunrise_value) / discharge_hours
                         discharge_rates.append(discharge_rate)
+                        # Track overnight/discharge hours
+                        all_discharge_hours.append(discharge_hours)
 
                 daily_patterns.append({
                     "date": date_str,
@@ -686,12 +697,18 @@ async def identify_solar_nodes(
         for row in solar_rows
     ]
 
+    # Calculate global averages
+    avg_charging_hours_per_day = round(sum(all_charging_hours) / len(all_charging_hours), 1) if all_charging_hours else None
+    avg_discharge_hours_per_day = round(sum(all_discharge_hours) / len(all_discharge_hours), 1) if all_discharge_hours else None
+
     return {
         "lookback_days": lookback_days,
         "total_nodes_analyzed": len(node_data),
         "solar_nodes_count": len(solar_candidates),
         "solar_nodes": solar_candidates,
         "solar_production": solar_chart_data,
+        "avg_charging_hours_per_day": avg_charging_hours_per_day,
+        "avg_discharge_hours_per_day": avg_discharge_hours_per_day,
     }
 
 

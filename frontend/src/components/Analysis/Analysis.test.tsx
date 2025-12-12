@@ -38,6 +38,8 @@ const mockSolarAnalysis = {
   lookback_days: 7,
   total_nodes_analyzed: 50,
   solar_nodes_count: 2,
+  avg_charging_hours_per_day: 10.5,
+  avg_discharge_hours_per_day: 13.5,
   solar_nodes: [
     {
       node_num: 12345678,
@@ -382,6 +384,8 @@ describe('SolarMonitoring', () => {
       ...mockSolarAnalysis,
       solar_nodes_count: 0,
       solar_nodes: [],
+      avg_charging_hours_per_day: null,
+      avg_discharge_hours_per_day: null,
     })
 
     render(<AnalysisPage />)

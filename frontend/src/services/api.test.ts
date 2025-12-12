@@ -287,6 +287,8 @@ describe('API Service', () => {
         lookback_days: 7,
         total_nodes_analyzed: 50,
         solar_nodes_count: 5,
+        avg_charging_hours_per_day: 10.5,
+        avg_discharge_hours_per_day: 13.5,
         solar_nodes: [
           {
             node_num: 12345678,
@@ -316,6 +318,8 @@ describe('API Service', () => {
         lookback_days: 14,
         total_nodes_analyzed: 50,
         solar_nodes_count: 5,
+        avg_charging_hours_per_day: 10.5,
+        avg_discharge_hours_per_day: 13.5,
         solar_nodes: [],
         solar_production: [],
       }

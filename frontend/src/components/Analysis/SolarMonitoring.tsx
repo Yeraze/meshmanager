@@ -125,6 +125,33 @@ export default function SolarMonitoring() {
               </div>
             </div>
           )}
+
+          {/* Average Hours Stats */}
+          {data && (data.avg_charging_hours_per_day !== null || data.avg_discharge_hours_per_day !== null) && (
+            <div style={controlGroupStyle}>
+              <div style={labelStyle}>Average Daily Cycle</div>
+              <div
+                style={{ fontSize: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}
+              >
+                {data.avg_charging_hours_per_day !== null && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>Charging Hours:</span>
+                    <strong style={{ color: 'var(--color-success, #22c55e)' }}>
+                      {data.avg_charging_hours_per_day.toFixed(1)} hrs/day
+                    </strong>
+                  </div>
+                )}
+                {data.avg_discharge_hours_per_day !== null && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>Discharge Hours:</span>
+                    <strong style={{ color: 'var(--color-error, #ef4444)' }}>
+                      {data.avg_discharge_hours_per_day.toFixed(1)} hrs/day
+                    </strong>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

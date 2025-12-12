@@ -337,6 +337,8 @@ export interface SolarNodesAnalysis {
   solar_nodes_count: number
   solar_nodes: SolarNode[]
   solar_production: SolarProductionPoint[]
+  avg_charging_hours_per_day: number | null
+  avg_discharge_hours_per_day: number | null
 }
 
 export async function fetchSolarNodesAnalysis(lookbackDays?: number): Promise<SolarNodesAnalysis> {

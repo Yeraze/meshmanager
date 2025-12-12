@@ -434,13 +434,12 @@ async def identify_solar_nodes(
     for node_num, daily_data in node_data.items():
         days_with_pattern = 0
         total_days = 0
+        high_efficiency_days = 0
         daily_patterns = []
 
         for date_str, readings in daily_data.items():
             if len(readings) < 3:  # Need at least 3 readings to detect a pattern
                 continue
-
-            total_days += 1
 
             # Sort by time
             readings.sort(key=lambda x: x["time"])
@@ -470,8 +469,37 @@ async def identify_solar_nodes(
             min_value = min(all_values)
             max_value = max(all_values)
             daily_range = max_value - min_value
-            if daily_range < min_variance:
+
+            # Determine if this is potentially a "high-efficiency solar" setup
+            # These nodes have large batteries/panels that stay 90-100% with minimal swing
+            is_battery = len(battery_values) >= 3
+            is_high_efficiency_candidate = False
+            if is_battery:
+                # Battery: stays above 90% with small but present swing (2-10%)
+                is_high_efficiency_candidate = (
+                    min_value >= 90 and
+                    max_value >= 95 and
+                    daily_range >= 2 and daily_range < min_variance
+                )
+            else:
+                # Voltage: stays above 4.0V with small but present swing (0.05-0.3V)
+                is_high_efficiency_candidate = (
+                    min_value >= 4.0 and
+                    max_value >= 4.1 and
+                    daily_range >= 0.05 and daily_range < min_variance
+                )
+
+            # Skip days with truly constant values (wall power)
+            # But allow high-efficiency candidates through
+            if daily_range < min_variance and not is_high_efficiency_candidate:
                 continue
+
+            # Count this as a valid day for analysis
+            total_days += 1
+
+            # Track high-efficiency days for threshold adjustment
+            if is_high_efficiency_candidate:
+                high_efficiency_days += 1
 
             # Find morning values (6am-10am) and afternoon values (12pm-6pm)
             morning_values = [v for v in values if 6 <= v["time"].hour <= 10]
@@ -520,12 +548,20 @@ async def identify_solar_nodes(
             # Check for solar pattern:
             # Key indicator: significant rise from morning to afternoon during daylight
             # The fall may happen overnight, so we don't require it within same day
-            min_rise_threshold = max(min_variance, daily_range * 0.3)
+            if is_high_efficiency_candidate:
+                # Relaxed thresholds for high-efficiency solar (nodes that stay 90-100%)
+                # These nodes show the TIME pattern but with smaller swings
+                min_rise_threshold = 1 if is_battery else 0.02  # 1% for battery, 0.02V for voltage
+                min_ratio = 0.98  # Morning can be within 2% of peak
+            else:
+                min_rise_threshold = max(min_variance, daily_range * 0.3)
+                min_ratio = 0.95  # Morning should be at least 5% below peak
+
             has_solar_pattern = (
                 rise >= min_rise_threshold and
                 peak_time.hour >= 10 and peak_time.hour <= 18 and  # Peak during daylight
                 sunrise_time.hour <= 12 and  # Low should be in morning
-                sunrise_value < peak_value * 0.95  # Morning low should be noticeably lower
+                sunrise_value <= peak_value * min_ratio  # Morning low should be noticeably lower
             )
 
             if has_solar_pattern:
@@ -548,8 +584,12 @@ async def identify_solar_nodes(
                     "fall": round(fall, 1),
                 })
 
-        # Consider a node solar-powered if it shows the pattern on at least 50% of analyzed days
-        if total_days >= 2 and days_with_pattern / total_days >= 0.5:
+        # Consider a node solar-powered if it shows the pattern on enough analyzed days
+        # High-efficiency nodes (stay 90-100%) use a lower threshold since small swings
+        # make patterns harder to detect consistently
+        is_mostly_high_efficiency = high_efficiency_days > total_days * 0.5
+        min_pattern_ratio = 0.33 if is_mostly_high_efficiency else 0.5
+        if total_days >= 2 and days_with_pattern / total_days >= min_pattern_ratio:
             solar_score = round((days_with_pattern / total_days) * 100, 1)
 
             # Collect all telemetry data points for this node for charting

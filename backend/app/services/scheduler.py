@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 from datetime import datetime
 
 import httpx
@@ -83,12 +84,13 @@ class SchedulerService:
             logger.warning("No Apprise URLs configured, skipping notification")
             return
 
+        chart_path = None
         try:
             # Fetch analysis from internal API endpoints
             # Use localhost:8000 since we're inside the same container as uvicorn
             base_url = "http://localhost:8000"
             async with httpx.AsyncClient() as client:
-                # Get solar nodes analysis
+                # Get solar nodes analysis (includes solar_production data)
                 analysis_resp = await client.get(
                     f"{base_url}/api/analysis/solar-nodes",
                     params={"lookback_days": lookback_days},
@@ -106,9 +108,15 @@ class SchedulerService:
                 forecast_resp.raise_for_status()
                 forecast = forecast_resp.json()
 
-            # Format and send notification
+            # Generate chart image
+            solar_production = analysis.get("solar_production", [])
+            chart_path = notification_service.generate_solar_chart(
+                analysis, forecast, solar_production
+            )
+
+            # Format and send notification with chart
             title, body = notification_service.format_solar_summary(analysis, forecast)
-            result = await notification_service.send(urls, title, body)
+            result = await notification_service.send(urls, title, body, image_path=chart_path)
 
             if result["success"]:
                 logger.info(f"Scheduled solar analysis notification sent to {len(urls)} URLs")
@@ -119,6 +127,13 @@ class SchedulerService:
             logger.error(f"Failed to fetch analysis data: {e}")
         except Exception as e:
             logger.error(f"Failed to run scheduled analysis: {e}")
+        finally:
+            # Clean up temp chart file
+            if chart_path and os.path.exists(chart_path):
+                try:
+                    os.unlink(chart_path)
+                except Exception:
+                    pass
 
     async def run_test_notification(self, settings: dict) -> dict:
         """Run a test notification with current settings.
@@ -131,11 +146,12 @@ class SchedulerService:
         if not urls:
             return {"success": False, "error": "No Apprise URLs configured"}
 
+        chart_path = None
         try:
             # Use localhost:8000 since we're inside the same container as uvicorn
             base_url = "http://localhost:8000"
             async with httpx.AsyncClient() as client:
-                # Get solar nodes analysis
+                # Get solar nodes analysis (includes solar_production data)
                 analysis_resp = await client.get(
                     f"{base_url}/api/analysis/solar-nodes",
                     params={"lookback_days": lookback_days},
@@ -153,9 +169,15 @@ class SchedulerService:
                 forecast_resp.raise_for_status()
                 forecast = forecast_resp.json()
 
-            # Format and send notification
+            # Generate chart image
+            solar_production = analysis.get("solar_production", [])
+            chart_path = notification_service.generate_solar_chart(
+                analysis, forecast, solar_production
+            )
+
+            # Format and send notification with chart
             title, body = notification_service.format_solar_summary(analysis, forecast)
-            result = await notification_service.send(urls, title, body)
+            result = await notification_service.send(urls, title, body, image_path=chart_path)
 
             return result
 
@@ -163,6 +185,13 @@ class SchedulerService:
             return {"success": False, "error": f"Failed to fetch analysis: {str(e)}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
+        finally:
+            # Clean up temp chart file
+            if chart_path and os.path.exists(chart_path):
+                try:
+                    os.unlink(chart_path)
+                except Exception:
+                    pass
 
 
 # Global scheduler service instance

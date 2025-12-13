@@ -23,6 +23,7 @@ dependencies = [
     "rasterio>=1.3",
     "fiona>=1.9",
     "apprise>=1.9",
+    "matplotlib>=3.8",
 ]
 
 [project.optional-dependencies]

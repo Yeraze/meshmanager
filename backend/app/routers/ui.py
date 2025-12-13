@@ -2,12 +2,12 @@
 
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, literal_column, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import Node, SolarProduction, Source, Telemetry, Traceroute
+from app.models import Node, SolarProduction, Source, SystemSetting, Telemetry, Traceroute
 from app.schemas.node import NodeResponse, NodeSummary
 from app.schemas.telemetry import TelemetryHistory, TelemetryHistoryPoint, TelemetryResponse
 from app.services.collector_manager import collector_manager
@@ -691,12 +691,12 @@ async def identify_solar_nodes(
     solar_candidates.sort(key=lambda x: x["solar_score"], reverse=True)
 
     # Fetch solar production data for the lookback period (for chart overlay)
-    # Group by hour and sum watt_hours from all sources to get complete hourly totals
+    # Group by hour and average watt_hours across sources
     hour_trunc = func.date_trunc("hour", SolarProduction.timestamp)
     solar_result = await db.execute(
         select(
             hour_trunc.label("hour"),
-            func.sum(SolarProduction.watt_hours).label("total_watt_hours"),
+            func.avg(SolarProduction.watt_hours).label("avg_watt_hours"),
         )
         .where(SolarProduction.timestamp >= cutoff)
         .group_by(literal_column("1"))
@@ -706,7 +706,7 @@ async def identify_solar_nodes(
     solar_chart_data = [
         {
             "timestamp": int(row.hour.timestamp() * 1000),
-            "wattHours": round(row.total_watt_hours, 2),
+            "wattHours": round(row.avg_watt_hours, 2),
         }
         for row in solar_rows
     ]
@@ -763,34 +763,60 @@ async def analyze_solar_forecast(
     cutoff = now - timedelta(days=lookback_days)
 
     # Get historical solar production (past days, not including today's future)
+    # First sum hourly values per source per day, then average across sources
     day_trunc = func.date_trunc("day", SolarProduction.timestamp)
-    historical_result = await db.execute(
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # Subquery: sum watt_hours per source per day
+    source_daily_totals = (
         select(
             day_trunc.label("day"),
-            func.sum(SolarProduction.watt_hours).label("total_wh"),
+            SolarProduction.source_id,
+            func.sum(SolarProduction.watt_hours).label("daily_wh"),
         )
         .where(SolarProduction.timestamp >= cutoff)
-        .where(SolarProduction.timestamp < now.replace(hour=0, minute=0, second=0, microsecond=0))
-        .group_by(literal_column("1"))
-        .order_by(literal_column("1"))
+        .where(SolarProduction.timestamp < today_start)
+        .group_by(day_trunc, SolarProduction.source_id)
+        .subquery()
+    )
+
+    # Main query: average daily totals across sources
+    historical_result = await db.execute(
+        select(
+            source_daily_totals.c.day,
+            func.avg(source_daily_totals.c.daily_wh).label("avg_wh"),
+        )
+        .group_by(source_daily_totals.c.day)
+        .order_by(source_daily_totals.c.day)
     )
     historical_rows = historical_result.all()
 
     # Get forecast solar production (today and future)
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    forecast_result = await db.execute(
+    # Subquery: sum watt_hours per source per day for forecast period
+    forecast_source_daily = (
         select(
             day_trunc.label("day"),
-            func.sum(SolarProduction.watt_hours).label("total_wh"),
+            SolarProduction.source_id,
+            func.sum(SolarProduction.watt_hours).label("daily_wh"),
         )
         .where(SolarProduction.timestamp >= today_start)
-        .group_by(literal_column("1"))
-        .order_by(literal_column("1"))
+        .group_by(day_trunc, SolarProduction.source_id)
+        .subquery()
+    )
+
+    # Main query: average daily totals across sources
+    forecast_result = await db.execute(
+        select(
+            forecast_source_daily.c.day,
+            func.avg(forecast_source_daily.c.daily_wh).label("avg_wh"),
+        )
+        .group_by(forecast_source_daily.c.day)
+        .order_by(forecast_source_daily.c.day)
     )
     forecast_rows = forecast_result.all()
 
     # Calculate historical average daily output
-    historical_daily_wh = [row.total_wh for row in historical_rows if row.total_wh]
+    historical_daily_wh = [row.avg_wh for row in historical_rows if row.avg_wh]
     avg_historical_daily_wh = sum(historical_daily_wh) / len(historical_daily_wh) if historical_daily_wh else 0
 
     # Analyze forecast days - extend to 5 days into the future
@@ -800,7 +826,7 @@ async def analyze_solar_forecast(
     # Create a dict of actual forecast data by date
     actual_forecast_by_date = {}
     for row in forecast_rows:
-        actual_forecast_by_date[row.day.strftime("%Y-%m-%d")] = row.total_wh or 0
+        actual_forecast_by_date[row.day.strftime("%Y-%m-%d")] = row.avg_wh or 0
 
     # Only generate forecast days for dates where we have actual solar forecast data
     # This limits the forecast to the data available from Forecast.Solar (typically today + 1 day)
@@ -1192,3 +1218,111 @@ async def get_solar_averages(
     ]
 
 
+# Solar schedule settings key
+SOLAR_SCHEDULE_KEY = "solar_analysis.schedule"
+
+
+@router.get("/settings/solar-schedule")
+async def get_solar_schedule_settings(
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Get solar analysis schedule settings."""
+    result = await db.execute(
+        select(SystemSetting).where(SystemSetting.key == SOLAR_SCHEDULE_KEY)
+    )
+    setting = result.scalar_one_or_none()
+
+    if not setting:
+        return {
+            "enabled": False,
+            "schedules": [],
+            "apprise_urls": [],
+            "lookback_days": 7,
+        }
+    return setting.value
+
+
+@router.put("/settings/solar-schedule")
+async def update_solar_schedule_settings(
+    settings: dict,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Update solar analysis schedule settings.
+
+    Settings schema:
+    - enabled: bool - Whether scheduled analysis is enabled
+    - schedules: list[str] - List of times in "HH:MM" format
+    - apprise_urls: list[str] - List of Apprise notification URLs
+    - lookback_days: int - Days of history to analyze (1-90)
+    """
+    # Validate and sanitize settings
+    validated = {
+        "enabled": bool(settings.get("enabled", False)),
+        "schedules": [],
+        "apprise_urls": [],
+        "lookback_days": min(max(int(settings.get("lookback_days", 7)), 1), 90),
+    }
+
+    # Validate schedule times (HH:MM format)
+    for time_str in settings.get("schedules", []):
+        if isinstance(time_str, str) and len(time_str) == 5:
+            try:
+                hours, minutes = time_str.split(":")
+                if 0 <= int(hours) <= 23 and 0 <= int(minutes) <= 59:
+                    validated["schedules"].append(time_str)
+            except (ValueError, AttributeError):
+                pass  # Skip invalid times
+
+    # Validate Apprise URLs (basic validation - just check they're non-empty strings)
+    for url in settings.get("apprise_urls", []):
+        if isinstance(url, str) and url.strip():
+            validated["apprise_urls"].append(url.strip())
+
+    # Update or create setting
+    result = await db.execute(
+        select(SystemSetting).where(SystemSetting.key == SOLAR_SCHEDULE_KEY)
+    )
+    setting = result.scalar_one_or_none()
+
+    if setting:
+        setting.value = validated
+    else:
+        db.add(SystemSetting(key=SOLAR_SCHEDULE_KEY, value=validated))
+
+    await db.commit()
+    return validated
+
+
+@router.post("/settings/solar-schedule/test")
+async def test_solar_notification(
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Send a test notification with current solar analysis.
+
+    Uses the current schedule settings to send a test notification.
+    Returns success status and any error message.
+    """
+    from app.services.scheduler import scheduler_service
+
+    # Get current settings
+    result = await db.execute(
+        select(SystemSetting).where(SystemSetting.key == SOLAR_SCHEDULE_KEY)
+    )
+    setting = result.scalar_one_or_none()
+
+    if not setting or not setting.value.get("apprise_urls"):
+        raise HTTPException(
+            status_code=400,
+            detail="No Apprise URLs configured. Add at least one notification URL first.",
+        )
+
+    # Run test notification
+    test_result = await scheduler_service.run_test_notification(setting.value)
+
+    if not test_result["success"]:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Notification failed: {test_result.get('error', 'Unknown error')}",
+        )
+
+    return {"success": True, "message": "Test notification sent successfully"}

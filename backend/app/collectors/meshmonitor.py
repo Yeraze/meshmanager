@@ -1278,6 +1278,174 @@ class MeshMonitorCollector(BaseCollector):
         )
         return total_collected
 
+    async def collect_since_last_poll(self) -> int:
+        """Collect data that was missed since the last poll.
+
+        This is called on startup to catch up on data that was missed while
+        the collector was stopped. It uses the source's last_poll_at timestamp
+        to determine what data to fetch.
+
+        Returns:
+            Total number of records collected
+        """
+        if not self.source.url:
+            return 0
+
+        # Get the latest last_poll_at from database
+        async with async_session_maker() as db:
+            result = await db.execute(
+                select(Source).where(Source.id == self.source.id)
+            )
+            source = result.scalar()
+            if not source or not source.last_poll_at:
+                logger.info(
+                    f"No last_poll_at for {self.source.name}, skipping catchup"
+                )
+                return 0
+            last_poll_at = source.last_poll_at
+
+        # Calculate how long ago the last poll was
+        now = datetime.now(UTC)
+        time_since_last_poll = now - last_poll_at
+        hours_since_last_poll = time_since_last_poll.total_seconds() / 3600
+
+        # If less than 2x the poll interval, skip catchup (normal polling will handle it)
+        min_catchup_hours = (self.source.poll_interval_seconds * 2) / 3600
+        if hours_since_last_poll < min_catchup_hours:
+            logger.debug(
+                f"Skipping catchup for {self.source.name}: "
+                f"only {hours_since_last_poll:.1f}h since last poll"
+            )
+            return 0
+
+        logger.info(
+            f"Starting catchup for {self.source.name}: "
+            f"{hours_since_last_poll:.1f} hours since last poll"
+        )
+
+        # Convert to milliseconds for the API
+        since_ms = int(last_poll_at.timestamp() * 1000)
+
+        total_collected = 0
+
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                headers = self._get_headers()
+
+                # First get list of nodes to collect from
+                response = await client.get(
+                    f"{self.source.url}/api/v1/nodes",
+                    headers=headers,
+                )
+
+                if response.status_code != 200:
+                    logger.warning(
+                        f"Failed to fetch nodes for catchup: {response.status_code}"
+                    )
+                    return 0
+
+                data = response.json()
+                if isinstance(data, dict) and "data" in data:
+                    nodes = data.get("data", [])
+                elif isinstance(data, list):
+                    nodes = data
+                else:
+                    nodes = []
+
+                logger.info(
+                    f"Catching up {len(nodes)} nodes since {last_poll_at.isoformat()}"
+                )
+
+                # Collect telemetry for each node since last_poll_at
+                for node in nodes:
+                    node_id = node.get("nodeId") or node.get("id")
+                    if not node_id:
+                        continue
+
+                    # Collect all data since last_poll_at for this node
+                    count, _ = await self._collect_node_telemetry_history(
+                        client,
+                        headers,
+                        node_id,
+                        since_ms=since_ms,
+                        limit=500,
+                    )
+                    total_collected += count
+
+                    # Small delay between nodes
+                    if count > 0:
+                        await asyncio.sleep(0.5)
+
+                # Also catch up solar data
+                solar_count = await self._collect_solar_since(
+                    client, headers, since_ms
+                )
+                total_collected += solar_count
+
+        except Exception as e:
+            logger.error(f"Error during catchup for {self.source.name}: {e}")
+
+        logger.info(
+            f"Catchup complete for {self.source.name}: {total_collected} records"
+        )
+        return total_collected
+
+    async def _collect_solar_since(
+        self,
+        client: httpx.AsyncClient,
+        headers: dict,
+        since_ms: int,
+    ) -> int:
+        """Collect solar data since a given timestamp.
+
+        Args:
+            client: HTTP client
+            headers: Request headers
+            since_ms: Only fetch records after this timestamp (milliseconds)
+
+        Returns:
+            Number of records collected
+        """
+        try:
+            response = await client.get(
+                f"{self.source.url}/api/v1/solar",
+                headers=headers,
+                params={"since": since_ms, "limit": 500},
+            )
+
+            if response.status_code == 404:
+                return 0
+
+            if response.status_code != 200:
+                logger.warning(f"Failed to fetch solar data: {response.status_code}")
+                return 0
+
+            data = response.json()
+            if isinstance(data, dict) and "data" in data:
+                solar_data = data.get("data", [])
+            elif isinstance(data, list):
+                solar_data = data
+            else:
+                solar_data = []
+
+            if not solar_data:
+                return 0
+
+            count = 0
+            async with async_session_maker() as db:
+                for record in solar_data:
+                    inserted = await self._insert_solar_record(db, record)
+                    if inserted:
+                        count += 1
+                await db.commit()
+
+            logger.debug(f"Collected {count} solar records during catchup")
+            return count
+
+        except Exception as e:
+            logger.error(f"Error collecting solar data during catchup: {e}")
+            return 0
+
     async def start(self, collect_history: bool = False) -> None:
         """Start periodic collection.
 

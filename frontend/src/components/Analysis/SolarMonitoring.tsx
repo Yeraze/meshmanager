@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Area,
   Bar,
@@ -15,15 +15,22 @@ import {
 import {
   fetchSolarNodesAnalysis,
   fetchSolarForecastAnalysis,
+  getSolarScheduleSettings,
+  updateSolarScheduleSettings,
+  testSolarNotification,
   type SolarNode,
   type SolarProductionPoint,
   type SolarForecastAnalysis,
+  type SolarScheduleSettings,
 } from '../../services/api'
 
 export default function SolarMonitoring() {
   const [lookbackDays, setLookbackDays] = useState(7)
   const [runAnalysis, setRunAnalysis] = useState(false)
   const [runForecast, setRunForecast] = useState(false)
+  const [scheduleExpanded, setScheduleExpanded] = useState(false)
+  const [testStatus, setTestStatus] = useState<string | null>(null)
+  const queryClient = useQueryClient()
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['solar-nodes-analysis', lookbackDays],
@@ -42,6 +49,33 @@ export default function SolarMonitoring() {
     enabled: runForecast,
   })
 
+  // Schedule settings query
+  const { data: scheduleSettings } = useQuery({
+    queryKey: ['solar-schedule-settings'],
+    queryFn: getSolarScheduleSettings,
+  })
+
+  // Schedule settings mutation
+  const updateScheduleMutation = useMutation({
+    mutationFn: updateSolarScheduleSettings,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['solar-schedule-settings'] })
+    },
+  })
+
+  // Test notification mutation
+  const testNotificationMutation = useMutation({
+    mutationFn: testSolarNotification,
+    onSuccess: () => {
+      setTestStatus('Notification sent successfully!')
+      setTimeout(() => setTestStatus(null), 3000)
+    },
+    onError: (error: Error) => {
+      setTestStatus(`Failed: ${error.message}`)
+      setTimeout(() => setTestStatus(null), 5000)
+    },
+  })
+
   const handleAnalyze = () => {
     setRunAnalysis(true)
     refetch()
@@ -50,6 +84,49 @@ export default function SolarMonitoring() {
   const handleForecast = () => {
     setRunForecast(true)
     refetchForecast()
+  }
+
+  // Helper functions for schedule settings
+  const updateSettings = (updates: Partial<SolarScheduleSettings>) => {
+    if (!scheduleSettings) return
+    updateScheduleMutation.mutate({ ...scheduleSettings, ...updates })
+  }
+
+  const addScheduleTime = () => {
+    if (!scheduleSettings) return
+    updateSettings({ schedules: [...scheduleSettings.schedules, '08:00'] })
+  }
+
+  const removeScheduleTime = (index: number) => {
+    if (!scheduleSettings) return
+    const newSchedules = scheduleSettings.schedules.filter((_, i) => i !== index)
+    updateSettings({ schedules: newSchedules })
+  }
+
+  const updateScheduleTime = (index: number, value: string) => {
+    if (!scheduleSettings) return
+    const newSchedules = [...scheduleSettings.schedules]
+    newSchedules[index] = value
+    updateSettings({ schedules: newSchedules })
+  }
+
+  const addAppriseUrl = () => {
+    if (!scheduleSettings) return
+    // Add a placeholder that user will edit - backend filters empty strings
+    updateSettings({ apprise_urls: [...scheduleSettings.apprise_urls, 'apprise://new'] })
+  }
+
+  const removeAppriseUrl = (index: number) => {
+    if (!scheduleSettings) return
+    const newUrls = scheduleSettings.apprise_urls.filter((_, i) => i !== index)
+    updateSettings({ apprise_urls: newUrls })
+  }
+
+  const updateAppriseUrl = (index: number, value: string) => {
+    if (!scheduleSettings) return
+    const newUrls = [...scheduleSettings.apprise_urls]
+    newUrls[index] = value
+    updateSettings({ apprise_urls: newUrls })
   }
 
   const labelStyle = {
@@ -242,6 +319,238 @@ export default function SolarMonitoring() {
               </div>
             </div>
           )}
+
+          {/* Scheduled Analysis Section */}
+          <div
+            style={{
+              borderTop: '1px solid var(--color-border)',
+              paddingTop: '1rem',
+              marginTop: '1rem',
+            }}
+          >
+            <div
+              style={{
+                ...labelStyle,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                userSelect: 'none',
+              }}
+              onClick={() => setScheduleExpanded(!scheduleExpanded)}
+            >
+              <span style={{ marginRight: '0.5rem', fontSize: '0.7rem' }}>
+                {scheduleExpanded ? '▼' : '▶'}
+              </span>
+              SCHEDULED ANALYSIS
+            </div>
+
+            {scheduleExpanded && scheduleSettings && (
+              <div style={{ marginTop: '0.75rem' }}>
+                {/* Enable toggle */}
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    marginBottom: '1rem',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={scheduleSettings.enabled}
+                    onChange={(e) => updateSettings({ enabled: e.target.checked })}
+                    style={{ marginRight: '0.5rem' }}
+                  />
+                  <span style={{ fontSize: '0.85rem' }}>Enable scheduled analysis</span>
+                </label>
+
+                {/* Lookback days for schedule */}
+                <div style={controlGroupStyle}>
+                  <div style={labelStyle}>Analysis Lookback (Days)</div>
+                  <input
+                    type="number"
+                    min="1"
+                    max="90"
+                    value={scheduleSettings.lookback_days}
+                    onChange={(e) =>
+                      updateSettings({ lookback_days: parseInt(e.target.value) || 7 })
+                    }
+                    style={{
+                      width: '100%',
+                      padding: '0.5rem',
+                      borderRadius: '4px',
+                      border: '1px solid var(--color-border)',
+                      background: 'var(--color-background)',
+                      color: 'var(--color-text)',
+                    }}
+                  />
+                </div>
+
+                {/* Schedule times */}
+                <div style={controlGroupStyle}>
+                  <div style={labelStyle}>Schedule Times</div>
+                  {scheduleSettings.schedules.map((time, i) => (
+                    <div
+                      key={i}
+                      style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.25rem' }}
+                    >
+                      <input
+                        type="time"
+                        value={time}
+                        onChange={(e) => updateScheduleTime(i, e.target.value)}
+                        style={{
+                          flex: 1,
+                          padding: '0.4rem',
+                          borderRadius: '4px',
+                          border: '1px solid var(--color-border)',
+                          background: 'var(--color-background)',
+                          color: 'var(--color-text)',
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeScheduleTime(i)}
+                        style={{
+                          padding: '0.4rem 0.6rem',
+                          borderRadius: '4px',
+                          border: '1px solid var(--color-border)',
+                          background: 'var(--color-background)',
+                          color: 'var(--color-text)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={addScheduleTime}
+                    style={{
+                      width: '100%',
+                      padding: '0.4rem',
+                      borderRadius: '4px',
+                      border: '1px dashed var(--color-border)',
+                      background: 'transparent',
+                      color: 'var(--color-text-muted)',
+                      cursor: 'pointer',
+                      fontSize: '0.85rem',
+                    }}
+                  >
+                    + Add Time
+                  </button>
+                </div>
+
+                {/* Apprise URLs */}
+                <div style={controlGroupStyle}>
+                  <div style={labelStyle}>Notification URLs (Apprise)</div>
+                  {scheduleSettings.apprise_urls.map((url, i) => (
+                    <div
+                      key={i}
+                      style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.25rem' }}
+                    >
+                      <input
+                        type="text"
+                        value={url}
+                        placeholder="discord://... or slack://..."
+                        onChange={(e) => updateAppriseUrl(i, e.target.value)}
+                        style={{
+                          flex: 1,
+                          padding: '0.4rem',
+                          borderRadius: '4px',
+                          border: '1px solid var(--color-border)',
+                          background: 'var(--color-background)',
+                          color: 'var(--color-text)',
+                          fontSize: '0.8rem',
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeAppriseUrl(i)}
+                        style={{
+                          padding: '0.4rem 0.6rem',
+                          borderRadius: '4px',
+                          border: '1px solid var(--color-border)',
+                          background: 'var(--color-background)',
+                          color: 'var(--color-text)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={addAppriseUrl}
+                    style={{
+                      width: '100%',
+                      padding: '0.4rem',
+                      borderRadius: '4px',
+                      border: '1px dashed var(--color-border)',
+                      background: 'transparent',
+                      color: 'var(--color-text-muted)',
+                      cursor: 'pointer',
+                      fontSize: '0.85rem',
+                    }}
+                  >
+                    + Add URL
+                  </button>
+                </div>
+
+                {/* Test button */}
+                <button
+                  onClick={() => testNotificationMutation.mutate()}
+                  disabled={
+                    testNotificationMutation.isPending ||
+                    scheduleSettings.apprise_urls.length === 0
+                  }
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem',
+                    borderRadius: '4px',
+                    border: 'none',
+                    background: 'var(--color-primary)',
+                    color: 'white',
+                    cursor:
+                      testNotificationMutation.isPending ||
+                      scheduleSettings.apprise_urls.length === 0
+                        ? 'not-allowed'
+                        : 'pointer',
+                    opacity:
+                      testNotificationMutation.isPending ||
+                      scheduleSettings.apprise_urls.length === 0
+                        ? 0.6
+                        : 1,
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  {testNotificationMutation.isPending
+                    ? 'Sending...'
+                    : 'Test Notification'}
+                </button>
+
+                {/* Test status message */}
+                {testStatus && (
+                  <div
+                    style={{
+                      marginTop: '0.5rem',
+                      padding: '0.5rem',
+                      borderRadius: '4px',
+                      fontSize: '0.8rem',
+                      background: testStatus.startsWith('Failed')
+                        ? 'var(--color-error, #ef4444)'
+                        : 'var(--color-success, #22c55e)',
+                      color: 'white',
+                      textAlign: 'center',
+                    }}
+                  >
+                    {testStatus}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -905,6 +1214,10 @@ function SolarNodeCard({
 function ForecastResults({ data, solarProduction }: { data: SolarForecastAnalysis; solarProduction: SolarProductionPoint[] }) {
   // Aggregate hourly solar production into daily totals
   const chartData = useMemo(() => {
+    // Get today's date string for comparison (in local timezone)
+    const today = new Date()
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+
     // Group hourly data by date (YYYY-MM-DD)
     const dailyTotals = new Map<string, number>()
 
@@ -917,8 +1230,8 @@ function ForecastResults({ data, solarProduction }: { data: SolarForecastAnalysi
     // Create forecast map for quick lookup
     const forecastByDate = new Map(data.forecast_days.map((d) => [d.date, d.forecast_wh]))
 
-    // Build combined chart data: historical + forecast
-    // For days with both (like today), include both values
+    // Build combined chart data: actual (past) + forecast (future)
+    // For today, show both actual and forecast
     const combined: Array<{
       date: string
       historical_wh: number | null
@@ -932,17 +1245,24 @@ function ForecastResults({ data, solarProduction }: { data: SolarForecastAnalysi
       ...data.forecast_days.map((d) => d.date),
     ])
 
-    // Add data for each date, including both historical and forecast when available
+    // Add data for each date
+    // - Past dates: only show actual (historical_wh)
+    // - Future dates: only show forecast (forecast_wh)
+    // - Today: show both if available
     Array.from(allDates)
       .sort()
       .forEach((date) => {
-        const historicalWh = dailyTotals.get(date)
+        const rawTotal = dailyTotals.get(date)
         const forecastWh = forecastByDate.get(date)
+        const isFuture = date > todayStr
+        const isToday = date === todayStr
 
         combined.push({
           date,
-          historical_wh: historicalWh !== undefined ? Math.round(historicalWh) : null,
-          forecast_wh: forecastWh !== undefined ? forecastWh : null,
+          // Only show actual data for today and past dates
+          historical_wh: (!isFuture && rawTotal !== undefined) ? Math.round(rawTotal) : null,
+          // Only show forecast for today and future dates
+          forecast_wh: ((isToday || isFuture) && forecastWh !== undefined) ? forecastWh : null,
           avg_historical_wh: data.avg_historical_daily_wh,
         })
       })
@@ -1028,11 +1348,19 @@ function ForecastResults({ data, solarProduction }: { data: SolarForecastAnalysi
             <span>Daily Solar Production</span>
             <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
               <span style={{ width: 12, height: 12, background: '#89b4fa', borderRadius: 2 }} />
-              Historical
+              Actual
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
               <span style={{ width: 12, height: 12, background: '#f9e2af', borderRadius: 2 }} />
               Forecast
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+              <span style={{ width: 12, height: 2, background: '#a6adc8', borderRadius: 1 }} />
+              Average
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+              <span style={{ width: 12, height: 2, background: '#ef4444', borderRadius: 1 }} />
+              75% Warning
             </span>
           </div>
           <div style={{ height: '200px' }}>

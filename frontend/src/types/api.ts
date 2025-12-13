@@ -94,6 +94,25 @@ export interface MqttSourceCreate extends SourceCreate {
   mqtt_use_tls?: boolean
 }
 
+export interface MeshMonitorSourceUpdate {
+  name?: string
+  url?: string
+  api_token?: string
+  poll_interval_seconds?: number
+  enabled?: boolean
+}
+
+export interface MqttSourceUpdate {
+  name?: string
+  mqtt_host?: string
+  mqtt_port?: number
+  mqtt_username?: string
+  mqtt_password?: string
+  mqtt_topic_pattern?: string
+  mqtt_use_tls?: boolean
+  enabled?: boolean
+}
+
 export interface Telemetry {
   id: string
   source_id: string

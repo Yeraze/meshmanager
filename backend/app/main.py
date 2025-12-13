@@ -20,6 +20,7 @@ from app.routers import (
 )
 from app.services.collector_manager import collector_manager
 from app.services.retention import retention_service
+from app.services.scheduler import scheduler_service
 
 # Configure logging
 logging.basicConfig(
@@ -49,12 +50,17 @@ async def lifespan(app: FastAPI):
     await retention_service.start()
     logger.info("Retention service started")
 
+    # Start solar analysis scheduler
+    await scheduler_service.start()
+    logger.info("Solar analysis scheduler started")
+
     yield
 
     # Shutdown
     logger.info("Shutting down MeshManager...")
 
     # Stop services
+    await scheduler_service.stop()
     await retention_service.stop()
     await collector_manager.stop()
     await close_db()

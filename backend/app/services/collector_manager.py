@@ -32,7 +32,11 @@ class CollectorManager:
         logger.info(f"Started {len(self._collectors)} collectors")
 
     async def _load_collectors(self) -> None:
-        """Load and start collectors for all enabled sources."""
+        """Load and start collectors for all enabled sources.
+
+        On startup, triggers catchup collection to recover any data missed
+        while the application was down.
+        """
         async with async_session_maker() as db:
             result = await db.execute(
                 select(Source).where(Source.enabled == True)  # noqa: E712
@@ -40,14 +44,18 @@ class CollectorManager:
             sources = result.scalars().all()
 
             for source in sources:
-                await self._start_collector(source)
+                # Enable catchup on startup to recover missed data
+                await self._start_collector(source, catchup=True)
 
-    async def _start_collector(self, source: Source, collect_history: bool = False) -> None:
+    async def _start_collector(
+        self, source: Source, collect_history: bool = False, catchup: bool = False
+    ) -> None:
         """Start a collector for a source.
 
         Args:
             source: The source to start a collector for
             collect_history: If True, collect historical data in the background
+            catchup: If True, collect data since last poll (for startup recovery)
         """
         if source.id in self._collectors:
             return
@@ -67,6 +75,32 @@ class CollectorManager:
             await collector.start(collect_history=True)
         else:
             await collector.start()
+
+        # Trigger catchup collection in background if requested
+        if catchup and source.type == SourceType.MESHMONITOR:
+            asyncio.create_task(self._catchup_collector(source.id))
+
+    async def _catchup_collector(self, source_id: str) -> None:
+        """Run catchup collection for a collector in the background.
+
+        Waits briefly for the collector to initialize before starting catchup.
+        """
+        # Wait a moment for the collector to fully initialize
+        await asyncio.sleep(5)
+
+        collector = self._collectors.get(source_id)
+        if not collector:
+            return
+
+        if hasattr(collector, 'collect_since_last_poll'):
+            try:
+                count = await collector.collect_since_last_poll()
+                if count > 0:
+                    logger.info(
+                        f"Startup catchup for source {source_id}: {count} records recovered"
+                    )
+            except Exception as e:
+                logger.error(f"Startup catchup failed for source {source_id}: {e}")
 
     async def stop(self) -> None:
         """Stop all collectors."""

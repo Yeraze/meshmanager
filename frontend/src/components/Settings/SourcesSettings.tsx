@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useAdminSources, useDeleteSource, useTestSource, useSyncSource, useCollectionStatuses } from '../../hooks/useAdminSources'
 import { AddSourceForm } from '../Admin/AddSourceForm'
-import type { CollectionStatus } from '../../types/api'
+import { EditSourceForm } from '../Admin/EditSourceForm'
+import type { CollectionStatus, Source } from '../../types/api'
 
 const BATCH_DELAY_SECONDS = 5
 
@@ -74,6 +75,7 @@ export default function SourcesSettings() {
   const testMutation = useTestSource()
   const syncMutation = useSyncSource()
   const [showAddForm, setShowAddForm] = useState(false)
+  const [editingSource, setEditingSource] = useState<Source | null>(null)
   const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string; nodes_found?: number }>>({})
 
   const handleDelete = async (id: string, name: string) => {
@@ -117,6 +119,16 @@ export default function SourcesSettings() {
       {showAddForm && (
         <div className="settings-card">
           <AddSourceForm onSuccess={() => setShowAddForm(false)} />
+        </div>
+      )}
+
+      {editingSource && (
+        <div className="settings-card">
+          <EditSourceForm
+            source={editingSource}
+            onSuccess={() => setEditingSource(null)}
+            onCancel={() => setEditingSource(null)}
+          />
         </div>
       )}
 
@@ -191,6 +203,15 @@ export default function SourcesSettings() {
                     {collectionStatuses[source.id]?.status === 'collecting' ? 'Syncing...' : 'Sync Data'}
                   </button>
                 )}
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    setShowAddForm(false)
+                    setEditingSource(source)
+                  }}
+                >
+                  Edit
+                </button>
                 <button
                   className="btn btn-danger btn-sm"
                   onClick={() => handleDelete(source.id, source.name)}

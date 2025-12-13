@@ -9,6 +9,9 @@ vi.mock('../../services/api', () => ({
   fetchTraceroutes: vi.fn(),
   fetchSolarNodesAnalysis: vi.fn(),
   fetchSolarForecastAnalysis: vi.fn(),
+  getSolarScheduleSettings: vi.fn(),
+  updateSolarScheduleSettings: vi.fn(),
+  testSolarNotification: vi.fn(),
 }))
 
 // Mock Leaflet - jsdom doesn't support it
@@ -28,12 +31,21 @@ vi.mock('react-leaflet', () => ({
   ),
 }))
 
-import { fetchNodes, fetchTraceroutes, fetchSolarNodesAnalysis, fetchSolarForecastAnalysis } from '../../services/api'
+import { fetchNodes, fetchTraceroutes, fetchSolarNodesAnalysis, fetchSolarForecastAnalysis, getSolarScheduleSettings } from '../../services/api'
 
 const mockedFetchNodes = vi.mocked(fetchNodes)
 const mockedFetchTraceroutes = vi.mocked(fetchTraceroutes)
 const mockedFetchSolarNodesAnalysis = vi.mocked(fetchSolarNodesAnalysis)
 const mockedFetchSolarForecastAnalysis = vi.mocked(fetchSolarForecastAnalysis)
+const mockedGetSolarScheduleSettings = vi.mocked(getSolarScheduleSettings)
+
+// Mock schedule settings data
+const mockScheduleSettings = {
+  enabled: false,
+  schedules: [],
+  apprise_urls: [],
+  lookback_days: 7,
+}
 
 // Mock solar analysis data
 const mockSolarAnalysis = {
@@ -295,6 +307,7 @@ describe('SolarMonitoring', () => {
     mockedFetchNodes.mockResolvedValue(mockNodes)
     mockedFetchTraceroutes.mockResolvedValue(mockTraceroutes)
     mockedFetchSolarNodesAnalysis.mockResolvedValue(mockSolarAnalysis)
+    mockedGetSolarScheduleSettings.mockResolvedValue(mockScheduleSettings)
   })
 
   it('renders Solar Monitoring Analysis card on main page', () => {
@@ -556,6 +569,7 @@ describe('SolarForecastAnalysis', () => {
     mockedFetchTraceroutes.mockResolvedValue(mockTraceroutes)
     mockedFetchSolarNodesAnalysis.mockResolvedValue(mockSolarAnalysis)
     mockedFetchSolarForecastAnalysis.mockResolvedValue(mockSolarForecast)
+    mockedGetSolarScheduleSettings.mockResolvedValue(mockScheduleSettings)
   })
 
   it('renders Forecast Analysis button on Solar Monitoring page', async () => {

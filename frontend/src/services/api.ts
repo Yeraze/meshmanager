@@ -4,7 +4,9 @@ import type {
   CollectionStatus,
   LoginRequest,
   MeshMonitorSourceCreate,
+  MeshMonitorSourceUpdate,
   MqttSourceCreate,
+  MqttSourceUpdate,
   Node,
   RegisterRequest,
   Source,
@@ -57,6 +59,16 @@ export async function createMeshMonitorSource(data: MeshMonitorSourceCreate): Pr
 
 export async function createMqttSource(data: MqttSourceCreate): Promise<Source> {
   const response = await api.post<Source>('/api/admin/sources/mqtt', data)
+  return response.data
+}
+
+export async function updateMeshMonitorSource(id: string, data: MeshMonitorSourceUpdate): Promise<Source> {
+  const response = await api.put<Source>(`/api/admin/sources/meshmonitor/${id}`, data)
+  return response.data
+}
+
+export async function updateMqttSource(id: string, data: MqttSourceUpdate): Promise<Source> {
+  const response = await api.put<Source>(`/api/admin/sources/mqtt/${id}`, data)
   return response.data
 }
 
@@ -392,5 +404,28 @@ export async function fetchSolarForecastAnalysis(lookbackDays?: number): Promise
   if (lookbackDays) params.append('lookback_days', lookbackDays.toString())
 
   const response = await api.get<SolarForecastAnalysis>(`/api/analysis/solar-forecast?${params.toString()}`)
+  return response.data
+}
+
+// Solar Schedule Settings
+export interface SolarScheduleSettings {
+  enabled: boolean
+  schedules: string[]  // Array of "HH:MM" time strings
+  apprise_urls: string[]
+  lookback_days: number
+}
+
+export async function getSolarScheduleSettings(): Promise<SolarScheduleSettings> {
+  const response = await api.get<SolarScheduleSettings>('/api/settings/solar-schedule')
+  return response.data
+}
+
+export async function updateSolarScheduleSettings(settings: SolarScheduleSettings): Promise<SolarScheduleSettings> {
+  const response = await api.put<SolarScheduleSettings>('/api/settings/solar-schedule', settings)
+  return response.data
+}
+
+export async function testSolarNotification(): Promise<{ success: boolean; message: string }> {
+  const response = await api.post<{ success: boolean; message: string }>('/api/settings/solar-schedule/test')
   return response.data
 }

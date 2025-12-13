@@ -4,11 +4,13 @@ import {
   fetchCollectionStatuses,
   createMeshMonitorSource,
   createMqttSource,
+  updateMeshMonitorSource,
+  updateMqttSource,
   deleteSource,
   testSource,
   syncSource,
 } from '../services/api'
-import type { MeshMonitorSourceCreate, MqttSourceCreate } from '../types/api'
+import type { MeshMonitorSourceCreate, MeshMonitorSourceUpdate, MqttSourceCreate, MqttSourceUpdate } from '../types/api'
 
 export function useAdminSources() {
   return useQuery({
@@ -34,6 +36,32 @@ export function useCreateMqttSource() {
 
   return useMutation({
     mutationFn: (data: MqttSourceCreate) => createMqttSource(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'sources'] })
+      queryClient.invalidateQueries({ queryKey: ['sources'] })
+    },
+  })
+}
+
+export function useUpdateMeshMonitorSource() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: MeshMonitorSourceUpdate }) =>
+      updateMeshMonitorSource(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'sources'] })
+      queryClient.invalidateQueries({ queryKey: ['sources'] })
+    },
+  })
+}
+
+export function useUpdateMqttSource() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: MqttSourceUpdate }) =>
+      updateMqttSource(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'sources'] })
       queryClient.invalidateQueries({ queryKey: ['sources'] })

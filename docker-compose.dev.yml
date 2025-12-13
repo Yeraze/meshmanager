@@ -24,6 +24,7 @@ services:
       DEBUG: "true"
       LOG_LEVEL: INFO
       CORS_ORIGINS: '["http://localhost:8080"]'
+      TZ: America/New_York
     depends_on:
       postgres:
         condition: service_healthy

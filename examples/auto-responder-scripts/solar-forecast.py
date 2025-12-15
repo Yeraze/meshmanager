@@ -25,7 +25,8 @@ Usage:
 - "sun" - Alias for solar
 
 Response format (abbreviated for mesh):
-  Solar: 1234Wh (85% avg)
+  Solar Forecast for 12/15
+  4.1kWh (85% avg)
   Risk: 2 nodes
   - NodeA: min 23%
   - NodeB: min 41%
@@ -36,6 +37,7 @@ import os
 import sys
 import urllib.request
 import urllib.error
+from datetime import datetime
 
 
 def fetch_solar_forecast(base_url: str, lookback_days: int = 7) -> dict:
@@ -57,12 +59,25 @@ def format_response(forecast: dict) -> str:
 
     # Get forecast for today/tomorrow
     forecast_days = forecast.get("forecast_days", [])
-    avg_historical = forecast.get("avg_historical_daily_wh", 0)
 
     if forecast_days:
         today = forecast_days[0]
+        date_str = today.get("date", "")
         wh = today.get("forecast_wh", 0)
         pct = today.get("pct_of_average", 100)
+
+        # Format date as MM/DD
+        if date_str:
+            try:
+                dt = datetime.strptime(date_str, "%Y-%m-%d")
+                formatted_date = dt.strftime("%m/%d")
+            except ValueError:
+                formatted_date = date_str
+        else:
+            formatted_date = datetime.now().strftime("%m/%d")
+
+        # Header line with date
+        lines.append(f"Solar Forecast for {formatted_date}")
 
         # Solar output line
         if wh >= 1000:
@@ -73,7 +88,7 @@ def format_response(forecast: dict) -> str:
         status = ""
         if forecast.get("low_output_warning"):
             status = " LOW!"
-        lines.append(f"Solar: {wh_str} ({pct:.0f}% avg){status}")
+        lines.append(f"{wh_str} ({pct:.0f}% avg){status}")
     else:
         lines.append("Solar: No forecast data")
 

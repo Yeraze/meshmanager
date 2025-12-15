@@ -7,13 +7,22 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
+    gdal-bin \
+    libgdal-dev \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy all source files
 COPY . .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir .
+# Upgrade pip and setuptools to compatible versions
+RUN pip install --no-cache-dir "pip>=23.0" "setuptools<69.0.0" "hatchling" "wheel" "cython" "numpy"
+
+# Set GDAL_CONFIG to help fiona find the correct GDAL version
+ENV GDAL_CONFIG=/usr/bin/gdal-config
+
+# Install Python dependencies with --no-build-isolation to work around fiona/rasterio build issues
+RUN pip install --no-cache-dir --no-build-isolation .
 
 # Production stage
 FROM python:3.12-slim
@@ -23,6 +32,7 @@ WORKDIR /app
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
+    libgdal36 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy installed packages from builder

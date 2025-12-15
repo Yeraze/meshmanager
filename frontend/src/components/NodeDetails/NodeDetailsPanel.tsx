@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { Node } from '../../types/api'
 import { useTelemetryHistory } from '../../hooks/useTelemetry'
 import { useDataContext } from '../../contexts/DataContext'
-import { getRoleName } from '../../utils/meshtastic'
+import { getRoleName, getHardwareInfo } from '../../utils/meshtastic'
 import TelemetryChart from './TelemetryChart'
 
 interface NodeDetailsPanelProps {
@@ -84,12 +84,35 @@ export default function NodeDetailsPanel({ node }: NodeDetailsPanelProps) {
           </div>
         </div>
 
-        {node.hw_model && (
-          <div className="node-info-card">
-            <div className="node-info-label">Hardware</div>
-            <div className="node-info-value">{node.hw_model}</div>
-          </div>
-        )}
+        {node.hw_model && (() => {
+          const hardwareInfo = getHardwareInfo(node.hw_model)
+          return (
+            <div className="node-info-card">
+              <div className="node-info-label">Hardware</div>
+              <div className="node-info-value" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                {hardwareInfo.imageUrl && (
+                  <img
+                    src={hardwareInfo.imageUrl}
+                    alt={hardwareInfo.name}
+                    style={{
+                      width: '48px',
+                      height: '48px',
+                      objectFit: 'contain',
+                      backgroundColor: 'var(--ctp-surface0)',
+                      borderRadius: '4px',
+                      padding: '4px',
+                    }}
+                    onError={(e) => {
+                      // Hide image if it fails to load
+                      e.currentTarget.style.display = 'none'
+                    }}
+                  />
+                )}
+                <span>{hardwareInfo.displayName}</span>
+              </div>
+            </div>
+          )
+        })()}
 
         {node.role && (
           <div className="node-info-card">

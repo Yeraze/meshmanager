@@ -1,9 +1,8 @@
 import { useState } from 'react'
 import { useAdminSources, useDeleteSource, useTestSource, useSyncSource, useCollectionStatuses } from '../../hooks/useAdminSources'
 import { AddSourceForm } from '../Admin/AddSourceForm'
-import type { CollectionStatus } from '../../types/api'
-
-const BATCH_DELAY_SECONDS = 5
+import { EditSourceForm } from '../Admin/EditSourceForm'
+import type { CollectionStatus, Source } from '../../types/api'
 
 function formatEta(seconds: number): string {
   if (seconds <= 0) return ''
@@ -27,9 +26,28 @@ function CollectionStatusIndicator({ status }: { status: CollectionStatus | unde
     const progress = status.max_batches > 0
       ? Math.round((status.current_batch / status.max_batches) * 100)
       : 0
-    const remainingBatches = status.max_batches - status.current_batch
-    const etaSeconds = remainingBatches * BATCH_DELAY_SECONDS
-    const etaText = status.max_batches > 0 ? formatEta(etaSeconds) : ''
+    
+    // Use backend-provided ETA if available (more accurate, based on actual progress)
+    // Fall back to simple calculation if backend hasn't provided it yet
+    let etaSeconds = status.estimated_seconds_remaining
+    if (etaSeconds === undefined && status.max_batches > 0 && status.current_batch > 0) {
+      // Fallback: estimate based on progress so far
+      const remainingNodes = status.max_batches - status.current_batch
+      const elapsed = status.elapsed_seconds || 0
+      if (elapsed > 0 && status.current_batch > 0) {
+        // Calculate average time per node based on actual progress
+        const avgTimePerNode = elapsed / status.current_batch
+        // Account for parallel processing (10 nodes in parallel)
+        const maxConcurrent = 10
+        etaSeconds = Math.ceil((remainingNodes / maxConcurrent) * avgTimePerNode)
+      }
+    }
+    
+    const etaText = etaSeconds !== undefined && etaSeconds > 0 ? formatEta(etaSeconds) : ''
+    const elapsedText = status.elapsed_seconds !== undefined && status.elapsed_seconds > 0 
+      ? formatEta(status.elapsed_seconds) 
+      : ''
+    
     return (
       <div className="collection-status collecting">
         <div className="collection-progress-bar">
@@ -37,7 +55,8 @@ function CollectionStatusIndicator({ status }: { status: CollectionStatus | unde
         </div>
         <span className="collection-status-text">
           Collecting... {status.current_batch}/{status.max_batches} ({status.total_collected} records)
-          {etaText && <span className="collection-eta"> • ETA: {etaText}</span>}
+          {elapsedText && <span className="collection-elapsed"> • Elapsed: {elapsedText}</span>}
+          {etaText && <span className="collection-eta"> • Remaining: {etaText}</span>}
         </span>
       </div>
     )
@@ -63,6 +82,17 @@ function CollectionStatusIndicator({ status }: { status: CollectionStatus | unde
     )
   }
 
+  if (status.status === 'cancelled') {
+    return (
+      <div className="collection-status error">
+        <span className="collection-error">⚠</span>
+        <span className="collection-status-text">
+          Collection cancelled
+        </span>
+      </div>
+    )
+  }
+
   // idle status - don't show anything
   return null
 }
@@ -74,6 +104,7 @@ export default function SourcesSettings() {
   const testMutation = useTestSource()
   const syncMutation = useSyncSource()
   const [showAddForm, setShowAddForm] = useState(false)
+  const [editingSource, setEditingSource] = useState<Source | null>(null)
   const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string; nodes_found?: number }>>({})
 
   const handleDelete = async (id: string, name: string) => {
@@ -108,7 +139,13 @@ export default function SourcesSettings() {
         <h2>Data Sources</h2>
         <button
           className="btn btn-primary"
-          onClick={() => setShowAddForm(!showAddForm)}
+          onClick={() => {
+            setShowAddForm(!showAddForm)
+            if (showAddForm) {
+              setEditingSource(null)
+            }
+          }}
+          disabled={!!editingSource}
         >
           {showAddForm ? 'Cancel' : 'Add Source'}
         </button>
@@ -117,6 +154,16 @@ export default function SourcesSettings() {
       {showAddForm && (
         <div className="settings-card">
           <AddSourceForm onSuccess={() => setShowAddForm(false)} />
+        </div>
+      )}
+
+      {editingSource && (
+        <div className="settings-card">
+          <EditSourceForm
+            source={editingSource}
+            onSuccess={() => setEditingSource(null)}
+            onCancel={() => setEditingSource(null)}
+          />
         </div>
       )}
 
@@ -175,6 +222,16 @@ export default function SourcesSettings() {
               )}
 
               <div className="source-card-actions">
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    setEditingSource(source)
+                    setShowAddForm(false)
+                  }}
+                  disabled={!!editingSource || !!showAddForm}
+                >
+                  Edit
+                </button>
                 <button
                   className="btn btn-secondary btn-sm"
                   onClick={() => handleTest(source.id)}

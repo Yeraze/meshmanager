@@ -60,6 +60,16 @@ export async function createMqttSource(data: MqttSourceCreate): Promise<Source> 
   return response.data
 }
 
+export async function updateMeshMonitorSource(id: string, data: Partial<MeshMonitorSourceCreate>): Promise<Source> {
+  const response = await api.put<Source>(`/api/admin/sources/meshmonitor/${id}`, data)
+  return response.data
+}
+
+export async function updateMqttSource(id: string, data: Partial<MqttSourceCreate>): Promise<Source> {
+  const response = await api.put<Source>(`/api/admin/sources/mqtt/${id}`, data)
+  return response.data
+}
+
 export async function deleteSource(id: string): Promise<void> {
   await api.delete(`/api/admin/sources/${id}`)
 }

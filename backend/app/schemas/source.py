@@ -20,6 +20,7 @@ class MeshMonitorSourceCreate(SourceBase):
     url: str = Field(..., min_length=1, max_length=500)
     api_token: str | None = Field(default=None, max_length=500)
     poll_interval_seconds: int = Field(default=300, ge=60, le=86400)
+    historical_days_back: int = Field(default=1, ge=1, le=30, description="Days of historical data to sync on initial collection")
 
     @field_validator("url")
     @classmethod
@@ -37,6 +38,7 @@ class MeshMonitorSourceUpdate(BaseModel):
     url: str | None = Field(default=None, min_length=1, max_length=500)
     api_token: str | None = Field(default=None, max_length=500)
     poll_interval_seconds: int | None = Field(default=None, ge=60, le=86400)
+    historical_days_back: int | None = Field(default=None, ge=1, le=30, description="Days of historical data to sync on initial collection")
     enabled: bool | None = None
 
 
@@ -80,6 +82,7 @@ class SourceResponse(BaseModel):
     # MeshMonitor fields (optional)
     url: str | None = None
     poll_interval_seconds: int | None = None
+    historical_days_back: int | None = None
 
     # MQTT fields (optional)
     mqtt_host: str | None = None

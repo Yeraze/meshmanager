@@ -45,6 +45,7 @@ async def create_meshmonitor_source(
         url=source_data.url,
         api_token=source_data.api_token,
         poll_interval_seconds=source_data.poll_interval_seconds,
+        historical_days_back=source_data.historical_days_back,
         enabled=source_data.enabled,
     )
     db.add(source)

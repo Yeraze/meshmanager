@@ -143,6 +143,40 @@ export async function fetchTraceroutes(hours?: number): Promise<Traceroute[]> {
   return response.data
 }
 
+// Node Connections Graph
+export interface ConnectionNode {
+  id: number
+  node_num: number
+  name: string
+  short_name?: string
+  long_name?: string
+  latitude: number
+  longitude: number
+  role?: string
+  hw_model?: string
+  last_heard?: string
+}
+
+export interface ConnectionEdge {
+  source: number
+  target: number
+  usage: number
+}
+
+export interface ConnectionsGraph {
+  nodes: ConnectionNode[]
+  edges: ConnectionEdge[]
+}
+
+export async function fetchConnections(hours?: number, nodeNum?: number): Promise<ConnectionsGraph> {
+  const params = new URLSearchParams()
+  if (hours) params.append('hours', hours.toString())
+  if (nodeNum !== undefined) params.append('node_num', nodeNum.toString())
+
+  const response = await api.get<ConnectionsGraph>(`/api/connections?${params.toString()}`)
+  return response.data
+}
+
 // Node Roles
 export async function fetchNodeRoles(): Promise<string[]> {
   const response = await api.get<string[]>('/api/nodes/roles')

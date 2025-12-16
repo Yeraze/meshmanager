@@ -4,6 +4,7 @@ import { useTelemetryHistory } from '../../hooks/useTelemetry'
 import { useDataContext } from '../../contexts/DataContext'
 import { getRoleName, getHardwareInfo } from '../../utils/meshtastic'
 import TelemetryChart from './TelemetryChart'
+import NodeConnections from './NodeConnections'
 
 interface NodeDetailsPanelProps {
   node: Node
@@ -164,6 +165,14 @@ export default function NodeDetailsPanel({ node }: NodeDetailsPanelProps) {
           <div className="node-info-label">Source</div>
           <div className="node-info-value">{node.source_name || 'Unknown'}</div>
         </div>
+      </div>
+
+      {/* Node Connections Section */}
+      <div className="telemetry-section">
+        <div className="telemetry-header">
+          <h2>Network Connections</h2>
+        </div>
+        <NodeConnections nodeNum={node.node_num} hours={historyHours} />
       </div>
 
       {/* Telemetry Charts Section */}

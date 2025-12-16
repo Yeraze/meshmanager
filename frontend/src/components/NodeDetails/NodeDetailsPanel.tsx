@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import type { Node } from '../../types/api'
 import { useSolarData, useTelemetryHistory } from '../../hooks/useTelemetry'
+import { useNodesByNodeNum } from '../../hooks/useNodes'
 import { useDataContext } from '../../contexts/DataContext'
 import { getRoleName } from '../../utils/meshtastic'
+import { formatHardwareModelName } from '../../utils/hardware'
 import TelemetryChart from './TelemetryChart'
 
 interface NodeDetailsPanelProps {
@@ -28,6 +30,9 @@ export default function NodeDetailsPanel({ node }: NodeDetailsPanelProps) {
 
   // Fetch solar data for background on charts
   const { solarMap } = useSolarData(historyHours)
+
+  // Fetch all source records for this node
+  const { data: sourceRecords = [] } = useNodesByNodeNum(node.node_num)
 
   const displayName = node.long_name || node.short_name || node.node_id || `Node ${node.node_num}`
 
@@ -90,7 +95,7 @@ export default function NodeDetailsPanel({ node }: NodeDetailsPanelProps) {
         {node.hw_model && (
           <div className="node-info-card">
             <div className="node-info-label">Hardware</div>
-            <div className="node-info-value">{node.hw_model}</div>
+            <div className="node-info-value">{formatHardwareModelName(node.hw_model)}</div>
           </div>
         )}
 
@@ -145,6 +150,29 @@ export default function NodeDetailsPanel({ node }: NodeDetailsPanelProps) {
           <div className="node-info-value">{node.source_name || 'Unknown'}</div>
         </div>
       </div>
+
+      {/* Source Last Seen Table */}
+      {sourceRecords.length > 1 && (
+        <div className="source-history-section">
+          <h2>Source History</h2>
+          <table className="source-history-table">
+            <thead>
+              <tr>
+                <th>Source</th>
+                <th>Last Seen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sourceRecords.map((record) => (
+                <tr key={record.id}>
+                  <td>{record.source_name || 'Unknown'}</td>
+                  <td>{formatLastHeard(record.last_heard)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Telemetry Charts Section */}
       <div className="telemetry-section">

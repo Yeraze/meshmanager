@@ -1279,14 +1279,15 @@ class MeshMonitorCollector(BaseCollector):
             await asyncio.sleep(10)
             # Collect historical data for all nodes using per-node API
             # Use the source's configured historical_days_back value
-            # Optimized for faster initial sync:
-            # - 0.3s delay between batches (reduced from 2.0s)
-            # - Parallel processing of 10 nodes at a time
+            # Balanced approach considering:
+            # - SQLite performance: avoid overwhelming MeshMonitor's database
+            # - API token rate limits: ~10% of normal user limits
+            # - Reasonable collection speed for initial sync
             await self.collect_all_nodes_historical_telemetry(
                 days_back=self.source.historical_days_back,  # Use source configuration
                 batch_size=500,
-                delay_seconds=0.3,  # Reduced from 2.0s for faster collection
-                max_concurrent=10,  # Process 10 nodes in parallel
+                delay_seconds=1.0,  # Balanced delay: faster than 2.0s but safer than 0.3s
+                max_concurrent=5,  # Reduced from 10 to be gentler on SQLite and rate limits
             )
         except asyncio.CancelledError:
             logger.info(f"Historical collection cancelled for {self.source.name}")

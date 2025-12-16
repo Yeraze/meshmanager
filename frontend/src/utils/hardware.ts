@@ -161,15 +161,27 @@ export function formatHardwareModelName(hwModel: number | string | undefined | n
   // Format the name for better readability
   return fullName
     .replace(/_/g, ' ')  // Replace underscores with spaces
-    .replace(/\bV(\d)/g, 'v$1')  // Lowercase 'V' before version numbers
-    .replace(/\bV\s/g, 'v ')  // Lowercase standalone 'V'
     .split(' ')
     .map(word => {
-      // Keep certain abbreviations uppercase
-      const upperWords = ['RAK', 'NRF', 'DIY', 'TX', 'RX', 'LR', 'ESP', 'S3', 'G1', 'G2', 'HT', 'WIO', 'RPI', 'HRU', 'WSL', 'TAK']
+      // Keep words that start with these prefixes uppercase (e.g., RAK4631, NRF52840)
+      const upperPrefixes = ['RAK', 'NRF', 'ESP', 'WIO', 'RPI', 'HRU', 'WSL']
+      for (const prefix of upperPrefixes) {
+        if (word.toUpperCase().startsWith(prefix)) {
+          return word.toUpperCase()
+        }
+      }
+
+      // Keep certain short abbreviations uppercase
+      const upperWords = ['DIY', 'TX', 'RX', 'LR', 'S3', 'G1', 'G2', 'HT', 'TAK']
       if (upperWords.includes(word.toUpperCase())) {
         return word.toUpperCase()
       }
+
+      // Handle version numbers - lowercase 'v' before digits (V3 -> v3)
+      if (/^V\d/.test(word)) {
+        return 'v' + word.slice(1)
+      }
+
       // Capitalize first letter, lowercase rest
       return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
     })

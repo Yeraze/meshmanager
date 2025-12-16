@@ -1,6 +1,5 @@
 """Notification service using Apprise."""
 
-import io
 import logging
 import tempfile
 from datetime import datetime

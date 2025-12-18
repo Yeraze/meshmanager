@@ -24,9 +24,19 @@ const TELEMETRY_METRICS = [
   { key: 'barometric_pressure', label: 'Pressure' },
 ]
 
+const STORAGE_KEY_HISTORY_HOURS = 'meshmanager_node_details_history_hours'
+
 export default function NodeDetailsPanel({ node }: NodeDetailsPanelProps) {
   const { onlineHours } = useDataContext()
-  const [historyHours, setHistoryHours] = useState(24)
+  const [historyHours, setHistoryHoursState] = useState(() => {
+    const stored = localStorage.getItem(STORAGE_KEY_HISTORY_HOURS)
+    return stored ? Number(stored) : 24
+  })
+
+  const setHistoryHours = (hours: number) => {
+    localStorage.setItem(STORAGE_KEY_HISTORY_HOURS, String(hours))
+    setHistoryHoursState(hours)
+  }
 
   // Fetch solar data for background on charts
   const { solarMap } = useSolarData(historyHours)

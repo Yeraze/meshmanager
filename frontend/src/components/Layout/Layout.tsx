@@ -1,14 +1,14 @@
-import { useState } from 'react'
 import Header from './Header'
-import NavSidebar, { type Page } from './NavSidebar'
+import NavSidebar from './NavSidebar'
 import MapPage from '../Map/MapPage'
 import NodeDetailsPage from '../NodeDetails/NodeDetailsPage'
 import { GraphsPage } from '../Graphs'
 import { AnalysisPage } from '../Analysis'
 import { SettingsPage } from '../Settings'
+import { useDataContext } from '../../contexts/DataContext'
 
 export default function Layout() {
-  const [currentPage, setCurrentPage] = useState<Page>('map')
+  const { currentPage, navigateToPage } = useDataContext()
 
   const renderPage = () => {
     switch (currentPage) {
@@ -29,7 +29,7 @@ export default function Layout() {
 
   return (
     <div className="app-layout">
-      <NavSidebar currentPage={currentPage} onPageChange={setCurrentPage} />
+      <NavSidebar currentPage={currentPage} onPageChange={navigateToPage} />
       <main className="main-content">
         <Header />
         <div className="page-content">

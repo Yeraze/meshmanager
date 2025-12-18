@@ -147,7 +147,7 @@ function MapViewHandler() {
 }
 
 export default function MapContainer() {
-  const { enabledSourceIds, showActiveOnly, activeHours, onlineHours, selectedNode, setSelectedNode } = useDataContext()
+  const { enabledSourceIds, showActiveOnly, activeHours, onlineHours, selectedNode, setSelectedNode, navigateToPage } = useDataContext()
 
   // Load persisted settings from localStorage
   const [tilesetId, setTilesetId] = useState<TilesetId>(() =>
@@ -518,6 +518,26 @@ export default function MapContainer() {
                       <div>Last heard: {new Date(node.last_heard).toLocaleString()}</div>
                     )}
                   </div>
+                  <button
+                    onClick={() => {
+                      setSelectedNode(node)
+                      navigateToPage('nodes')
+                    }}
+                    style={{
+                      marginTop: '0.75rem',
+                      padding: '0.375rem 0.75rem',
+                      backgroundColor: 'var(--ctp-blue)',
+                      color: 'var(--ctp-base)',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontSize: '0.875rem',
+                      fontWeight: 500,
+                      width: '100%',
+                    }}
+                  >
+                    More Info
+                  </button>
                 </div>
               </Popup>
             </Marker>

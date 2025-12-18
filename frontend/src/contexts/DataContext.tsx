@@ -1,6 +1,8 @@
 import { createContext, useContext, useState, type ReactNode } from 'react'
 import type { Node } from '../types/api'
 
+export type Page = 'map' | 'nodes' | 'graphs' | 'analysis' | 'settings'
+
 interface DataContextValue {
   selectedNode: Node | null
   setSelectedNode: (node: Node | null) => void
@@ -13,6 +15,8 @@ interface DataContextValue {
   setActiveHours: (hours: number) => void
   onlineHours: number
   setOnlineHours: (hours: number) => void
+  currentPage: Page
+  navigateToPage: (page: Page) => void
 }
 
 const DataContext = createContext<DataContextValue | null>(null)
@@ -26,6 +30,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   })
   const [activeHours, setActiveHours] = useState(24)
   const [onlineHours, setOnlineHours] = useState(1)
+  const [currentPage, setCurrentPage] = useState<Page>('map')
 
   const toggleSource = (sourceId: string) => {
     setEnabledSourceIds((prev) => {
@@ -48,6 +53,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setShowActiveOnlyState(active)
   }
 
+  const navigateToPage = (page: Page) => {
+    setCurrentPage(page)
+  }
+
   const value: DataContextValue = {
     selectedNode,
     setSelectedNode,
@@ -60,6 +69,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setActiveHours,
     onlineHours,
     setOnlineHours,
+    currentPage,
+    navigateToPage,
   }
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>

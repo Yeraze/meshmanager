@@ -1,7 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useAuthContext } from '../../contexts/AuthContext'
-
-export type Page = 'map' | 'nodes' | 'graphs' | 'analysis' | 'settings'
+import { type Page } from '../../contexts/DataContext'
 
 interface NavSidebarProps {
   currentPage: Page

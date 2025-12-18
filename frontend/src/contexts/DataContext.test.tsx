@@ -26,6 +26,7 @@ describe('DataContext', () => {
       expect(result.current.showActiveOnly).toBe(true) // Default is true
       expect(result.current.activeHours).toBe(24)
       expect(result.current.onlineHours).toBe(1)
+      expect(result.current.currentPage).toBe('map')
     })
   })
 
@@ -246,6 +247,26 @@ describe('DataContext', () => {
       })
 
       expect(result.current.onlineHours).toBe(24)
+    })
+  })
+
+  describe('navigation', () => {
+    it('should update currentPage when navigateToPage is called', () => {
+      const { result } = renderHook(() => useDataContext(), { wrapper })
+
+      expect(result.current.currentPage).toBe('map')
+
+      act(() => {
+        result.current.navigateToPage('nodes')
+      })
+
+      expect(result.current.currentPage).toBe('nodes')
+
+      act(() => {
+        result.current.navigateToPage('settings')
+      })
+
+      expect(result.current.currentPage).toBe('settings')
     })
   })
 })

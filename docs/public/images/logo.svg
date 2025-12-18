@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="meshGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3eaf7c;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#42b983;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <!-- Background circle -->
+  <circle cx="50" cy="50" r="45" fill="url(#meshGrad)"/>
+  <!-- Mesh network nodes -->
+  <circle cx="50" cy="30" r="6" fill="white"/>
+  <circle cx="30" cy="55" r="6" fill="white"/>
+  <circle cx="70" cy="55" r="6" fill="white"/>
+  <circle cx="50" cy="70" r="6" fill="white"/>
+  <!-- Mesh connections -->
+  <line x1="50" y1="30" x2="30" y2="55" stroke="white" stroke-width="2" opacity="0.8"/>
+  <line x1="50" y1="30" x2="70" y2="55" stroke="white" stroke-width="2" opacity="0.8"/>
+  <line x1="30" y1="55" x2="70" y2="55" stroke="white" stroke-width="2" opacity="0.8"/>
+  <line x1="30" y1="55" x2="50" y2="70" stroke="white" stroke-width="2" opacity="0.8"/>
+  <line x1="70" y1="55" x2="50" y2="70" stroke="white" stroke-width="2" opacity="0.8"/>
+  <!-- Central management node -->
+  <circle cx="50" cy="50" r="8" fill="white"/>
+  <circle cx="50" cy="50" r="4" fill="url(#meshGrad)"/>
+</svg>

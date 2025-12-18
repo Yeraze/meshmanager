@@ -3,7 +3,33 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchConnections } from '../../services/api'
 import { getHardwareInfo, getRoleName } from '../../utils/meshtastic'
 import styles from './NodeConnections.module.css'
-import ForceGraph2D from 'react-force-graph-2d'
+import ForceGraph2D, { ForceGraphMethods } from 'react-force-graph-2d'
+
+interface GraphNode {
+  id: number
+  node_num?: number
+  short_name?: string | null
+  name?: string
+  long_name?: string
+  hw_model?: number
+  role?: number
+  last_heard?: string | null
+  x?: number
+  y?: number
+  fx?: number
+  fy?: number
+}
+
+interface GraphLink {
+  source: number | GraphNode
+  target: number | GraphNode
+  value: number
+}
+
+interface GraphData {
+  nodes: GraphNode[]
+  links: GraphLink[]
+}
 
 interface NodeConnectionsProps {
   nodeNum?: number
@@ -12,9 +38,9 @@ interface NodeConnectionsProps {
 
 export default function NodeConnections({ nodeNum, hours = 24 }: NodeConnectionsProps) {
   const [selectedNode, setSelectedNode] = useState<number | null>(null)
-  const [hoveredNode, setHoveredNode] = useState<any | null>(null)
+  const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null)
   const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number } | null>(null)
-  const graphRef = useRef<any>(null)
+  const graphRef = useRef<ForceGraphMethods<GraphNode, GraphLink> | undefined>(undefined)
   const containerRef = useRef<HTMLDivElement>(null)
   const mousePositionRef = useRef<{ x: number; y: number } | null>(null)
 
@@ -67,7 +93,7 @@ export default function NodeConnections({ nodeNum, hours = 24 }: NodeConnections
       }))
 
     // Ensure nodes have all necessary properties
-    const nodes = data.nodes.map((node: any) => ({
+    const nodes = data.nodes.map((node: GraphNode) => ({
       ...node,
       id: node.id || node.node_num,
       short_name: node.short_name || null,
@@ -180,7 +206,7 @@ export default function NodeConnections({ nodeNum, hours = 24 }: NodeConnections
   const handleAutoArrange = () => {
     if (graphRef.current) {
       // Clear fixed positions and restart simulation
-      graphData.nodes.forEach((node: any) => {
+      graphData.nodes.forEach((node: GraphNode) => {
         node.fx = undefined
         node.fy = undefined
       })
@@ -264,11 +290,11 @@ export default function NodeConnections({ nodeNum, hours = 24 }: NodeConnections
       <div className={styles.graphWrapper} ref={containerRef}>
         {graphData && graphData.nodes && graphData.nodes.length > 0 ? (
             <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-              <ForceGraph2D
+              <ForceGraph2D<GraphNode, GraphLink>
               ref={graphRef}
-              graphData={graphData as any}
+              graphData={graphData as GraphData}
               nodeId="id"
-              nodeColor={(node: any) => {
+              nodeColor={(node: GraphNode) => {
                 if (!node) return '#cdd6f4'
                 if (node.id === selectedNode) return '#cba6f7' // lavender for selected
                 // Color by connection count (hop count)
@@ -279,7 +305,7 @@ export default function NodeConnections({ nodeNum, hours = 24 }: NodeConnections
                 if (count <= 10) return '#f9e2af' // yellow for 6-10 connections
                 return '#f38ba8' // red for 10+ connections
               }}
-                    nodeVal={(node: any) => {
+                    nodeVal={(node: GraphNode) => {
                       const count = nodeConnectionCounts.get(node?.id) || 0
                       return 6 + Math.sqrt(count) * 4 // Doubled size, more noticeable differences
                     }}
@@ -291,9 +317,9 @@ export default function NodeConnections({ nodeNum, hours = 24 }: NodeConnections
               linkDirectionalArrowRelPos={1}
               linkVisibility={true}
               linkCurvature={0}
-              nodeLabel={(node: any) => node?.short_name || node?.name || `Node ${node?.id || '?'}`}
+              nodeLabel={(node: GraphNode) => node?.short_name || node?.name || `Node ${node?.id || '?'}`}
               nodeCanvasObjectMode={() => 'after'}
-              nodeCanvasObject={(node: any, ctx: any, globalScale: number) => {
+              nodeCanvasObject={(node: GraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
                 if (!node || !node.x || !node.y) return
                 
                 // Draw label below the node
@@ -323,12 +349,12 @@ export default function NodeConnections({ nodeNum, hours = 24 }: NodeConnections
                 ctx.fillText(label, node.x, labelY)
                 ctx.restore()
               }}
-              onNodeClick={(node: any) => {
+              onNodeClick={(node: GraphNode | null) => {
                 if (node) {
                   setSelectedNode(node.id === selectedNode ? null : node.id)
                 }
               }}
-              onNodeHover={(node: any) => {
+              onNodeHover={(node: GraphNode | null) => {
                 if (node) {
                   setHoveredNode(node)
                   if (mousePositionRef.current) {
@@ -348,7 +374,7 @@ export default function NodeConnections({ nodeNum, hours = 24 }: NodeConnections
               enableZoomInteraction={true}
               enablePanInteraction={true}
               enableNodeDrag={true}
-              onNodeDragEnd={(node: any) => {
+              onNodeDragEnd={(node: GraphNode) => {
                 // Fix node position without restarting simulation
                 if (node) {
                   node.fx = node.x

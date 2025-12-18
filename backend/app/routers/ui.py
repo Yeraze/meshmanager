@@ -432,14 +432,14 @@ async def get_node_connections(
 
     # Build edges from traceroutes
     edges_map: dict[tuple[int, int], dict] = {}
-    
+
     def add_edge(from_num: int, to_num: int, usage: int = 1):
         """Add or update an edge between two nodes."""
         if from_num == 4294967295 or to_num == 4294967295:
             return
         if from_num not in node_nums_with_data or to_num not in node_nums_with_data:
             return
-        
+
         # Use sorted tuple for undirected edges
         edge_key = tuple(sorted([from_num, to_num]))
         if edge_key in edges_map:
@@ -455,17 +455,17 @@ async def get_node_connections(
     for t in traceroutes:
         if t.route_back is None:  # Skip incomplete traceroutes
             continue
-        
+
         # Add direct edge
         add_edge(t.from_node_num, t.to_node_num)
-        
+
         # Add edges from route
         if t.route:
             prev = t.from_node_num
             for hop in t.route:
                 add_edge(prev, hop)
                 prev = hop
-        
+
         # Add edges from route_back
         if t.route_back:
             prev = t.to_node_num
@@ -488,9 +488,9 @@ async def get_node_connections(
             "hw_model": node.hw_model,
             "last_heard": node.last_heard.isoformat() if node.last_heard else None,
         })
-    
+
     edges_data = list(edges_map.values())
-    
+
     return {
         "nodes": nodes_data,
         "edges": edges_data,

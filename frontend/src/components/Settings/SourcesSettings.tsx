@@ -4,8 +4,6 @@ import { AddSourceForm } from '../Admin/AddSourceForm'
 import { EditSourceForm } from '../Admin/EditSourceForm'
 import type { CollectionStatus, Source } from '../../types/api'
 
-const BATCH_DELAY_SECONDS = 5
-
 function formatEta(seconds: number): string {
   if (seconds <= 0) return ''
   const hours = Math.floor(seconds / 3600)

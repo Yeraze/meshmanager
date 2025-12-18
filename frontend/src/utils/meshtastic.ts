@@ -172,7 +172,7 @@ function prettifyHardwareName(name: string): string {
   }
 
   // Fallback: format the name intelligently
-  let prettified = name
+  const prettified = name
     // Handle version numbers first: "V2_0" -> "V2.0", "V0P7" -> "V0.7"
     .replace(/V(\d+)_(\d+)/g, 'V$1.$2')
     .replace(/V(\d+)P(\d+)/g, 'V$1.$2')

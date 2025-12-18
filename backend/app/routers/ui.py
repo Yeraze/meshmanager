@@ -512,6 +512,10 @@ def _analyze_metric_for_solar_patterns(
     Returns:
         Dict with pattern data if solar pattern detected, None otherwise
     """
+    # Minimum time threshold for rate calculations (30 minutes)
+    # Prevents division by very small numbers which could produce extreme rates
+    MIN_HOURS_FOR_RATE = 0.5
+
     if len(values) < 3:
         return None
 
@@ -621,7 +625,7 @@ def _analyze_metric_for_solar_patterns(
                 break
 
     charging_hours = (effective_peak_time - sunrise_time).total_seconds() / 3600
-    charge_rate = (effective_peak_value - sunrise_value) / charging_hours if charging_hours > 0 else 0
+    charge_rate = (effective_peak_value - sunrise_value) / charging_hours if charging_hours >= MIN_HOURS_FOR_RATE else None
 
     # Track daylight/charging hours (sunrise -> sunset)
     daylight_hours = (sunset_time - sunrise_time).total_seconds() / 3600
@@ -633,7 +637,7 @@ def _analyze_metric_for_solar_patterns(
         prev_sunset_time = previous_day_sunset["time"]
         prev_sunset_value = previous_day_sunset["value"]
         discharge_hours = (sunrise_time - prev_sunset_time).total_seconds() / 3600
-        if discharge_hours > 0:
+        if discharge_hours >= MIN_HOURS_FOR_RATE:
             discharge_rate = (prev_sunset_value - sunrise_value) / discharge_hours
 
     return {

@@ -93,6 +93,9 @@ export default defineConfig({
     lineNumbers: true
   },
 
-  // Ignore dead links during build (TODO: create all pages and remove this)
-  ignoreDeadLinks: true
+  // Ignore localhost URLs (example links, not real documentation)
+  ignoreDeadLinks: [
+    /^http:\/\/localhost/,
+    /^http:\/\/192\.168\./
+  ]
 })

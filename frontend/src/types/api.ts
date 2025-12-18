@@ -8,9 +8,12 @@ export interface Source {
   url?: string
   api_token?: string
   poll_interval_seconds?: number
+  historical_days_back?: number
   // MQTT fields
   mqtt_host?: string
   mqtt_port?: number
+  mqtt_username?: string
+  mqtt_password?: string
   mqtt_topic_pattern?: string
   mqtt_use_tls?: boolean
   // Status
@@ -83,6 +86,7 @@ export interface MeshMonitorSourceCreate extends SourceCreate {
   url: string
   api_token?: string
   poll_interval_seconds?: number
+  historical_days_back?: number
 }
 
 export interface MqttSourceCreate extends SourceCreate {
@@ -99,6 +103,7 @@ export interface MeshMonitorSourceUpdate {
   url?: string
   api_token?: string
   poll_interval_seconds?: number
+  historical_days_back?: number
   enabled?: boolean
 }
 
@@ -145,11 +150,13 @@ export interface TelemetryHistory {
 }
 
 export interface CollectionStatus {
-  status: 'idle' | 'collecting' | 'complete' | 'error'
+  status: 'idle' | 'collecting' | 'complete' | 'error' | 'cancelled'
   current_batch: number
   max_batches: number
   total_collected: number
   last_error: string | null
+  elapsed_seconds?: number  // Time elapsed since collection started
+  estimated_seconds_remaining?: number  // Estimated time remaining (calculated by backend)
 }
 
 export interface Traceroute {

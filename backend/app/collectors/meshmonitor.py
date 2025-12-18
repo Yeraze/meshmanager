@@ -26,14 +26,93 @@ class CollectionStatus:
         self.max_batches: int = 0
         self.total_collected: int = 0
         self.last_error: str | None = None
+        self.start_time: datetime | None = None  # When collection started
+        self.last_completion_time: datetime | None = None  # When last node completed
+        self.last_completed_count: int = 0  # Last completed count when we calculated rate
+        self.smoothed_rate: float | None = None  # Exponential moving average of rate
 
     def to_dict(self) -> dict:
+        """Convert status to dictionary, including calculated timing information."""
+        elapsed_seconds = 0
+        estimated_seconds_remaining = 0
+
+        if self.status == "collecting" and self.start_time:
+            # Calculate elapsed time (using local time)
+            elapsed = datetime.now() - self.start_time
+            elapsed_seconds = int(elapsed.total_seconds())
+
+            # Calculate ETA based on actual progress
+            if self.current_batch > 0 and self.max_batches > 0:
+                # Get total number of nodes we need to import
+                total_nodes = self.max_batches
+
+                # Calculate remaining nodes to collect data from
+                remaining_nodes = total_nodes - self.current_batch
+
+                # Minimum nodes needed for accurate rate calculation
+                min_nodes_for_accurate_rate = 20
+                # Baseline rate based on observed performance: ~3-3.5 nodes/second with 10 parallel
+                baseline_nodes_per_second = 3.2
+                # Exponential smoothing factor (0.0-1.0, higher = more weight to recent values)
+                smoothing_alpha = 0.3
+
+                # Check if we have a new completion (current_batch increased)
+                has_new_completion = self.current_batch > self.last_completed_count
+
+                if elapsed_seconds > 0 and self.current_batch >= min_nodes_for_accurate_rate:
+                    # Calculate instantaneous rate
+                    instantaneous_rate = self.current_batch / elapsed_seconds
+
+                    # Use exponential smoothing to reduce volatility
+                    # Only update smoothed rate when we have new completions or on first calculation
+                    if has_new_completion or self.smoothed_rate is None:
+                        if self.smoothed_rate is None:
+                            # Initialize with first calculated rate
+                            self.smoothed_rate = instantaneous_rate
+                        else:
+                            # Exponential moving average: new = alpha * current + (1-alpha) * old
+                            self.smoothed_rate = (smoothing_alpha * instantaneous_rate +
+                                                 (1 - smoothing_alpha) * self.smoothed_rate)
+                        self.last_completed_count = self.current_batch
+                        self.last_completion_time = datetime.now()
+
+                    # Use smoothed rate for ETA calculation
+                    effective_nodes_per_second = self.smoothed_rate
+                    estimated_seconds_remaining = int(remaining_nodes / effective_nodes_per_second)
+                    calculation_method = "smoothed"
+                elif elapsed_seconds > 0 and self.current_batch < min_nodes_for_accurate_rate:
+                    # For early batches, use a hybrid approach:
+                    # Blend baseline with actual rate (weighted by progress)
+                    progress_ratio = self.current_batch / min_nodes_for_accurate_rate
+                    actual_rate = self.current_batch / elapsed_seconds if elapsed_seconds > 0 else 0
+                    # Gradually transition from baseline to actual as we approach MIN_NODES
+                    effective_nodes_per_second = (baseline_nodes_per_second * (1 - progress_ratio) +
+                                                  actual_rate * progress_ratio)
+                    estimated_seconds_remaining = int(remaining_nodes / effective_nodes_per_second)
+                    calculation_method = "hybrid"
+                else:
+                    # Use baseline estimate for very early stages
+                    effective_nodes_per_second = baseline_nodes_per_second
+                    estimated_seconds_remaining = int(remaining_nodes / baseline_nodes_per_second)
+                    calculation_method = "baseline"
+
+                # Log calculation details (INFO level for monitoring)
+                # Only log every 10 nodes to avoid log spam, but always log first few
+                if self.current_batch % 10 == 0 or self.current_batch <= 5:
+                    logger.info(
+                        f"ETA ({calculation_method}): elapsed={elapsed_seconds}s, completed={self.current_batch}/{total_nodes}, "
+                        f"rate={effective_nodes_per_second:.2f} nodes/s, "
+                        f"remaining={remaining_nodes}, ETA={estimated_seconds_remaining}s ({estimated_seconds_remaining/60:.1f}m)"
+                    )
+
         return {
             "status": self.status,
             "current_batch": self.current_batch,
             "max_batches": self.max_batches,
             "total_collected": self.total_collected,
             "last_error": self.last_error,
+            "elapsed_seconds": elapsed_seconds,
+            "estimated_seconds_remaining": estimated_seconds_remaining,
         }
 
 
@@ -779,6 +858,10 @@ class MeshMonitorCollector(BaseCollector):
         self.collection_status.max_batches = max_batches
         self.collection_status.total_collected = 0
         self.collection_status.last_error = None
+        self.collection_status.start_time = datetime.now()  # Use local time for ETA tracking
+        self.collection_status.last_completion_time = None
+        self.collection_status.last_completed_count = 0
+        self.collection_status.smoothed_rate = None
 
         total_collected = 0
         offset = 0
@@ -791,6 +874,7 @@ class MeshMonitorCollector(BaseCollector):
                     if not self._running:
                         logger.info(f"Historical collection stopped for {self.source.name}")
                         self.collection_status.status = "complete"
+                        self.collection_status.start_time = None  # Clear start time when complete
                         break
 
                     # Update status
@@ -804,6 +888,7 @@ class MeshMonitorCollector(BaseCollector):
                     if count == 0:
                         logger.info(f"No more historical data for {self.source.name}")
                         self.collection_status.status = "complete"
+                        self.collection_status.start_time = None  # Clear start time when complete
                         break
 
                     total_collected += count
@@ -821,6 +906,7 @@ class MeshMonitorCollector(BaseCollector):
                 else:
                     # Completed all batches
                     self.collection_status.status = "complete"
+                    self.collection_status.start_time = None  # Clear start time when complete
 
             logger.info(
                 f"Historical data collection complete for {self.source.name}: "
@@ -831,6 +917,7 @@ class MeshMonitorCollector(BaseCollector):
             logger.error(f"Historical collection error for {self.source.name}: {e}")
             self.collection_status.status = "error"
             self.collection_status.last_error = str(e)
+            self.collection_status.start_time = None  # Clear start time on error
 
     async def _get_telemetry_count(
         self, client: httpx.AsyncClient, headers: dict
@@ -880,6 +967,10 @@ class MeshMonitorCollector(BaseCollector):
         self.collection_status.max_batches = 0  # Will be set after getting count
         self.collection_status.total_collected = 0
         self.collection_status.last_error = None
+        self.collection_status.start_time = datetime.now()  # Use local time for ETA tracking
+        self.collection_status.last_completion_time = None
+        self.collection_status.last_completed_count = 0
+        self.collection_status.smoothed_rate = None
 
         total_fetched = 0
         total_inserted = 0
@@ -956,6 +1047,7 @@ class MeshMonitorCollector(BaseCollector):
                     await asyncio.sleep(delay_seconds)
 
             self.collection_status.status = "complete"
+            self.collection_status.start_time = None  # Clear start time when complete
             self.collection_status.max_batches = batch_num
             logger.info(
                 f"Full sync complete for {self.source.name}: "
@@ -966,6 +1058,7 @@ class MeshMonitorCollector(BaseCollector):
             logger.error(f"Sync error for {self.source.name}: {e}")
             self.collection_status.status = "error"
             self.collection_status.last_error = str(e)
+            self.collection_status.start_time = None  # Clear start time on error
 
     async def _collect_telemetry_batch(
         self, client: httpx.AsyncClient, headers: dict, limit: int, offset: int = 0
@@ -1164,9 +1257,13 @@ class MeshMonitorCollector(BaseCollector):
                         f"collected {count} records (total: {total_collected})"
                     )
 
-                    # Delay before next batch
+                    # Delay before next batch (minimal delay for faster collection)
                     if batch_num < max_batches - 1 and count == batch_size:
                         await asyncio.sleep(delay_seconds)
+
+                    # Check if collection was cancelled
+                    if not self._running:
+                        break
 
         except Exception as e:
             logger.error(f"Error collecting historical telemetry for {node_id}: {e}")
@@ -1182,16 +1279,19 @@ class MeshMonitorCollector(BaseCollector):
         days_back: int = 7,
         batch_size: int = 500,
         delay_seconds: float = 2.0,
+        max_concurrent: int = 10,
     ) -> int:
         """Collect historical telemetry for all known nodes.
 
         Fetches the list of nodes from the nodes endpoint, then collects
         historical telemetry for each one using the per-node API.
+        Processes nodes in parallel for faster collection.
 
         Args:
             days_back: How many days of history to fetch per node
             batch_size: Records per batch
-            delay_seconds: Delay between batches
+            delay_seconds: Delay between batches within a node
+            max_concurrent: Maximum number of nodes to process in parallel
 
         Returns:
             Total number of records collected across all nodes
@@ -1200,7 +1300,8 @@ class MeshMonitorCollector(BaseCollector):
             return 0
 
         logger.info(
-            f"Starting historical telemetry collection for all nodes from {self.source.name}"
+            f"Starting historical telemetry collection for all nodes from {self.source.name} "
+            f"(parallelism: {max_concurrent})"
         )
 
         # Initialize collection status
@@ -1209,6 +1310,10 @@ class MeshMonitorCollector(BaseCollector):
         self.collection_status.max_batches = 0
         self.collection_status.total_collected = 0
         self.collection_status.last_error = None
+        self.collection_status.start_time = datetime.now()  # Use local time for ETA tracking
+        self.collection_status.last_completion_time = None
+        self.collection_status.last_completed_count = 0
+        self.collection_status.smoothed_rate = None
 
         total_collected = 0
 
@@ -1241,37 +1346,91 @@ class MeshMonitorCollector(BaseCollector):
 
                 logger.info(f"Found {len(nodes)} nodes for historical collection")
 
-                # Set max_batches to number of nodes for progress tracking
-                self.collection_status.max_batches = len(nodes)
+                # Process nodes in parallel batches for faster collection
+                semaphore = asyncio.Semaphore(max_concurrent)
+                completed_nodes = 0
+                completed_nodes_lock = asyncio.Lock()  # Protect completed_nodes from race conditions
 
-                # Collect historical telemetry for each node
-                for i, node in enumerate(nodes):
-                    node_id = node.get("nodeId") or node.get("id")
-                    if not node_id:
-                        continue
+                async def collect_node_with_semaphore(node_data: dict, index: int) -> int:
+                    """Collect data for a single node with semaphore limiting."""
+                    async with semaphore:
+                        # Check if collection was cancelled
+                        if not self._running:
+                            return 0
 
-                    # Update progress (current node being processed)
-                    self.collection_status.current_batch = i + 1
+                        node_id = node_data.get("nodeId") or node_data.get("id")
+                        if not node_id:
+                            return 0
 
-                    count = await self.collect_node_historical_telemetry(
-                        node_id=node_id,
-                        days_back=days_back,
-                        batch_size=batch_size,
-                        delay_seconds=delay_seconds,
+                        try:
+                            count = await self.collect_node_historical_telemetry(
+                                node_id=node_id,
+                                days_back=days_back,
+                                batch_size=batch_size,
+                                delay_seconds=delay_seconds,
+                            )
+
+                            # Update progress only after successful collection
+                            # Use lock to prevent race conditions when multiple coroutines complete simultaneously
+                            async with completed_nodes_lock:
+                                nonlocal completed_nodes
+                                completed_nodes += 1
+                                self.collection_status.current_batch = completed_nodes
+
+                            return count
+                        except Exception as e:
+                            logger.error(f"Error collecting node {node_id}: {e}")
+                            return 0
+
+                # Create tasks for all nodes that have valid IDs
+                tasks = [
+                    collect_node_with_semaphore(node, i)
+                    for i, node in enumerate(nodes)
+                    if node.get("nodeId") or node.get("id")
+                ]
+
+                # Set max_batches to actual number of tasks created (nodes with valid IDs)
+                # This ensures progress reaches 100% when all processable nodes are completed
+                self.collection_status.max_batches = len(tasks)
+
+                if len(tasks) < len(nodes):
+                    logger.warning(
+                        f"Skipping {len(nodes) - len(tasks)} nodes without valid nodeId/id "
+                        f"(total nodes: {len(nodes)}, processable: {len(tasks)})"
                     )
-                    total_collected += count
-                    self.collection_status.total_collected = total_collected
 
-                    # Small delay between nodes to be nice to the API
-                    if i < len(nodes) - 1:
-                        await asyncio.sleep(1.0)
+                # Process in chunks to update progress more frequently
+                chunk_size = max_concurrent * 2
+                collection_cancelled = False
+                for chunk_start in range(0, len(tasks), chunk_size):
+                    if not self._running:
+                        logger.info(f"Historical collection stopped for {self.source.name}")
+                        self.collection_status.status = "cancelled"
+                        self.collection_status.start_time = None  # Clear start time when cancelled
+                        collection_cancelled = True
+                        break
 
-            self.collection_status.status = "complete"
+                    chunk = tasks[chunk_start:chunk_start + chunk_size]
+                    results = await asyncio.gather(*chunk, return_exceptions=True)
+
+                    # Sum up results
+                    for result in results:
+                        if isinstance(result, Exception):
+                            logger.error(f"Task error: {result}")
+                        elif isinstance(result, int):
+                            total_collected += result
+                            self.collection_status.total_collected = total_collected
+
+            # Only set status to "complete" if collection wasn't cancelled
+            if not collection_cancelled:
+                self.collection_status.status = "complete"
+                self.collection_status.start_time = None  # Clear start time when complete
 
         except Exception as e:
             logger.error(f"Error in all-nodes historical collection: {e}", exc_info=True)
             self.collection_status.status = "error"
             self.collection_status.last_error = str(e)
+            self.collection_status.start_time = None  # Clear start time on error
 
         logger.info(
             f"All-nodes historical collection complete: {total_collected} total records"
@@ -1470,16 +1629,26 @@ class MeshMonitorCollector(BaseCollector):
             # Wait a moment for the source to be fully committed and first poll to complete
             await asyncio.sleep(10)
             # Collect historical data for all nodes using per-node API
+            # Use the source's configured historical_days_back value
+            # Balanced approach considering:
+            # - SQLite performance: avoid overwhelming MeshMonitor's database
+            # - API token rate limits: ~10% of normal user limits
+            # - Reasonable collection speed for initial sync
             await self.collect_all_nodes_historical_telemetry(
-                days_back=7,
+                days_back=self.source.historical_days_back,  # Use source configuration
                 batch_size=500,
-                delay_seconds=2.0,
+                delay_seconds=1.0,  # Balanced delay: faster than 2.0s but safer than 0.3s
+                max_concurrent=5,  # Reduced from 10 to be gentler on SQLite and rate limits
             )
             # Also collect historical solar data
             await self.collect_solar_historical(
                 batch_size=500,
                 delay_seconds=2.0,
             )
+        except asyncio.CancelledError:
+            logger.info(f"Historical collection cancelled for {self.source.name}")
+            self.collection_status.status = "cancelled"
+            raise
         except Exception as e:
             logger.error(f"Background historical collection failed: {e}")
 
@@ -1503,4 +1672,12 @@ class MeshMonitorCollector(BaseCollector):
                 await self._task
             except asyncio.CancelledError:
                 pass
+        # Also stop historical collection if running
+        if hasattr(self, '_historical_task') and self._historical_task:
+            self._historical_task.cancel()
+            try:
+                await self._historical_task
+            except asyncio.CancelledError:
+                pass
+            self.collection_status.status = "cancelled"
         logger.info(f"Stopped MeshMonitor collector: {self.source.name}")

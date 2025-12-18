@@ -3,9 +3,9 @@ import type { Node } from '../../types/api'
 import { useSolarData, useTelemetryHistory } from '../../hooks/useTelemetry'
 import { useNodesByNodeNum } from '../../hooks/useNodes'
 import { useDataContext } from '../../contexts/DataContext'
-import { getRoleName } from '../../utils/meshtastic'
-import { formatHardwareModelName } from '../../utils/hardware'
+import { getRoleName, getHardwareInfo } from '../../utils/meshtastic'
 import TelemetryChart from './TelemetryChart'
+import NodeConnections from './NodeConnections'
 
 interface NodeDetailsPanelProps {
   node: Node
@@ -92,12 +92,35 @@ export default function NodeDetailsPanel({ node }: NodeDetailsPanelProps) {
           </div>
         </div>
 
-        {node.hw_model && (
-          <div className="node-info-card">
-            <div className="node-info-label">Hardware</div>
-            <div className="node-info-value">{formatHardwareModelName(node.hw_model)}</div>
-          </div>
-        )}
+        {node.hw_model && (() => {
+          const hardwareInfo = getHardwareInfo(node.hw_model)
+          return (
+            <div className="node-info-card">
+              <div className="node-info-label">Hardware</div>
+              <div className="node-info-value" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                {hardwareInfo.imageUrl && (
+                  <img
+                    src={hardwareInfo.imageUrl}
+                    alt={hardwareInfo.name}
+                    style={{
+                      width: '48px',
+                      height: '48px',
+                      objectFit: 'contain',
+                      backgroundColor: 'var(--ctp-surface0)',
+                      borderRadius: '4px',
+                      padding: '4px',
+                    }}
+                    onError={(e) => {
+                      // Hide image if it fails to load
+                      e.currentTarget.style.display = 'none'
+                    }}
+                  />
+                )}
+                <span>{hardwareInfo.displayName}</span>
+              </div>
+            </div>
+          )
+        })()}
 
         {node.role && (
           <div className="node-info-card">
@@ -149,6 +172,14 @@ export default function NodeDetailsPanel({ node }: NodeDetailsPanelProps) {
           <div className="node-info-label">Source</div>
           <div className="node-info-value">{node.source_name || 'Unknown'}</div>
         </div>
+      </div>
+
+      {/* Node Connections Section */}
+      <div className="telemetry-section">
+        <div className="telemetry-header">
+          <h2>Network Connections</h2>
+        </div>
+        <NodeConnections nodeNum={node.node_num} hours={historyHours} />
       </div>
 
       {/* Source Last Seen Table */}

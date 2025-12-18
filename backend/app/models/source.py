@@ -35,6 +35,7 @@ class Source(Base):
     url: Mapped[str | None] = mapped_column(String(500))
     api_token: Mapped[str | None] = mapped_column(String(500))
     poll_interval_seconds: Mapped[int] = mapped_column(Integer, default=300)
+    historical_days_back: Mapped[int] = mapped_column(Integer, default=1)  # Days of historical data to sync
 
     # MQTT specific
     mqtt_host: Mapped[str | None] = mapped_column(String(255))

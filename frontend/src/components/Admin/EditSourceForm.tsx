@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useUpdateMeshMonitorSource, useUpdateMqttSource } from '../../hooks/useAdminSources'
 import type { Source } from '../../types/api'
 import styles from './AdminPanel.module.css'
@@ -18,19 +18,35 @@ export function EditSourceForm({ source, onSuccess, onCancel }: EditSourceFormPr
 
   // MeshMonitor fields
   const [url, setUrl] = useState(source.url || '')
-  const [apiToken, setApiToken] = useState('')
-  const [pollInterval, setPollInterval] = useState(source.poll_interval_seconds || 60)
+  const [apiToken, setApiToken] = useState('') // Don't pre-fill for security
+  const [pollInterval, setPollInterval] = useState(source.poll_interval_seconds || 300)
+  const [historicalDaysBack, setHistoricalDaysBack] = useState(source.historical_days_back || 1)
 
   // MQTT fields
   const [mqttHost, setMqttHost] = useState(source.mqtt_host || '')
   const [mqttPort, setMqttPort] = useState(source.mqtt_port || 1883)
-  const [mqttUsername, setMqttUsername] = useState('')
-  const [mqttPassword, setMqttPassword] = useState('')
+  const [mqttUsername, setMqttUsername] = useState(source.mqtt_username || '')
+  const [mqttPassword, setMqttPassword] = useState('') // Don't pre-fill for security
   const [mqttTopic, setMqttTopic] = useState(source.mqtt_topic_pattern || '')
   const [mqttUseTls, setMqttUseTls] = useState(source.mqtt_use_tls || false)
 
   const updateMeshMonitor = useUpdateMeshMonitorSource()
   const updateMqtt = useUpdateMqttSource()
+
+  // Update form when source changes
+  useEffect(() => {
+    setName(source.name)
+    setUrl(source.url || '')
+    setPollInterval(source.poll_interval_seconds || 300)
+    setHistoricalDaysBack(source.historical_days_back || 1)
+    setEnabled(source.enabled)
+    setMqttHost(source.mqtt_host || '')
+    setMqttPort(source.mqtt_port || 1883)
+    setMqttUsername(source.mqtt_username || '')
+    setMqttTopic(source.mqtt_topic_pattern || '')
+    setMqttUseTls(source.mqtt_use_tls || false)
+    // Don't reset password/token fields - let user change if needed
+  }, [source])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -38,30 +54,51 @@ export function EditSourceForm({ source, onSuccess, onCancel }: EditSourceFormPr
 
     try {
       if (source.type === 'meshmonitor') {
-        await updateMeshMonitor.mutateAsync({
-          id: source.id,
-          data: {
-            name,
-            url,
-            api_token: apiToken || undefined,
-            poll_interval_seconds: pollInterval,
-            enabled,
-          },
-        })
+        const updateData: Partial<{
+          name: string
+          url: string
+          api_token?: string
+          poll_interval_seconds: number
+          historical_days_back: number
+          enabled: boolean
+        }> = {
+          name,
+          url,
+          poll_interval_seconds: pollInterval,
+          historical_days_back: historicalDaysBack,
+          enabled,
+        }
+        // Only include api_token if it was changed (not empty)
+        if (apiToken) {
+          updateData.api_token = apiToken
+        }
+        await updateMeshMonitor.mutateAsync({ id: source.id, data: updateData })
       } else {
-        await updateMqtt.mutateAsync({
-          id: source.id,
-          data: {
-            name,
-            mqtt_host: mqttHost,
-            mqtt_port: mqttPort,
-            mqtt_username: mqttUsername || undefined,
-            mqtt_password: mqttPassword || undefined,
-            mqtt_topic_pattern: mqttTopic,
-            mqtt_use_tls: mqttUseTls,
-            enabled,
-          },
-        })
+        const updateData: Partial<{
+          name: string
+          mqtt_host: string
+          mqtt_port: number
+          mqtt_username?: string
+          mqtt_password?: string
+          mqtt_topic_pattern: string
+          mqtt_use_tls: boolean
+          enabled: boolean
+        }> = {
+          name,
+          mqtt_host: mqttHost,
+          mqtt_port: mqttPort,
+          mqtt_topic_pattern: mqttTopic,
+          mqtt_use_tls: mqttUseTls,
+          enabled,
+        }
+        // Only include username/password if they were changed
+        if (mqttUsername !== (source.mqtt_username || '')) {
+          updateData.mqtt_username = mqttUsername || undefined
+        }
+        if (mqttPassword) {
+          updateData.mqtt_password = mqttPassword
+        }
+        await updateMqtt.mutateAsync({ id: source.id, data: updateData })
       }
       onSuccess()
     } catch (err) {
@@ -85,6 +122,7 @@ export function EditSourceForm({ source, onSuccess, onCancel }: EditSourceFormPr
           value={name}
           onChange={(e) => setName(e.target.value)}
           required
+          placeholder="My MeshMonitor"
         />
       </div>
 
@@ -109,6 +147,7 @@ export function EditSourceForm({ source, onSuccess, onCancel }: EditSourceFormPr
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               required
+              placeholder="https://meshmonitor.example.com"
             />
           </div>
 
@@ -129,10 +168,28 @@ export function EditSourceForm({ source, onSuccess, onCancel }: EditSourceFormPr
               id="edit-pollInterval"
               type="number"
               value={pollInterval}
-              onChange={(e) => setPollInterval(parseInt(e.target.value) || 60)}
-              min={10}
-              max={3600}
+              onChange={(e) => setPollInterval(parseInt(e.target.value) || 300)}
+              min={60}
+              max={86400}
             />
+          </div>
+
+          <div className={styles.formRow}>
+            <label htmlFor="edit-historicalDaysBack">Historical Data (days)</label>
+            <select
+              id="edit-historicalDaysBack"
+              value={historicalDaysBack}
+              onChange={(e) => setHistoricalDaysBack(parseInt(e.target.value))}
+            >
+              <option value={1}>1 day (fastest)</option>
+              <option value={3}>3 days</option>
+              <option value={7}>7 days</option>
+              <option value={14}>14 days</option>
+              <option value={30}>30 days (slowest)</option>
+            </select>
+            <small style={{ display: 'block', marginTop: '4px', color: '#666' }}>
+              Days of historical data to sync on initial collection
+            </small>
           </div>
         </>
       ) : (
@@ -145,6 +202,7 @@ export function EditSourceForm({ source, onSuccess, onCancel }: EditSourceFormPr
               value={mqttHost}
               onChange={(e) => setMqttHost(e.target.value)}
               required
+              placeholder="mqtt.example.com"
             />
           </div>
 
@@ -190,6 +248,7 @@ export function EditSourceForm({ source, onSuccess, onCancel }: EditSourceFormPr
               value={mqttTopic}
               onChange={(e) => setMqttTopic(e.target.value)}
               required
+              placeholder="msh/+/2/json/#"
             />
           </div>
 
@@ -207,7 +266,7 @@ export function EditSourceForm({ source, onSuccess, onCancel }: EditSourceFormPr
       )}
 
       <div className={styles.formActions}>
-        <button type="button" className="btn btn-secondary" onClick={onCancel}>
+        <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={isPending}>
           Cancel
         </button>
         <button type="submit" className="btn btn-primary" disabled={isPending}>

@@ -176,12 +176,15 @@ class CollectorManager:
         # Use per-node historical collection for comprehensive sync
         if hasattr(collector, 'collect_all_nodes_historical_telemetry'):
             import asyncio
+            # Use the source's configured historical_days_back value
+            days_back = collector.source.historical_days_back if hasattr(collector, 'source') and collector.source else 1
             asyncio.create_task(collector.collect_all_nodes_historical_telemetry(
-                days_back=7,
+                days_back=days_back,  # Use source configuration
                 batch_size=500,
-                delay_seconds=2.0,
+                delay_seconds=0.3,  # Reduced delay for faster collection
+                max_concurrent=10,  # Process 10 nodes in parallel
             ))
-            logger.info(f"Triggered per-node historical sync for source {source_id}")
+            logger.info(f"Triggered per-node historical sync for source {source_id} (days_back={days_back})")
             return True
         return False
 
@@ -244,7 +247,8 @@ class CollectorManager:
             asyncio.create_task(collector.collect_all_nodes_historical_telemetry(
                 days_back=days_back,
                 batch_size=500,
-                delay_seconds=2.0,
+                delay_seconds=0.3,  # Reduced delay for faster collection
+                max_concurrent=10,  # Process 10 nodes in parallel
             ))
             logger.info(
                 f"Triggered per-node historical collection for source {source_id} "
@@ -267,7 +271,8 @@ class CollectorManager:
                 asyncio.create_task(collector.collect_all_nodes_historical_telemetry(
                     days_back=days_back,
                     batch_size=500,
-                    delay_seconds=2.0,
+                    delay_seconds=0.3,  # Reduced delay for faster collection
+                    max_concurrent=10,  # Process 10 nodes in parallel
                 ))
                 logger.info(
                     f"Triggered per-node historical collection for source {source_id}"

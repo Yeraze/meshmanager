@@ -374,6 +374,129 @@ async def list_traceroutes(
     ]
 
 
+@router.get("/connections")
+async def get_node_connections(
+    db: AsyncSession = Depends(get_db),
+    hours: int = Query(default=24, ge=1, le=168, description="Hours of history"),
+    node_num: int | None = Query(default=None, description="Filter connections for specific node"),
+) -> dict:
+    """Get node connections graph data from traceroutes.
+
+    Returns nodes and edges for graph visualization.
+    """
+    cutoff = datetime.now(UTC) - timedelta(hours=hours)
+
+    # Get traceroutes
+    query = select(Traceroute).where(Traceroute.received_at >= cutoff)
+    if node_num is not None:
+        # Filter traceroutes that involve this node
+        query = query.where(
+            (Traceroute.from_node_num == node_num) |
+            (Traceroute.to_node_num == node_num) |
+            ((Traceroute.route.isnot(None)) & (Traceroute.route.contains([node_num]))) |
+            ((Traceroute.route_back.isnot(None)) & (Traceroute.route_back.contains([node_num])))
+        )
+
+    result = await db.execute(query.order_by(Traceroute.received_at.desc()))
+    traceroutes = result.scalars().all()
+
+    # Get all nodes that appear in traceroutes
+    node_nums = set()
+    for t in traceroutes:
+        if t.route_back is not None:  # Only use complete traceroutes
+            node_nums.add(t.from_node_num)
+            node_nums.add(t.to_node_num)
+            if t.route:
+                node_nums.update(t.route)
+            if t.route_back:
+                node_nums.update(t.route_back)
+
+    # Skip broadcast address
+    node_nums.discard(4294967295)
+
+    if not node_nums:
+        return {"nodes": [], "edges": []}
+
+    # Get node details
+    result = await db.execute(
+        select(Node)
+        .where(Node.node_num.in_(node_nums))
+        .where(Node.latitude.isnot(None))
+        .where(Node.longitude.isnot(None))
+    )
+    nodes = result.scalars().all()
+
+    # Build node map
+    node_map = {n.node_num: n for n in nodes}
+    node_nums_with_data = set(node_map.keys())
+
+    # Build edges from traceroutes
+    edges_map: dict[tuple[int, int], dict] = {}
+
+    def add_edge(from_num: int, to_num: int, usage: int = 1):
+        """Add or update an edge between two nodes."""
+        if from_num == 4294967295 or to_num == 4294967295:
+            return
+        if from_num not in node_nums_with_data or to_num not in node_nums_with_data:
+            return
+
+        # Use sorted tuple for undirected edges
+        edge_key = tuple(sorted([from_num, to_num]))
+        if edge_key in edges_map:
+            edges_map[edge_key]["usage"] += usage
+        else:
+            edges_map[edge_key] = {
+                "source": from_num,
+                "target": to_num,
+                "usage": usage,
+            }
+
+    # Process traceroutes to build edges
+    for t in traceroutes:
+        if t.route_back is None:  # Skip incomplete traceroutes
+            continue
+
+        # Add direct edge
+        add_edge(t.from_node_num, t.to_node_num)
+
+        # Add edges from route
+        if t.route:
+            prev = t.from_node_num
+            for hop in t.route:
+                add_edge(prev, hop)
+                prev = hop
+
+        # Add edges from route_back
+        if t.route_back:
+            prev = t.to_node_num
+            for hop in t.route_back:
+                add_edge(prev, hop)
+                prev = hop
+
+    # Build response
+    nodes_data = []
+    for node_num, node in node_map.items():
+        nodes_data.append({
+            "id": node_num,
+            "node_num": node.node_num,
+            "name": node.long_name or node.short_name or f"Node {node.node_num}",
+            "short_name": node.short_name,
+            "long_name": node.long_name,
+            "latitude": node.latitude,
+            "longitude": node.longitude,
+            "role": node.role,
+            "hw_model": node.hw_model,
+            "last_heard": node.last_heard.isoformat() if node.last_heard else None,
+        })
+
+    edges_data = list(edges_map.values())
+
+    return {
+        "nodes": nodes_data,
+        "edges": edges_data,
+    }
+
+
 @router.get("/analysis/solar-nodes")
 async def identify_solar_nodes(
     db: AsyncSession = Depends(get_db),

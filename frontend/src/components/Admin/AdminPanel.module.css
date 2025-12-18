@@ -173,7 +173,8 @@
 .formRow input[type="text"],
 .formRow input[type="url"],
 .formRow input[type="password"],
-.formRow input[type="number"] {
+.formRow input[type="number"],
+.formRow select {
   width: 100%;
   background: var(--ctp-surface0);
   border: 1px solid var(--ctp-surface2);
@@ -183,7 +184,8 @@
   font-size: 0.9rem;
 }
 
-.formRow input:focus {
+.formRow input:focus,
+.formRow select:focus {
   outline: none;
   border-color: var(--ctp-lavender);
 }

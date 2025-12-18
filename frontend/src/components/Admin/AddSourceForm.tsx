@@ -15,6 +15,7 @@ export function AddSourceForm({ onSuccess }: AddSourceFormProps) {
   const [url, setUrl] = useState('')
   const [apiToken, setApiToken] = useState('')
   const [pollInterval, setPollInterval] = useState(60)
+  const [historicalDaysBack, setHistoricalDaysBack] = useState(1)
 
   // MQTT fields
   const [mqttHost, setMqttHost] = useState('')
@@ -38,6 +39,7 @@ export function AddSourceForm({ onSuccess }: AddSourceFormProps) {
           url,
           api_token: apiToken || undefined,
           poll_interval_seconds: pollInterval,
+          historical_days_back: historicalDaysBack,
         })
       } else {
         await createMqtt.mutateAsync({
@@ -135,6 +137,24 @@ export function AddSourceForm({ onSuccess }: AddSourceFormProps) {
               min={10}
               max={3600}
             />
+          </div>
+
+          <div className={styles.formRow}>
+            <label htmlFor="historicalDaysBack">Historical Data (days)</label>
+            <select
+              id="historicalDaysBack"
+              value={historicalDaysBack}
+              onChange={(e) => setHistoricalDaysBack(parseInt(e.target.value))}
+            >
+              <option value={1}>1 day (fastest)</option>
+              <option value={3}>3 days</option>
+              <option value={7}>7 days</option>
+              <option value={14}>14 days</option>
+              <option value={30}>30 days (slowest)</option>
+            </select>
+            <small style={{ display: 'block', marginTop: '4px', color: '#666' }}>
+              Days of historical data to sync on initial collection
+            </small>
           </div>
         </>
       ) : (

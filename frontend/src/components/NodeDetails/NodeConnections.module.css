@@ -1,0 +1,145 @@
+.connectionsContainer {
+  width: 100%;
+  height: 600px;
+  position: relative;
+  border: 1px solid var(--ctp-surface2);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--ctp-base);
+}
+
+.graphWrapper {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+  pointer-events: auto;
+}
+
+.graphWrapper canvas {
+  display: block;
+  pointer-events: auto !important;
+  touch-action: none;
+  position: relative;
+  z-index: 1;
+}
+
+.graphWrapper > div > div {
+  position: relative;
+  z-index: 1;
+}
+
+.infoPanel {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 10;
+  background: var(--ctp-base);
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--ctp-surface2);
+  font-size: 0.9rem;
+  max-width: 250px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  pointer-events: auto;
+}
+
+.infoTitle {
+  margin-bottom: 8px;
+  font-weight: bold;
+  color: var(--ctp-text);
+}
+
+.infoStats {
+  color: var(--ctp-subtext1);
+  font-size: 0.85rem;
+  margin-bottom: 8px;
+}
+
+.autoArrangeButton {
+  width: 100%;
+  padding: 6px 12px;
+  background: var(--ctp-blue);
+  color: var(--ctp-base);
+  border: none;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.autoArrangeButton:hover {
+  background: var(--ctp-sapphire);
+}
+
+.selectedNodeInfo {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--ctp-surface2);
+}
+
+.selectedNodeTitle {
+  font-weight: bold;
+  margin-bottom: 4px;
+  color: var(--ctp-text);
+}
+
+.selectedNodeDetails {
+  font-size: 0.85rem;
+}
+
+.selectedNodeName {
+  color: var(--ctp-text);
+  font-weight: 500;
+}
+
+.selectedNodeSubtext {
+  color: var(--ctp-subtext1);
+  font-size: 0.8rem;
+  margin-top: 2px;
+}
+
+.loadingContainer {
+  padding: 40px;
+  text-align: center;
+  color: var(--ctp-subtext1);
+}
+
+.errorContainer {
+  padding: 20px;
+  color: var(--ctp-red);
+}
+
+.emptyContainer {
+  padding: 40px;
+  text-align: center;
+  color: var(--ctp-subtext1);
+}
+
+.hoverTooltip {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  margin-top: -10px;
+  z-index: 1000;
+  background: var(--ctp-base);
+  border: 1px solid var(--ctp-surface2);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+  max-width: 250px;
+}
+
+.tooltipTitle {
+  font-weight: bold;
+  color: var(--ctp-text);
+  margin-bottom: 4px;
+}
+
+.tooltipText {
+  color: var(--ctp-subtext1);
+  font-size: 0.8rem;
+  margin-top: 2px;
+}
+

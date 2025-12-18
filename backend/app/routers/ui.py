@@ -497,6 +497,161 @@ async def get_node_connections(
     }
 
 
+def _analyze_metric_for_solar_patterns(
+    values: list[dict],
+    is_battery: bool,
+    previous_day_sunset: dict | None,
+) -> dict | None:
+    """Analyze a single metric (battery or voltage) for solar patterns.
+
+    Args:
+        values: List of {"time": datetime, "value": float} dicts, sorted by time
+        is_battery: True for battery_level, False for voltage
+        previous_day_sunset: Previous day's sunset data for discharge calculation
+
+    Returns:
+        Dict with pattern data if solar pattern detected, None otherwise
+    """
+    if len(values) < 3:
+        return None
+
+    # Calculate daily variance - nodes on wall power have near-constant values
+    all_values = [v["value"] for v in values]
+    min_value = min(all_values)
+    max_value = max(all_values)
+    daily_range = max_value - min_value
+
+    # Set thresholds based on metric type
+    min_variance = 10 if is_battery else 0.3  # Battery: 10%, Voltage: 0.3V
+
+    # Determine if this is potentially a "high-efficiency solar" setup
+    # These nodes have large batteries/panels that stay 90-100% with minimal swing
+    is_high_efficiency_candidate = False
+    if is_battery:
+        # Battery: stays above 90% with small but present swing (2-10%)
+        is_high_efficiency_candidate = (
+            min_value >= 90 and
+            max_value >= 95 and
+            daily_range >= 2 and daily_range < min_variance
+        )
+    else:
+        # Voltage: stays above 4.0V with small but present swing (0.05-0.3V)
+        is_high_efficiency_candidate = (
+            min_value >= 4.0 and
+            max_value >= 4.1 and
+            daily_range >= 0.05 and daily_range < min_variance
+        )
+
+    # Skip days with truly constant values (wall power)
+    # But allow high-efficiency candidates through
+    if daily_range < min_variance and not is_high_efficiency_candidate:
+        return None
+
+    # Find morning values (6am-10am) and afternoon values (12pm-6pm)
+    morning_values = [v for v in values if 6 <= v["time"].hour <= 10]
+    afternoon_values = [v for v in values if 12 <= v["time"].hour <= 18]
+
+    # If we don't have readings in both time windows, use simpler peak detection
+    if morning_values and afternoon_values:
+        # Solar pattern: morning low < afternoon high (charging during daylight)
+        morning_low = min(morning_values, key=lambda v: v["value"])
+        afternoon_high = max(afternoon_values, key=lambda v: v["value"])
+
+        sunrise_value = morning_low["value"]
+        sunrise_time = morning_low["time"]
+        peak_value = afternoon_high["value"]
+        peak_time = afternoon_high["time"]
+
+        # Rise is the key solar indicator: morning-to-afternoon charge
+        rise = peak_value - sunrise_value
+
+        # Find the last reading of the day as "sunset" for display
+        sunset_value = values[-1]["value"]
+        sunset_time = values[-1]["time"]
+        fall = peak_value - sunset_value
+    else:
+        # Fallback: use overall min/max with time constraints
+        peak_idx = max(range(len(values)), key=lambda i: values[i]["value"])
+        peak_value = values[peak_idx]["value"]
+        peak_time = values[peak_idx]["time"]
+
+        # Find lowest value before peak as sunrise
+        sunrise_idx = 0
+        min_before_peak = float("inf")
+        for i in range(peak_idx + 1):
+            if values[i]["value"] < min_before_peak:
+                min_before_peak = values[i]["value"]
+                sunrise_idx = i
+
+        sunrise_time = values[sunrise_idx]["time"]
+        sunrise_value = values[sunrise_idx]["value"]
+        sunset_value = values[-1]["value"]
+        sunset_time = values[-1]["time"]
+        rise = peak_value - sunrise_value
+        fall = peak_value - sunset_value
+
+    # Check for solar pattern
+    if is_high_efficiency_candidate:
+        # Relaxed thresholds for high-efficiency solar
+        min_rise_threshold = 1 if is_battery else 0.02
+        min_ratio = 0.98
+    else:
+        min_rise_threshold = max(min_variance, daily_range * 0.3)
+        min_ratio = 0.95
+
+    has_solar_pattern = (
+        rise >= min_rise_threshold and
+        peak_time.hour >= 10 and peak_time.hour <= 18 and
+        sunrise_time.hour <= 12 and
+        sunrise_value <= peak_value * min_ratio
+    )
+
+    if not has_solar_pattern:
+        return None
+
+    # Calculate charge rate per hour (sunrise -> peak/100%)
+    effective_peak_time = peak_time
+    effective_peak_value = peak_value
+    if is_battery:
+        # Find if battery hits 100% between sunrise and sunset
+        for v in values:
+            if v["time"] > sunrise_time and v["time"] <= sunset_time and v["value"] >= 100:
+                effective_peak_time = v["time"]
+                effective_peak_value = v["value"]
+                break
+
+    charging_hours = (effective_peak_time - sunrise_time).total_seconds() / 3600
+    charge_rate = (effective_peak_value - sunrise_value) / charging_hours if charging_hours > 0 else 0
+
+    # Track daylight/charging hours (sunrise -> sunset)
+    daylight_hours = (sunset_time - sunrise_time).total_seconds() / 3600
+
+    # Calculate discharge rate per hour (previous sunset -> this sunrise)
+    discharge_rate = None
+    discharge_hours = None
+    if previous_day_sunset is not None:
+        prev_sunset_time = previous_day_sunset["time"]
+        prev_sunset_value = previous_day_sunset["value"]
+        discharge_hours = (sunrise_time - prev_sunset_time).total_seconds() / 3600
+        if discharge_hours > 0:
+            discharge_rate = (prev_sunset_value - sunrise_value) / discharge_hours
+
+    return {
+        "has_pattern": True,
+        "is_high_efficiency": is_high_efficiency_candidate,
+        "sunrise": {"time": sunrise_time, "value": sunrise_value},
+        "peak": {"time": peak_time, "value": peak_value},
+        "sunset": {"time": sunset_time, "value": sunset_value},
+        "rise": rise,
+        "fall": fall,
+        "charge_rate": charge_rate,
+        "discharge_rate": discharge_rate,
+        "daylight_hours": daylight_hours if daylight_hours > 0 else None,
+        "discharge_hours": discharge_hours,
+        "daily_range": daily_range,
+    }
+
+
 @router.get("/analysis/solar-nodes")
 async def identify_solar_nodes(
     db: AsyncSession = Depends(get_db),
@@ -559,13 +714,27 @@ async def identify_solar_nodes(
     all_discharge_hours = []  # Hours between sunset and next sunrise (overnight/discharge period)
 
     for node_num, daily_data in node_data.items():
-        days_with_pattern = 0
-        total_days = 0
-        high_efficiency_days = 0
-        daily_patterns = []
-        charge_rates = []  # List of charge rates per hour for averaging
-        discharge_rates = []  # List of discharge rates per hour for averaging
-        previous_day_sunset = None  # Track previous day's sunset for discharge calculation
+        # Track patterns independently for battery and voltage
+        battery_stats = {
+            "days_with_pattern": 0,
+            "total_days": 0,
+            "high_efficiency_days": 0,
+            "daily_patterns": [],
+            "charge_rates": [],
+            "discharge_rates": [],
+            "previous_day_sunset": None,
+            "total_variance": 0,  # Sum of daily ranges to pick best metric
+        }
+        voltage_stats = {
+            "days_with_pattern": 0,
+            "total_days": 0,
+            "high_efficiency_days": 0,
+            "daily_patterns": [],
+            "charge_rates": [],
+            "discharge_rates": [],
+            "previous_day_sunset": None,
+            "total_variance": 0,
+        }
 
         # Sort dates to process in chronological order for discharge calculation
         sorted_dates = sorted(daily_data.keys())
@@ -578,7 +747,7 @@ async def identify_solar_nodes(
             # Sort by time
             readings.sort(key=lambda x: x["time"])
 
-            # Separate battery and voltage readings to avoid mixing scales
+            # Separate battery and voltage readings
             battery_values = []
             voltage_values = []
             for r in readings:
@@ -587,201 +756,157 @@ async def identify_solar_nodes(
                 if r["voltage"] is not None:
                     voltage_values.append({"time": r["time"], "value": r["voltage"]})
 
-            # Prefer battery readings if we have enough, otherwise use voltage
-            # Don't mix the two as they're on different scales
+            # Analyze battery independently
             if len(battery_values) >= 3:
-                values = battery_values
-                min_variance = 10  # Battery: require at least 10% swing
-            elif len(voltage_values) >= 3:
-                values = voltage_values
-                min_variance = 0.3  # Voltage: require at least 0.3V swing
-            else:
-                continue
-
-            # Calculate daily variance - nodes on wall power have near-constant values
-            all_values = [v["value"] for v in values]
-            min_value = min(all_values)
-            max_value = max(all_values)
-            daily_range = max_value - min_value
-
-            # Determine if this is potentially a "high-efficiency solar" setup
-            # These nodes have large batteries/panels that stay 90-100% with minimal swing
-            is_battery = len(battery_values) >= 3
-            is_high_efficiency_candidate = False
-            if is_battery:
-                # Battery: stays above 90% with small but present swing (2-10%)
-                is_high_efficiency_candidate = (
-                    min_value >= 90 and
-                    max_value >= 95 and
-                    daily_range >= 2 and daily_range < min_variance
+                battery_result = _analyze_metric_for_solar_patterns(
+                    battery_values, is_battery=True, previous_day_sunset=battery_stats["previous_day_sunset"]
                 )
-            else:
-                # Voltage: stays above 4.0V with small but present swing (0.05-0.3V)
-                is_high_efficiency_candidate = (
-                    min_value >= 4.0 and
-                    max_value >= 4.1 and
-                    daily_range >= 0.05 and daily_range < min_variance
+                if battery_result:
+                    battery_stats["days_with_pattern"] += 1
+                    battery_stats["charge_rates"].append(battery_result["charge_rate"])
+                    if battery_result["discharge_rate"] is not None:
+                        battery_stats["discharge_rates"].append(battery_result["discharge_rate"])
+                    if battery_result["daylight_hours"]:
+                        all_charging_hours.append(battery_result["daylight_hours"])
+                    if battery_result["discharge_hours"]:
+                        all_discharge_hours.append(battery_result["discharge_hours"])
+                    battery_stats["total_variance"] += battery_result["daily_range"]
+                    if battery_result["is_high_efficiency"]:
+                        battery_stats["high_efficiency_days"] += 1
+                    battery_stats["daily_patterns"].append({
+                        "date": date_str,
+                        "sunrise": {
+                            "time": battery_result["sunrise"]["time"].strftime("%H:%M"),
+                            "value": round(battery_result["sunrise"]["value"], 1),
+                        },
+                        "peak": {
+                            "time": battery_result["peak"]["time"].strftime("%H:%M"),
+                            "value": round(battery_result["peak"]["value"], 1),
+                        },
+                        "sunset": {
+                            "time": battery_result["sunset"]["time"].strftime("%H:%M"),
+                            "value": round(battery_result["sunset"]["value"], 1),
+                        },
+                        "rise": round(battery_result["rise"], 1),
+                        "fall": round(battery_result["fall"], 1),
+                        "charge_rate_per_hour": round(battery_result["charge_rate"], 2),
+                        "discharge_rate_per_hour": round(battery_result["discharge_rate"], 2) if battery_result["discharge_rate"] else None,
+                    })
+                    # Track sunset for next day's discharge calculation
+                    battery_stats["previous_day_sunset"] = {
+                        "time": battery_result["sunset"]["time"],
+                        "value": battery_result["sunset"]["value"],
+                    }
+                    battery_stats["total_days"] += 1
+                elif battery_values:
+                    # Day analyzed but no pattern - still count for total_days if variance check passed
+                    all_vals = [v["value"] for v in battery_values]
+                    daily_range = max(all_vals) - min(all_vals)
+                    if daily_range >= 2:  # Had enough variance to consider
+                        battery_stats["total_days"] += 1
+
+            # Analyze voltage independently
+            if len(voltage_values) >= 3:
+                voltage_result = _analyze_metric_for_solar_patterns(
+                    voltage_values, is_battery=False, previous_day_sunset=voltage_stats["previous_day_sunset"]
                 )
+                if voltage_result:
+                    voltage_stats["days_with_pattern"] += 1
+                    voltage_stats["charge_rates"].append(voltage_result["charge_rate"])
+                    if voltage_result["discharge_rate"] is not None:
+                        voltage_stats["discharge_rates"].append(voltage_result["discharge_rate"])
+                    if voltage_result["daylight_hours"]:
+                        all_charging_hours.append(voltage_result["daylight_hours"])
+                    if voltage_result["discharge_hours"]:
+                        all_discharge_hours.append(voltage_result["discharge_hours"])
+                    voltage_stats["total_variance"] += voltage_result["daily_range"]
+                    if voltage_result["is_high_efficiency"]:
+                        voltage_stats["high_efficiency_days"] += 1
+                    voltage_stats["daily_patterns"].append({
+                        "date": date_str,
+                        "sunrise": {
+                            "time": voltage_result["sunrise"]["time"].strftime("%H:%M"),
+                            "value": round(voltage_result["sunrise"]["value"], 1),
+                        },
+                        "peak": {
+                            "time": voltage_result["peak"]["time"].strftime("%H:%M"),
+                            "value": round(voltage_result["peak"]["value"], 1),
+                        },
+                        "sunset": {
+                            "time": voltage_result["sunset"]["time"].strftime("%H:%M"),
+                            "value": round(voltage_result["sunset"]["value"], 1),
+                        },
+                        "rise": round(voltage_result["rise"], 1),
+                        "fall": round(voltage_result["fall"], 1),
+                        "charge_rate_per_hour": round(voltage_result["charge_rate"], 2),
+                        "discharge_rate_per_hour": round(voltage_result["discharge_rate"], 2) if voltage_result["discharge_rate"] else None,
+                    })
+                    # Track sunset for next day's discharge calculation
+                    voltage_stats["previous_day_sunset"] = {
+                        "time": voltage_result["sunset"]["time"],
+                        "value": voltage_result["sunset"]["value"],
+                    }
+                    voltage_stats["total_days"] += 1
+                elif voltage_values:
+                    # Day analyzed but no pattern
+                    all_vals = [v["value"] for v in voltage_values]
+                    daily_range = max(all_vals) - min(all_vals)
+                    if daily_range >= 0.05:  # Had enough variance to consider
+                        voltage_stats["total_days"] += 1
 
-            # Skip days with truly constant values (wall power)
-            # But allow high-efficiency candidates through
-            if daily_range < min_variance and not is_high_efficiency_candidate:
-                continue
+        # Determine if node is solar-powered based on EITHER metric showing patterns
+        # A node is solar if either battery OR voltage shows solar patterns
+        battery_is_solar = False
+        voltage_is_solar = False
 
-            # Count this as a valid day for analysis
-            total_days += 1
+        # Check battery
+        if battery_stats["total_days"] >= 2:
+            is_mostly_high_eff = battery_stats["high_efficiency_days"] > battery_stats["total_days"] * 0.5
+            min_ratio = 0.33 if is_mostly_high_eff else 0.5
+            if battery_stats["days_with_pattern"] / battery_stats["total_days"] >= min_ratio:
+                battery_is_solar = True
 
-            # Track high-efficiency days for threshold adjustment
-            if is_high_efficiency_candidate:
-                high_efficiency_days += 1
+        # Check voltage
+        if voltage_stats["total_days"] >= 2:
+            is_mostly_high_eff = voltage_stats["high_efficiency_days"] > voltage_stats["total_days"] * 0.5
+            min_ratio = 0.33 if is_mostly_high_eff else 0.5
+            if voltage_stats["days_with_pattern"] / voltage_stats["total_days"] >= min_ratio:
+                voltage_is_solar = True
 
-            # Find morning values (6am-10am) and afternoon values (12pm-6pm)
-            morning_values = [v for v in values if 6 <= v["time"].hour <= 10]
-            afternoon_values = [v for v in values if 12 <= v["time"].hour <= 18]
+        # Node is solar if EITHER metric shows patterns
+        if battery_is_solar or voltage_is_solar:
+            # Choose the best metric for charting based on variance
+            # Prefer the metric that shows more variation (avoids stuck-at-100% battery)
+            # If battery variance is very low (likely stuck at 100%), use voltage
+            use_voltage_for_chart = False
 
-            # If we don't have readings in both time windows, use simpler peak detection
-            if morning_values and afternoon_values:
-                # Solar pattern: morning low < afternoon high (charging during daylight)
-                morning_low = min(morning_values, key=lambda v: v["value"])
-                afternoon_high = max(afternoon_values, key=lambda v: v["value"])
+            if battery_is_solar and voltage_is_solar:
+                # Both show patterns - pick the one with more variance
+                # Normalize: battery variance is % (0-100), voltage is V (0-5)
+                # A 10% battery swing ~ 0.3V voltage swing
+                normalized_battery_variance = battery_stats["total_variance"]
+                normalized_voltage_variance = voltage_stats["total_variance"] * (100 / 5)
+                if normalized_voltage_variance > normalized_battery_variance:
+                    use_voltage_for_chart = True
+            elif voltage_is_solar and not battery_is_solar:
+                use_voltage_for_chart = True
 
-                sunrise_value = morning_low["value"]
-                sunrise_time = morning_low["time"]
-                peak_value = afternoon_high["value"]
-                peak_time = afternoon_high["time"]
-
-                # Rise is the key solar indicator: morning-to-afternoon charge
-                rise = peak_value - sunrise_value
-
-                # Find the last reading of the day as "sunset" for display
-                sunset_value = values[-1]["value"]
-                sunset_time = values[-1]["time"]
-                fall = peak_value - sunset_value
-
+            # Select stats from the chosen metric for display
+            if use_voltage_for_chart:
+                chosen_stats = voltage_stats
+                metric_type = "voltage"
             else:
-                # Fallback: use overall min/max with time constraints
-                peak_idx = max(range(len(values)), key=lambda i: values[i]["value"])
-                peak_value = values[peak_idx]["value"]
-                peak_time = values[peak_idx]["time"]
+                chosen_stats = battery_stats
+                metric_type = "battery"
 
-                # Find lowest value before peak as sunrise
-                sunrise_idx = 0
-                min_before_peak = float("inf")
-                for i in range(peak_idx + 1):
-                    if values[i]["value"] < min_before_peak:
-                        min_before_peak = values[i]["value"]
-                        sunrise_idx = i
+            # Calculate solar score from the best metric
+            total_days = chosen_stats["total_days"]
+            days_with_pattern = chosen_stats["days_with_pattern"]
+            solar_score = round((days_with_pattern / total_days) * 100, 1) if total_days > 0 else 0
 
-                sunrise_time = values[sunrise_idx]["time"]
-                sunrise_value = values[sunrise_idx]["value"]
-                sunset_value = values[-1]["value"]
-                sunset_time = values[-1]["time"]
-                rise = peak_value - sunrise_value
-                fall = peak_value - sunset_value
-
-            # Check for solar pattern:
-            # Key indicator: significant rise from morning to afternoon during daylight
-            # The fall may happen overnight, so we don't require it within same day
-            if is_high_efficiency_candidate:
-                # Relaxed thresholds for high-efficiency solar (nodes that stay 90-100%)
-                # These nodes show the TIME pattern but with smaller swings
-                min_rise_threshold = 1 if is_battery else 0.02  # 1% for battery, 0.02V for voltage
-                min_ratio = 0.98  # Morning can be within 2% of peak
-            else:
-                min_rise_threshold = max(min_variance, daily_range * 0.3)
-                min_ratio = 0.95  # Morning should be at least 5% below peak
-
-            has_solar_pattern = (
-                rise >= min_rise_threshold and
-                peak_time.hour >= 10 and peak_time.hour <= 18 and  # Peak during daylight
-                sunrise_time.hour <= 12 and  # Low should be in morning
-                sunrise_value <= peak_value * min_ratio  # Morning low should be noticeably lower
-            )
-
-            if has_solar_pattern:
-                days_with_pattern += 1
-
-                # Calculate charge rate per hour (sunrise -> peak/100%)
-                # If battery hits 100% before peak, use that time instead
-                effective_peak_time = peak_time
-                effective_peak_value = peak_value
-                if is_battery:
-                    # Find if battery hits 100% between sunrise and sunset
-                    for v in values:
-                        if v["time"] > sunrise_time and v["time"] <= sunset_time and v["value"] >= 100:
-                            # Use the first time it hits 100%
-                            effective_peak_time = v["time"]
-                            effective_peak_value = v["value"]
-                            break
-
-                charging_hours = (effective_peak_time - sunrise_time).total_seconds() / 3600
-                charge_rate = (effective_peak_value - sunrise_value) / charging_hours if charging_hours > 0 else 0
-                charge_rates.append(charge_rate)
-
-                # Track daylight/charging hours (sunrise -> sunset)
-                daylight_hours = (sunset_time - sunrise_time).total_seconds() / 3600
-                if daylight_hours > 0:
-                    all_charging_hours.append(daylight_hours)
-
-                # Calculate discharge rate per hour (previous sunset -> this sunrise)
-                discharge_rate = None
-                if previous_day_sunset is not None:
-                    prev_sunset_time = previous_day_sunset["time"]
-                    prev_sunset_value = previous_day_sunset["value"]
-                    # Calculate hours between previous sunset and current sunrise
-                    discharge_hours = (sunrise_time - prev_sunset_time).total_seconds() / 3600
-                    if discharge_hours > 0:
-                        # Discharge is previous_sunset - current_sunrise (should be positive if discharging)
-                        discharge_rate = (prev_sunset_value - sunrise_value) / discharge_hours
-                        discharge_rates.append(discharge_rate)
-                        # Track overnight/discharge hours
-                        all_discharge_hours.append(discharge_hours)
-
-                daily_patterns.append({
-                    "date": date_str,
-                    "sunrise": {
-                        "time": sunrise_time.strftime("%H:%M"),
-                        "value": round(sunrise_value, 1),
-                    },
-                    "peak": {
-                        "time": peak_time.strftime("%H:%M"),
-                        "value": round(peak_value, 1),
-                    },
-                    "sunset": {
-                        "time": sunset_time.strftime("%H:%M"),
-                        "value": round(sunset_value, 1),
-                    },
-                    "rise": round(rise, 1),
-                    "fall": round(fall, 1),
-                    "charge_rate_per_hour": round(charge_rate, 2),
-                    "discharge_rate_per_hour": round(discharge_rate, 2) if discharge_rate is not None else None,
-                })
-
-            # Track this day's sunset for next day's discharge calculation
-            # Only track if we have valid sunset data
-            if sunset_time and sunset_value is not None:
-                previous_day_sunset = {
-                    "time": sunset_time,
-                    "value": sunset_value,
-                }
-
-        # Consider a node solar-powered if it shows the pattern on enough analyzed days
-        # High-efficiency nodes (stay 90-100%) use a lower threshold since small swings
-        # make patterns harder to detect consistently
-        is_mostly_high_efficiency = high_efficiency_days > total_days * 0.5
-        min_pattern_ratio = 0.33 if is_mostly_high_efficiency else 0.5
-        if total_days >= 2 and days_with_pattern / total_days >= min_pattern_ratio:
-            solar_score = round((days_with_pattern / total_days) * 100, 1)
-
-            # Collect all telemetry data points for this node for charting
-            # Determine which metric type was used (battery or voltage)
+            # Collect chart data for the chosen metric
             all_chart_data = []
-            metric_type = "battery"  # default
             for date_str, readings in daily_data.items():
-                battery_count = sum(1 for r in readings if r["battery"] is not None)
-                voltage_count = sum(1 for r in readings if r["voltage"] is not None)
-                if voltage_count > battery_count:
-                    metric_type = "voltage"
                 for r in readings:
                     value = r["battery"] if metric_type == "battery" else r["voltage"]
                     if value is not None:
@@ -789,13 +914,20 @@ async def identify_solar_nodes(
                             "timestamp": int(r["time"].timestamp() * 1000),
                             "value": round(value, 2),
                         })
-
-            # Sort by timestamp and deduplicate
             all_chart_data.sort(key=lambda x: x["timestamp"])
 
-            # Calculate average rates
+            # Calculate average rates from chosen metric
+            charge_rates = chosen_stats["charge_rates"]
+            discharge_rates = chosen_stats["discharge_rates"]
             avg_charge_rate = round(sum(charge_rates) / len(charge_rates), 2) if charge_rates else None
             avg_discharge_rate = round(sum(discharge_rates) / len(discharge_rates), 2) if discharge_rates else None
+
+            # Indicate which metrics showed solar patterns
+            metrics_detected = []
+            if battery_is_solar:
+                metrics_detected.append("battery")
+            if voltage_is_solar:
+                metrics_detected.append("voltage")
 
             solar_candidates.append({
                 "node_num": node_num,
@@ -803,8 +935,9 @@ async def identify_solar_nodes(
                 "solar_score": solar_score,
                 "days_analyzed": total_days,
                 "days_with_pattern": days_with_pattern,
-                "recent_patterns": daily_patterns[-3:],  # Last 3 days with patterns
+                "recent_patterns": chosen_stats["daily_patterns"][-3:],
                 "metric_type": metric_type,
+                "metrics_detected": metrics_detected,  # NEW: shows which metrics had patterns
                 "chart_data": all_chart_data,
                 "avg_charge_rate_per_hour": avg_charge_rate,
                 "avg_discharge_rate_per_hour": avg_discharge_rate,
@@ -1022,13 +1155,28 @@ async def analyze_solar_forecast(
 
     # Analyze each node's daily patterns (similar to solar-nodes endpoint)
     for node_num, daily_data in node_data.items():
-        days_with_pattern = 0
-        total_days = 0
-        charge_rates = []
-        discharge_rates = []
-        previous_day_sunset = None
+        # Track patterns independently for battery and voltage
+        battery_stats = {
+            "days_with_pattern": 0,
+            "total_days": 0,
+            "high_efficiency_days": 0,
+            "charge_rates": [],
+            "discharge_rates": [],
+            "previous_day_sunset": None,
+            "total_variance": 0,
+        }
+        voltage_stats = {
+            "days_with_pattern": 0,
+            "total_days": 0,
+            "high_efficiency_days": 0,
+            "charge_rates": [],
+            "discharge_rates": [],
+            "previous_day_sunset": None,
+            "total_variance": 0,
+        }
+
+        # Track last known battery level (independent of pattern detection)
         last_known_battery = None
-        metric_type = "battery"
 
         sorted_dates = sorted(daily_data.keys())
 
@@ -1045,142 +1193,113 @@ async def analyze_solar_forecast(
             for r in readings:
                 if r["battery"] is not None:
                     battery_values.append({"time": r["time"], "value": r["battery"]})
+                    # Always track last known battery level
+                    last_known_battery = r["battery"]
                 if r["voltage"] is not None:
                     voltage_values.append({"time": r["time"], "value": r["voltage"]})
 
+            # Analyze battery independently
             if len(battery_values) >= 3:
-                values = battery_values
-                min_variance = 10
-                metric_type = "battery"
-            elif len(voltage_values) >= 3:
-                values = voltage_values
-                min_variance = 0.3
-                metric_type = "voltage"
-            else:
-                continue
-
-            all_values = [v["value"] for v in values]
-            min_value = min(all_values)
-            max_value = max(all_values)
-            daily_range = max_value - min_value
-
-            is_battery = len(battery_values) >= 3
-            is_high_efficiency_candidate = False
-            if is_battery:
-                is_high_efficiency_candidate = (
-                    min_value >= 90 and max_value >= 95 and
-                    daily_range >= 2 and daily_range < min_variance
+                battery_result = _analyze_metric_for_solar_patterns(
+                    battery_values, is_battery=True, previous_day_sunset=battery_stats["previous_day_sunset"]
                 )
-            else:
-                is_high_efficiency_candidate = (
-                    min_value >= 4.0 and max_value >= 4.1 and
-                    daily_range >= 0.05 and daily_range < min_variance
+                if battery_result:
+                    battery_stats["days_with_pattern"] += 1
+                    battery_stats["charge_rates"].append(battery_result["charge_rate"])
+                    if battery_result["discharge_rate"] is not None:
+                        battery_stats["discharge_rates"].append(battery_result["discharge_rate"])
+                    if battery_result["daylight_hours"]:
+                        all_charging_hours.append(battery_result["daylight_hours"])
+                    if battery_result["discharge_hours"]:
+                        all_discharge_hours.append(battery_result["discharge_hours"])
+                    battery_stats["total_variance"] += battery_result["daily_range"]
+                    if battery_result["is_high_efficiency"]:
+                        battery_stats["high_efficiency_days"] += 1
+                    battery_stats["previous_day_sunset"] = {
+                        "time": battery_result["sunset"]["time"],
+                        "value": battery_result["sunset"]["value"],
+                    }
+                    battery_stats["total_days"] += 1
+                elif battery_values:
+                    all_vals = [v["value"] for v in battery_values]
+                    daily_range = max(all_vals) - min(all_vals)
+                    if daily_range >= 2:
+                        battery_stats["total_days"] += 1
+
+            # Analyze voltage independently
+            if len(voltage_values) >= 3:
+                voltage_result = _analyze_metric_for_solar_patterns(
+                    voltage_values, is_battery=False, previous_day_sunset=voltage_stats["previous_day_sunset"]
                 )
+                if voltage_result:
+                    voltage_stats["days_with_pattern"] += 1
+                    voltage_stats["charge_rates"].append(voltage_result["charge_rate"])
+                    if voltage_result["discharge_rate"] is not None:
+                        voltage_stats["discharge_rates"].append(voltage_result["discharge_rate"])
+                    if voltage_result["daylight_hours"]:
+                        all_charging_hours.append(voltage_result["daylight_hours"])
+                    if voltage_result["discharge_hours"]:
+                        all_discharge_hours.append(voltage_result["discharge_hours"])
+                    voltage_stats["total_variance"] += voltage_result["daily_range"]
+                    if voltage_result["is_high_efficiency"]:
+                        voltage_stats["high_efficiency_days"] += 1
+                    voltage_stats["previous_day_sunset"] = {
+                        "time": voltage_result["sunset"]["time"],
+                        "value": voltage_result["sunset"]["value"],
+                    }
+                    voltage_stats["total_days"] += 1
+                elif voltage_values:
+                    all_vals = [v["value"] for v in voltage_values]
+                    daily_range = max(all_vals) - min(all_vals)
+                    if daily_range >= 0.05:
+                        voltage_stats["total_days"] += 1
 
-            if daily_range < min_variance and not is_high_efficiency_candidate:
-                continue
+        # Determine if node is solar-powered based on EITHER metric showing patterns
+        battery_is_solar = False
+        voltage_is_solar = False
 
-            total_days += 1
+        if battery_stats["total_days"] >= 2:
+            is_mostly_high_eff = battery_stats["high_efficiency_days"] > battery_stats["total_days"] * 0.5
+            min_ratio = 0.33 if is_mostly_high_eff else 0.5
+            if battery_stats["days_with_pattern"] / battery_stats["total_days"] >= min_ratio:
+                battery_is_solar = True
 
-            # Track last known battery level
-            if is_battery:
-                last_known_battery = values[-1]["value"]
+        if voltage_stats["total_days"] >= 2:
+            is_mostly_high_eff = voltage_stats["high_efficiency_days"] > voltage_stats["total_days"] * 0.5
+            min_ratio = 0.33 if is_mostly_high_eff else 0.5
+            if voltage_stats["days_with_pattern"] / voltage_stats["total_days"] >= min_ratio:
+                voltage_is_solar = True
 
-            # Find morning and afternoon values
-            morning_values = [v for v in values if 6 <= v["time"].hour <= 10]
-            afternoon_values = [v for v in values if 12 <= v["time"].hour <= 18]
+        # Node is solar if EITHER metric shows patterns
+        if (battery_is_solar or voltage_is_solar) and last_known_battery is not None:
+            # Choose which metric's rates to use for simulation
+            # Prefer battery if it shows patterns with good variance
+            # Use voltage rates if battery doesn't show patterns or has low variance
+            use_voltage_rates = False
 
-            if morning_values and afternoon_values:
-                morning_low = min(morning_values, key=lambda v: v["value"])
-                afternoon_high = max(afternoon_values, key=lambda v: v["value"])
+            if battery_is_solar and voltage_is_solar:
+                # Both show patterns - pick the one with more variance
+                normalized_battery_variance = battery_stats["total_variance"]
+                normalized_voltage_variance = voltage_stats["total_variance"] * (100 / 5)
+                if normalized_voltage_variance > normalized_battery_variance:
+                    use_voltage_rates = True
+            elif voltage_is_solar and not battery_is_solar:
+                use_voltage_rates = True
 
-                sunrise_value = morning_low["value"]
-                sunrise_time = morning_low["time"]
-                peak_value = afternoon_high["value"]
-                peak_time = afternoon_high["time"]
-                sunset_value = values[-1]["value"]
-                sunset_time = values[-1]["time"]
-                rise = peak_value - sunrise_value
+            if use_voltage_rates:
+                chosen_stats = voltage_stats
             else:
-                peak_idx = max(range(len(values)), key=lambda i: values[i]["value"])
-                peak_value = values[peak_idx]["value"]
-                peak_time = values[peak_idx]["time"]
+                chosen_stats = battery_stats
 
-                sunrise_idx = 0
-                min_before_peak = float("inf")
-                for i in range(peak_idx + 1):
-                    if values[i]["value"] < min_before_peak:
-                        min_before_peak = values[i]["value"]
-                        sunrise_idx = i
-
-                sunrise_time = values[sunrise_idx]["time"]
-                sunrise_value = values[sunrise_idx]["value"]
-                sunset_value = values[-1]["value"]
-                sunset_time = values[-1]["time"]
-                rise = peak_value - sunrise_value
-
-            if is_high_efficiency_candidate:
-                min_rise_threshold = 1 if is_battery else 0.02
-                min_ratio = 0.98
-            else:
-                min_rise_threshold = max(min_variance, daily_range * 0.3)
-                min_ratio = 0.95
-
-            has_solar_pattern = (
-                rise >= min_rise_threshold and
-                peak_time.hour >= 10 and peak_time.hour <= 18 and
-                sunrise_time.hour <= 12 and
-                sunrise_value <= peak_value * min_ratio
-            )
-
-            if has_solar_pattern:
-                days_with_pattern += 1
-
-                # Calculate charge rate
-                effective_peak_time = peak_time
-                effective_peak_value = peak_value
-                if is_battery:
-                    for v in values:
-                        if v["time"] > sunrise_time and v["time"] <= sunset_time and v["value"] >= 100:
-                            effective_peak_time = v["time"]
-                            effective_peak_value = v["value"]
-                            break
-
-                charging_hours = (effective_peak_time - sunrise_time).total_seconds() / 3600
-                charge_rate = (effective_peak_value - sunrise_value) / charging_hours if charging_hours > 0 else 0
-                charge_rates.append(charge_rate)
-
-                daylight_hours = (sunset_time - sunrise_time).total_seconds() / 3600
-                if daylight_hours > 0:
-                    all_charging_hours.append(daylight_hours)
-
-                # Calculate discharge rate
-                if previous_day_sunset is not None:
-                    prev_sunset_time = previous_day_sunset["time"]
-                    prev_sunset_value = previous_day_sunset["value"]
-                    discharge_hours = (sunrise_time - prev_sunset_time).total_seconds() / 3600
-                    if discharge_hours > 0:
-                        discharge_rate = (prev_sunset_value - sunrise_value) / discharge_hours
-                        discharge_rates.append(discharge_rate)
-                        all_discharge_hours.append(discharge_hours)
-
-            if sunset_time and sunset_value is not None:
-                previous_day_sunset = {"time": sunset_time, "value": sunset_value}
-
-        # Only process nodes that show solar patterns
-        is_mostly_high_efficiency = total_days > 0 and (
-            sum(1 for d in sorted_dates if len(daily_data[d]) >= 3) > total_days * 0.5
-        )
-        min_pattern_ratio = 0.33 if is_mostly_high_efficiency else 0.5
-
-        if total_days >= 2 and days_with_pattern / total_days >= min_pattern_ratio:
+            charge_rates = chosen_stats["charge_rates"]
+            discharge_rates = chosen_stats["discharge_rates"]
             avg_charge_rate = sum(charge_rates) / len(charge_rates) if charge_rates else 0
             avg_discharge_rate = sum(discharge_rates) / len(discharge_rates) if discharge_rates else 0
             avg_charging_hours = sum(all_charging_hours) / len(all_charging_hours) if all_charging_hours else 10
             avg_discharge_hours = sum(all_discharge_hours) / len(all_discharge_hours) if all_discharge_hours else 14
 
-            # Only simulate for battery metrics
-            if metric_type == "battery" and last_known_battery is not None:
+            # Simulate using battery level (we always need battery for the simulation)
+            if last_known_battery is not None:
                 # Simulate battery level for forecast period
                 simulated_battery = last_known_battery
                 min_simulated = last_known_battery

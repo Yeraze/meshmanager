@@ -3,7 +3,7 @@
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, literal_column, select, or_
+from sqlalchemy import func, literal_column, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -381,7 +381,7 @@ async def get_node_connections(
     node_num: int | None = Query(default=None, description="Filter connections for specific node"),
 ) -> dict:
     """Get node connections graph data from traceroutes.
-    
+
     Returns nodes and edges for graph visualization.
     """
     cutoff = datetime.now(UTC) - timedelta(hours=hours)
@@ -396,7 +396,7 @@ async def get_node_connections(
             ((Traceroute.route.isnot(None)) & (Traceroute.route.contains([node_num]))) |
             ((Traceroute.route_back.isnot(None)) & (Traceroute.route_back.contains([node_num])))
         )
-    
+
     result = await db.execute(query.order_by(Traceroute.received_at.desc()))
     traceroutes = result.scalars().all()
 

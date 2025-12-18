@@ -35,34 +35,34 @@ class CollectionStatus:
         """Convert status to dictionary, including calculated timing information."""
         elapsed_seconds = 0
         estimated_seconds_remaining = 0
-        
+
         if self.status == "collecting" and self.start_time:
             # Calculate elapsed time (using local time)
             elapsed = datetime.now() - self.start_time
             elapsed_seconds = int(elapsed.total_seconds())
-            
+
             # Calculate ETA based on actual progress
             if self.current_batch > 0 and self.max_batches > 0:
                 # Get total number of nodes we need to import
                 total_nodes = self.max_batches
-                
+
                 # Calculate remaining nodes to collect data from
                 remaining_nodes = total_nodes - self.current_batch
-                
+
                 # Minimum nodes needed for accurate rate calculation
-                MIN_NODES_FOR_ACCURATE_RATE = 20
+                min_nodes_for_accurate_rate = 20
                 # Baseline rate based on observed performance: ~3-3.5 nodes/second with 10 parallel
-                BASELINE_NODES_PER_SECOND = 3.2
+                baseline_nodes_per_second = 3.2
                 # Exponential smoothing factor (0.0-1.0, higher = more weight to recent values)
-                SMOOTHING_ALPHA = 0.3
-                
+                smoothing_alpha = 0.3
+
                 # Check if we have a new completion (current_batch increased)
                 has_new_completion = self.current_batch > self.last_completed_count
-                
-                if elapsed_seconds > 0 and self.current_batch >= MIN_NODES_FOR_ACCURATE_RATE:
+
+                if elapsed_seconds > 0 and self.current_batch >= min_nodes_for_accurate_rate:
                     # Calculate instantaneous rate
                     instantaneous_rate = self.current_batch / elapsed_seconds
-                    
+
                     # Use exponential smoothing to reduce volatility
                     # Only update smoothed rate when we have new completions or on first calculation
                     if has_new_completion or self.smoothed_rate is None:
@@ -71,31 +71,31 @@ class CollectionStatus:
                             self.smoothed_rate = instantaneous_rate
                         else:
                             # Exponential moving average: new = alpha * current + (1-alpha) * old
-                            self.smoothed_rate = (SMOOTHING_ALPHA * instantaneous_rate + 
-                                                 (1 - SMOOTHING_ALPHA) * self.smoothed_rate)
+                            self.smoothed_rate = (smoothing_alpha * instantaneous_rate +
+                                                 (1 - smoothing_alpha) * self.smoothed_rate)
                         self.last_completed_count = self.current_batch
                         self.last_completion_time = datetime.now()
-                    
+
                     # Use smoothed rate for ETA calculation
                     effective_nodes_per_second = self.smoothed_rate
                     estimated_seconds_remaining = int(remaining_nodes / effective_nodes_per_second)
                     calculation_method = "smoothed"
-                elif elapsed_seconds > 0 and self.current_batch < MIN_NODES_FOR_ACCURATE_RATE:
+                elif elapsed_seconds > 0 and self.current_batch < min_nodes_for_accurate_rate:
                     # For early batches, use a hybrid approach:
                     # Blend baseline with actual rate (weighted by progress)
-                    progress_ratio = self.current_batch / MIN_NODES_FOR_ACCURATE_RATE
+                    progress_ratio = self.current_batch / min_nodes_for_accurate_rate
                     actual_rate = self.current_batch / elapsed_seconds if elapsed_seconds > 0 else 0
                     # Gradually transition from baseline to actual as we approach MIN_NODES
-                    effective_nodes_per_second = (BASELINE_NODES_PER_SECOND * (1 - progress_ratio) + 
+                    effective_nodes_per_second = (baseline_nodes_per_second * (1 - progress_ratio) +
                                                   actual_rate * progress_ratio)
                     estimated_seconds_remaining = int(remaining_nodes / effective_nodes_per_second)
                     calculation_method = "hybrid"
                 else:
                     # Use baseline estimate for very early stages
-                    effective_nodes_per_second = BASELINE_NODES_PER_SECOND
-                    estimated_seconds_remaining = int(remaining_nodes / BASELINE_NODES_PER_SECOND)
+                    effective_nodes_per_second = baseline_nodes_per_second
+                    estimated_seconds_remaining = int(remaining_nodes / baseline_nodes_per_second)
                     calculation_method = "baseline"
-                
+
                 # Log calculation details (INFO level for monitoring)
                 # Only log every 10 nodes to avoid log spam, but always log first few
                 if self.current_batch % 10 == 0 or self.current_batch <= 5:
@@ -104,7 +104,7 @@ class CollectionStatus:
                         f"rate={effective_nodes_per_second:.2f} nodes/s, "
                         f"remaining={remaining_nodes}, ETA={estimated_seconds_remaining}s ({estimated_seconds_remaining/60:.1f}m)"
                     )
-        
+
         return {
             "status": self.status,
             "current_batch": self.current_batch,
@@ -1260,7 +1260,7 @@ class MeshMonitorCollector(BaseCollector):
                     # Delay before next batch (minimal delay for faster collection)
                     if batch_num < max_batches - 1 and count == batch_size:
                         await asyncio.sleep(delay_seconds)
-                    
+
                     # Check if collection was cancelled
                     if not self._running:
                         break
@@ -1357,7 +1357,7 @@ class MeshMonitorCollector(BaseCollector):
                         # Check if collection was cancelled
                         if not self._running:
                             return 0
-                        
+
                         node_id = node_data.get("nodeId") or node_data.get("id")
                         if not node_id:
                             return 0
@@ -1369,14 +1369,14 @@ class MeshMonitorCollector(BaseCollector):
                                 batch_size=batch_size,
                                 delay_seconds=delay_seconds,
                             )
-                            
+
                             # Update progress only after successful collection
                             # Use lock to prevent race conditions when multiple coroutines complete simultaneously
                             async with completed_nodes_lock:
                                 nonlocal completed_nodes
                                 completed_nodes += 1
                                 self.collection_status.current_batch = completed_nodes
-                            
+
                             return count
                         except Exception as e:
                             logger.error(f"Error collecting node {node_id}: {e}")
@@ -1388,11 +1388,11 @@ class MeshMonitorCollector(BaseCollector):
                     for i, node in enumerate(nodes)
                     if node.get("nodeId") or node.get("id")
                 ]
-                
+
                 # Set max_batches to actual number of tasks created (nodes with valid IDs)
                 # This ensures progress reaches 100% when all processable nodes are completed
                 self.collection_status.max_batches = len(tasks)
-                
+
                 if len(tasks) < len(nodes):
                     logger.warning(
                         f"Skipping {len(nodes) - len(tasks)} nodes without valid nodeId/id "
@@ -1409,10 +1409,10 @@ class MeshMonitorCollector(BaseCollector):
                         self.collection_status.start_time = None  # Clear start time when cancelled
                         collection_cancelled = True
                         break
-                    
+
                     chunk = tasks[chunk_start:chunk_start + chunk_size]
                     results = await asyncio.gather(*chunk, return_exceptions=True)
-                    
+
                     # Sum up results
                     for result in results:
                         if isinstance(result, Exception):

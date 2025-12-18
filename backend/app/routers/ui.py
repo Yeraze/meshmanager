@@ -670,13 +670,16 @@ async def identify_solar_nodes(
 
     cutoff = datetime.now(UTC) - timedelta(days=lookback_days)
 
-    # Fetch all battery_level and voltage telemetry for the period
+    # Fetch all battery_level, voltage, and INA voltage telemetry for the period
+    # INA sensors report voltage as ch1Voltage, ch2Voltage, ch3Voltage with value in raw_value
     result = await db.execute(
         select(Telemetry, Source.name.label("source_name"))
         .join(Source)
         .where(Telemetry.received_at >= cutoff)
         .where(
-            (Telemetry.battery_level.isnot(None)) | (Telemetry.voltage.isnot(None))
+            (Telemetry.battery_level.isnot(None)) |
+            (Telemetry.voltage.isnot(None)) |
+            (Telemetry.metric_name.like("%Voltage"))  # INA sensor voltage channels
         )
         .order_by(Telemetry.received_at.asc())
     )
@@ -695,15 +698,23 @@ async def identify_solar_nodes(
             node_names[node.node_num] = f"!{node.node_num:08x}"
 
     # Group data by node_num and date
-    # Structure: {node_num: {date: [{"time": datetime, "battery": val, "voltage": val}]}}
+    # Structure: {node_num: {date: [{"time": datetime, "battery": val, "voltage": val, "ina_voltages": {}}]}}
     node_data: dict[int, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
 
     for telemetry, source_name in rows:
         date_str = telemetry.received_at.strftime("%Y-%m-%d")
+
+        # Extract INA voltage from metric_name pattern (ch1Voltage, ch2Voltage, ch3Voltage)
+        ina_voltages: dict[str, float] = {}
+        if telemetry.metric_name and telemetry.metric_name.endswith("Voltage") and telemetry.metric_name != "voltage":
+            # This is an INA voltage channel (e.g., ch1Voltage, ch2Voltage, ch3Voltage)
+            ina_voltages[telemetry.metric_name] = telemetry.raw_value
+
         node_data[telemetry.node_num][date_str].append({
             "time": telemetry.received_at,
             "battery": telemetry.battery_level,
             "voltage": telemetry.voltage,
+            "ina_voltages": ina_voltages,
         })
 
     # Analyze each node's daily patterns
@@ -736,6 +747,29 @@ async def identify_solar_nodes(
             "total_variance": 0,
         }
 
+        # Track INA voltage channels dynamically (ch1Voltage, ch2Voltage, ch3Voltage, etc.)
+        ina_channel_stats: dict[str, dict] = {}
+
+        # First pass: identify all INA channels present for this node
+        ina_channels_seen: set[str] = set()
+        for readings in daily_data.values():
+            for r in readings:
+                for channel_name in r.get("ina_voltages", {}).keys():
+                    ina_channels_seen.add(channel_name)
+
+        # Initialize stats for each INA channel
+        for channel_name in ina_channels_seen:
+            ina_channel_stats[channel_name] = {
+                "days_with_pattern": 0,
+                "total_days": 0,
+                "high_efficiency_days": 0,
+                "daily_patterns": [],
+                "charge_rates": [],
+                "discharge_rates": [],
+                "previous_day_sunset": None,
+                "total_variance": 0,
+            }
+
         # Sort dates to process in chronological order for discharge calculation
         sorted_dates = sorted(daily_data.keys())
 
@@ -747,14 +781,20 @@ async def identify_solar_nodes(
             # Sort by time
             readings.sort(key=lambda x: x["time"])
 
-            # Separate battery and voltage readings
+            # Separate battery, voltage, and INA voltage readings
             battery_values = []
             voltage_values = []
+            ina_channel_values: dict[str, list[dict]] = {ch: [] for ch in ina_channels_seen}
+
             for r in readings:
                 if r["battery"] is not None:
                     battery_values.append({"time": r["time"], "value": r["battery"]})
                 if r["voltage"] is not None:
                     voltage_values.append({"time": r["time"], "value": r["voltage"]})
+                # Collect INA voltage values
+                for channel_name, value in r.get("ina_voltages", {}).items():
+                    if value is not None:
+                        ina_channel_values[channel_name].append({"time": r["time"], "value": value})
 
             # Analyze battery independently
             if len(battery_values) >= 3:
@@ -854,10 +894,60 @@ async def identify_solar_nodes(
                     if daily_range >= 0.05:  # Had enough variance to consider
                         voltage_stats["total_days"] += 1
 
-        # Determine if node is solar-powered based on EITHER metric showing patterns
-        # A node is solar if either battery OR voltage shows solar patterns
+            # Analyze each INA voltage channel independently
+            for channel_name, channel_values in ina_channel_values.items():
+                if len(channel_values) >= 3:
+                    stats = ina_channel_stats[channel_name]
+                    ina_result = _analyze_metric_for_solar_patterns(
+                        channel_values, is_battery=False, previous_day_sunset=stats["previous_day_sunset"]
+                    )
+                    if ina_result:
+                        stats["days_with_pattern"] += 1
+                        stats["charge_rates"].append(ina_result["charge_rate"])
+                        if ina_result["discharge_rate"] is not None:
+                            stats["discharge_rates"].append(ina_result["discharge_rate"])
+                        if ina_result["daylight_hours"]:
+                            all_charging_hours.append(ina_result["daylight_hours"])
+                        if ina_result["discharge_hours"]:
+                            all_discharge_hours.append(ina_result["discharge_hours"])
+                        stats["total_variance"] += ina_result["daily_range"]
+                        if ina_result["is_high_efficiency"]:
+                            stats["high_efficiency_days"] += 1
+                        stats["daily_patterns"].append({
+                            "date": date_str,
+                            "sunrise": {
+                                "time": ina_result["sunrise"]["time"].strftime("%H:%M"),
+                                "value": round(ina_result["sunrise"]["value"], 3),
+                            },
+                            "peak": {
+                                "time": ina_result["peak"]["time"].strftime("%H:%M"),
+                                "value": round(ina_result["peak"]["value"], 3),
+                            },
+                            "sunset": {
+                                "time": ina_result["sunset"]["time"].strftime("%H:%M"),
+                                "value": round(ina_result["sunset"]["value"], 3),
+                            },
+                            "rise": round(ina_result["rise"], 3),
+                            "fall": round(ina_result["fall"], 3),
+                            "charge_rate_per_hour": round(ina_result["charge_rate"], 4),
+                            "discharge_rate_per_hour": round(ina_result["discharge_rate"], 4) if ina_result["discharge_rate"] else None,
+                        })
+                        stats["previous_day_sunset"] = {
+                            "time": ina_result["sunset"]["time"],
+                            "value": ina_result["sunset"]["value"],
+                        }
+                        stats["total_days"] += 1
+                    elif channel_values:
+                        all_vals = [v["value"] for v in channel_values]
+                        daily_range = max(all_vals) - min(all_vals)
+                        if daily_range >= 0.01:  # INA sensors can have smaller variance
+                            stats["total_days"] += 1
+
+        # Determine if node is solar-powered based on ANY metric showing patterns
+        # A node is solar if battery, voltage, OR any INA channel shows solar patterns
         battery_is_solar = False
         voltage_is_solar = False
+        ina_channels_solar: dict[str, bool] = {}
 
         # Check battery
         if battery_stats["total_days"] >= 2:
@@ -873,31 +963,62 @@ async def identify_solar_nodes(
             if voltage_stats["days_with_pattern"] / voltage_stats["total_days"] >= min_ratio:
                 voltage_is_solar = True
 
-        # Node is solar if EITHER metric shows patterns
-        if battery_is_solar or voltage_is_solar:
+        # Check INA voltage channels
+        for channel_name, stats in ina_channel_stats.items():
+            if stats["total_days"] >= 2:
+                is_mostly_high_eff = stats["high_efficiency_days"] > stats["total_days"] * 0.5
+                min_ratio = 0.33 if is_mostly_high_eff else 0.5
+                if stats["days_with_pattern"] / stats["total_days"] >= min_ratio:
+                    ina_channels_solar[channel_name] = True
+
+        # Node is solar if ANY metric shows patterns (battery, voltage, or INA channel)
+        any_ina_solar = any(ina_channels_solar.values())
+        if battery_is_solar or voltage_is_solar or any_ina_solar:
             # Choose the best metric for charting based on variance
             # Prefer the metric that shows more variation (avoids stuck-at-100% battery)
-            # If battery variance is very low (likely stuck at 100%), use voltage
-            use_voltage_for_chart = False
+            # Consider battery, voltage, and INA channels
+            chosen_stats = None
+            metric_type = None
+            best_variance = 0
 
-            if battery_is_solar and voltage_is_solar:
-                # Both show patterns - pick the one with more variance
-                # Normalize: battery variance is % (0-100), voltage is V (0-5)
-                # A 10% battery swing ~ 0.3V voltage swing
-                normalized_battery_variance = battery_stats["total_variance"]
-                normalized_voltage_variance = voltage_stats["total_variance"] * (100 / 5)
-                if normalized_voltage_variance > normalized_battery_variance:
-                    use_voltage_for_chart = True
-            elif voltage_is_solar and not battery_is_solar:
-                use_voltage_for_chart = True
+            # Collect all solar metrics with their normalized variance
+            metric_candidates = []
+            if battery_is_solar:
+                # Battery variance is already in % (0-100)
+                metric_candidates.append(("battery", battery_stats, battery_stats["total_variance"]))
+            if voltage_is_solar:
+                # Normalize voltage variance: 0.3V swing ~ 10% battery swing
+                normalized = voltage_stats["total_variance"] * (100 / 5)
+                metric_candidates.append(("voltage", voltage_stats, normalized))
+            for channel_name, is_solar in ina_channels_solar.items():
+                if is_solar:
+                    stats = ina_channel_stats[channel_name]
+                    # Normalize INA voltage variance similar to device voltage
+                    normalized = stats["total_variance"] * (100 / 5)
+                    metric_candidates.append((channel_name, stats, normalized))
 
-            # Select stats from the chosen metric for display
-            if use_voltage_for_chart:
-                chosen_stats = voltage_stats
-                metric_type = "voltage"
-            else:
-                chosen_stats = battery_stats
-                metric_type = "battery"
+            # Pick the metric with highest normalized variance
+            for name, stats, variance in metric_candidates:
+                if variance > best_variance:
+                    best_variance = variance
+                    chosen_stats = stats
+                    metric_type = name
+
+            # Fallback to battery if no variance comparison possible
+            if chosen_stats is None:
+                if battery_is_solar:
+                    chosen_stats = battery_stats
+                    metric_type = "battery"
+                elif voltage_is_solar:
+                    chosen_stats = voltage_stats
+                    metric_type = "voltage"
+                elif ina_channels_solar:
+                    # Pick first INA channel that's solar
+                    for channel_name, is_solar in ina_channels_solar.items():
+                        if is_solar:
+                            chosen_stats = ina_channel_stats[channel_name]
+                            metric_type = channel_name
+                            break
 
             # Calculate solar score from the best metric
             total_days = chosen_stats["total_days"]
@@ -908,11 +1029,17 @@ async def identify_solar_nodes(
             all_chart_data = []
             for date_str, readings in daily_data.items():
                 for r in readings:
-                    value = r["battery"] if metric_type == "battery" else r["voltage"]
+                    if metric_type == "battery":
+                        value = r["battery"]
+                    elif metric_type == "voltage":
+                        value = r["voltage"]
+                    else:
+                        # INA channel - get from ina_voltages dict
+                        value = r.get("ina_voltages", {}).get(metric_type)
                     if value is not None:
                         all_chart_data.append({
                             "timestamp": int(r["time"].timestamp() * 1000),
-                            "value": round(value, 2),
+                            "value": round(value, 3),
                         })
             all_chart_data.sort(key=lambda x: x["timestamp"])
 
@@ -928,6 +1055,10 @@ async def identify_solar_nodes(
                 metrics_detected.append("battery")
             if voltage_is_solar:
                 metrics_detected.append("voltage")
+            # Add INA channels that showed patterns
+            for channel_name, is_solar in ina_channels_solar.items():
+                if is_solar:
+                    metrics_detected.append(channel_name)
 
             solar_candidates.append({
                 "node_num": node_num,
@@ -937,7 +1068,7 @@ async def identify_solar_nodes(
                 "days_with_pattern": days_with_pattern,
                 "recent_patterns": chosen_stats["daily_patterns"][-3:],
                 "metric_type": metric_type,
-                "metrics_detected": metrics_detected,  # NEW: shows which metrics had patterns
+                "metrics_detected": metrics_detected,
                 "chart_data": all_chart_data,
                 "avg_charge_rate_per_hour": avg_charge_rate,
                 "avg_discharge_rate_per_hour": avg_discharge_rate,
@@ -1109,13 +1240,15 @@ async def analyze_solar_forecast(
         })
 
     # Get the solar nodes analysis to simulate battery levels
-    # First, get battery/voltage telemetry for identified solar nodes
+    # First, get battery/voltage/INA telemetry for identified solar nodes
     telemetry_result = await db.execute(
         select(Telemetry, Source.name.label("source_name"))
         .join(Source)
         .where(Telemetry.received_at >= cutoff)
         .where(
-            (Telemetry.battery_level.isnot(None)) | (Telemetry.voltage.isnot(None))
+            (Telemetry.battery_level.isnot(None)) |
+            (Telemetry.voltage.isnot(None)) |
+            (Telemetry.metric_name.like("%Voltage"))  # INA sensor voltage channels
         )
         .order_by(Telemetry.received_at.asc())
     )
@@ -1138,10 +1271,17 @@ async def analyze_solar_forecast(
 
     for telemetry, source_name in telemetry_rows:
         date_str = telemetry.received_at.strftime("%Y-%m-%d")
+
+        # Extract INA voltage from metric_name pattern (ch1Voltage, ch2Voltage, ch3Voltage)
+        ina_voltages: dict[str, float] = {}
+        if telemetry.metric_name and telemetry.metric_name.endswith("Voltage") and telemetry.metric_name != "voltage":
+            ina_voltages[telemetry.metric_name] = telemetry.raw_value
+
         node_data[telemetry.node_num][date_str].append({
             "time": telemetry.received_at,
             "battery": telemetry.battery_level,
             "voltage": telemetry.voltage,
+            "ina_voltages": ina_voltages,
         })
 
     # Track nodes at risk based on forecast
@@ -1175,6 +1315,24 @@ async def analyze_solar_forecast(
             "total_variance": 0,
         }
 
+        # Track INA voltage channels dynamically
+        ina_channel_stats: dict[str, dict] = {}
+        ina_channels_seen: set[str] = set()
+        for readings in daily_data.values():
+            for r in readings:
+                for channel_name in r.get("ina_voltages", {}).keys():
+                    ina_channels_seen.add(channel_name)
+        for channel_name in ina_channels_seen:
+            ina_channel_stats[channel_name] = {
+                "days_with_pattern": 0,
+                "total_days": 0,
+                "high_efficiency_days": 0,
+                "charge_rates": [],
+                "discharge_rates": [],
+                "previous_day_sunset": None,
+                "total_variance": 0,
+            }
+
         # Track last known battery level (independent of pattern detection)
         last_known_battery = None
 
@@ -1187,9 +1345,11 @@ async def analyze_solar_forecast(
 
             readings.sort(key=lambda x: x["time"])
 
-            # Separate battery and voltage
+            # Separate battery, voltage, and INA voltage readings
             battery_values = []
             voltage_values = []
+            ina_channel_values: dict[str, list[dict]] = {ch: [] for ch in ina_channels_seen}
+
             for r in readings:
                 if r["battery"] is not None:
                     battery_values.append({"time": r["time"], "value": r["battery"]})
@@ -1197,6 +1357,10 @@ async def analyze_solar_forecast(
                     last_known_battery = r["battery"]
                 if r["voltage"] is not None:
                     voltage_values.append({"time": r["time"], "value": r["voltage"]})
+                # Collect INA voltage values
+                for channel_name, value in r.get("ina_voltages", {}).items():
+                    if value is not None:
+                        ina_channel_values[channel_name].append({"time": r["time"], "value": value})
 
             # Analyze battery independently
             if len(battery_values) >= 3:
@@ -1254,9 +1418,40 @@ async def analyze_solar_forecast(
                     if daily_range >= 0.05:
                         voltage_stats["total_days"] += 1
 
-        # Determine if node is solar-powered based on EITHER metric showing patterns
+            # Analyze each INA voltage channel independently
+            for channel_name, channel_values in ina_channel_values.items():
+                if len(channel_values) >= 3:
+                    stats = ina_channel_stats[channel_name]
+                    ina_result = _analyze_metric_for_solar_patterns(
+                        channel_values, is_battery=False, previous_day_sunset=stats["previous_day_sunset"]
+                    )
+                    if ina_result:
+                        stats["days_with_pattern"] += 1
+                        stats["charge_rates"].append(ina_result["charge_rate"])
+                        if ina_result["discharge_rate"] is not None:
+                            stats["discharge_rates"].append(ina_result["discharge_rate"])
+                        if ina_result["daylight_hours"]:
+                            all_charging_hours.append(ina_result["daylight_hours"])
+                        if ina_result["discharge_hours"]:
+                            all_discharge_hours.append(ina_result["discharge_hours"])
+                        stats["total_variance"] += ina_result["daily_range"]
+                        if ina_result["is_high_efficiency"]:
+                            stats["high_efficiency_days"] += 1
+                        stats["previous_day_sunset"] = {
+                            "time": ina_result["sunset"]["time"],
+                            "value": ina_result["sunset"]["value"],
+                        }
+                        stats["total_days"] += 1
+                    elif channel_values:
+                        all_vals = [v["value"] for v in channel_values]
+                        daily_range = max(all_vals) - min(all_vals)
+                        if daily_range >= 0.01:
+                            stats["total_days"] += 1
+
+        # Determine if node is solar-powered based on ANY metric showing patterns
         battery_is_solar = False
         voltage_is_solar = False
+        ina_channels_solar: dict[str, bool] = {}
 
         if battery_stats["total_days"] >= 2:
             is_mostly_high_eff = battery_stats["high_efficiency_days"] > battery_stats["total_days"] * 0.5
@@ -1270,29 +1465,55 @@ async def analyze_solar_forecast(
             if voltage_stats["days_with_pattern"] / voltage_stats["total_days"] >= min_ratio:
                 voltage_is_solar = True
 
-        # Node is solar if EITHER metric shows patterns
-        if (battery_is_solar or voltage_is_solar) and last_known_battery is not None:
+        # Check INA voltage channels
+        for channel_name, stats in ina_channel_stats.items():
+            if stats["total_days"] >= 2:
+                is_mostly_high_eff = stats["high_efficiency_days"] > stats["total_days"] * 0.5
+                min_ratio = 0.33 if is_mostly_high_eff else 0.5
+                if stats["days_with_pattern"] / stats["total_days"] >= min_ratio:
+                    ina_channels_solar[channel_name] = True
+
+        # Node is solar if ANY metric shows patterns
+        any_ina_solar = any(ina_channels_solar.values())
+        if (battery_is_solar or voltage_is_solar or any_ina_solar) and last_known_battery is not None:
             # Choose which metric's rates to use for simulation
-            # Prefer battery if it shows patterns with good variance
-            # Use voltage rates if battery doesn't show patterns or has low variance
-            use_voltage_rates = False
+            # Consider battery, voltage, and INA channels - pick the one with best variance
+            chosen_stats = None
+            best_variance = 0
 
-            if battery_is_solar and voltage_is_solar:
-                # Both show patterns - pick the one with more variance
-                normalized_battery_variance = battery_stats["total_variance"]
-                normalized_voltage_variance = voltage_stats["total_variance"] * (100 / 5)
-                if normalized_voltage_variance > normalized_battery_variance:
-                    use_voltage_rates = True
-            elif voltage_is_solar and not battery_is_solar:
-                use_voltage_rates = True
+            # Collect all solar metrics with their normalized variance
+            metric_candidates = []
+            if battery_is_solar:
+                metric_candidates.append(("battery", battery_stats, battery_stats["total_variance"]))
+            if voltage_is_solar:
+                normalized = voltage_stats["total_variance"] * (100 / 5)
+                metric_candidates.append(("voltage", voltage_stats, normalized))
+            for channel_name, is_solar in ina_channels_solar.items():
+                if is_solar:
+                    stats = ina_channel_stats[channel_name]
+                    normalized = stats["total_variance"] * (100 / 5)
+                    metric_candidates.append((channel_name, stats, normalized))
 
-            if use_voltage_rates:
-                chosen_stats = voltage_stats
-            else:
-                chosen_stats = battery_stats
+            # Pick the metric with highest normalized variance
+            for name, stats, variance in metric_candidates:
+                if variance > best_variance:
+                    best_variance = variance
+                    chosen_stats = stats
 
-            charge_rates = chosen_stats["charge_rates"]
-            discharge_rates = chosen_stats["discharge_rates"]
+            # Fallback
+            if chosen_stats is None:
+                if battery_is_solar:
+                    chosen_stats = battery_stats
+                elif voltage_is_solar:
+                    chosen_stats = voltage_stats
+                elif ina_channels_solar:
+                    for channel_name, is_solar in ina_channels_solar.items():
+                        if is_solar:
+                            chosen_stats = ina_channel_stats[channel_name]
+                            break
+
+            charge_rates = chosen_stats["charge_rates"] if chosen_stats else []
+            discharge_rates = chosen_stats["discharge_rates"] if chosen_stats else []
             avg_charge_rate = sum(charge_rates) / len(charge_rates) if charge_rates else 0
             avg_discharge_rate = sum(discharge_rates) / len(discharge_rates) if discharge_rates else 0
             avg_charging_hours = sum(all_charging_hours) / len(all_charging_hours) if all_charging_hours else 10

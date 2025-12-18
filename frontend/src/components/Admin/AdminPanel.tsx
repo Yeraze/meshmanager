@@ -1,6 +1,9 @@
+// Edit source feature added
 import { useState } from 'react'
 import { useAdminSources, useDeleteSource, useTestSource } from '../../hooks/useAdminSources'
 import { AddSourceForm } from './AddSourceForm'
+import { EditSourceForm } from './EditSourceForm'
+import type { Source } from '../../types/api'
 import styles from './AdminPanel.module.css'
 
 interface AdminPanelProps {
@@ -13,6 +16,7 @@ export function AdminPanel({ isOpen, onClose }: AdminPanelProps) {
   const deleteMutation = useDeleteSource()
   const testMutation = useTestSource()
   const [showAddForm, setShowAddForm] = useState(false)
+  const [editingSource, setEditingSource] = useState<Source | null>(null)
   const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({})
 
   if (!isOpen) return null
@@ -61,6 +65,14 @@ export function AdminPanel({ isOpen, onClose }: AdminPanelProps) {
               <AddSourceForm onSuccess={() => setShowAddForm(false)} />
             )}
 
+            {editingSource && (
+              <EditSourceForm
+                source={editingSource}
+                onSuccess={() => setEditingSource(null)}
+                onCancel={() => setEditingSource(null)}
+              />
+            )}
+
             {isLoading ? (
               <div className={styles.loading}>Loading sources...</div>
             ) : sources.length === 0 ? (
@@ -93,6 +105,15 @@ export function AdminPanel({ isOpen, onClose }: AdminPanelProps) {
                         disabled={testMutation.isPending}
                       >
                         Test
+                      </button>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => {
+                          setShowAddForm(false)
+                          setEditingSource(source)
+                        }}
+                      >
+                        Edit
                       </button>
                       <button
                         className="btn btn-danger btn-sm"

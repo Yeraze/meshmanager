@@ -86,3 +86,8 @@ class Source(Base):
         back_populates="source",
         cascade="all, delete-orphan",
     )
+    solar_production: Mapped[list["SolarProduction"]] = relationship(  # noqa: F821
+        "SolarProduction",
+        back_populates="source",
+        cascade="all, delete-orphan",
+    )

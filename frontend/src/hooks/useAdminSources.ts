@@ -10,7 +10,7 @@ import {
   testSource,
   syncSource,
 } from '../services/api'
-import type { MeshMonitorSourceCreate, MqttSourceCreate } from '../types/api'
+import type { MeshMonitorSourceCreate, MeshMonitorSourceUpdate, MqttSourceCreate, MqttSourceUpdate } from '../types/api'
 
 export function useAdminSources() {
   return useQuery({
@@ -47,7 +47,7 @@ export function useUpdateMeshMonitorSource() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<MeshMonitorSourceCreate> }) =>
+    mutationFn: ({ id, data }: { id: string; data: MeshMonitorSourceUpdate }) =>
       updateMeshMonitorSource(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'sources'] })
@@ -60,7 +60,7 @@ export function useUpdateMqttSource() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<MqttSourceCreate> }) =>
+    mutationFn: ({ id, data }: { id: string; data: MqttSourceUpdate }) =>
       updateMqttSource(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'sources'] })

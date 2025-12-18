@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Node } from '../../types/api'
-import { useTelemetryHistory } from '../../hooks/useTelemetry'
+import { useSolarData, useTelemetryHistory } from '../../hooks/useTelemetry'
+import { useNodesByNodeNum } from '../../hooks/useNodes'
 import { useDataContext } from '../../contexts/DataContext'
 import { getRoleName, getHardwareInfo } from '../../utils/meshtastic'
 import TelemetryChart from './TelemetryChart'
@@ -26,6 +27,12 @@ const TELEMETRY_METRICS = [
 export default function NodeDetailsPanel({ node }: NodeDetailsPanelProps) {
   const { onlineHours } = useDataContext()
   const [historyHours, setHistoryHours] = useState(24)
+
+  // Fetch solar data for background on charts
+  const { solarMap } = useSolarData(historyHours)
+
+  // Fetch all source records for this node
+  const { data: sourceRecords = [] } = useNodesByNodeNum(node.node_num)
 
   const displayName = node.long_name || node.short_name || node.node_id || `Node ${node.node_num}`
 
@@ -175,6 +182,29 @@ export default function NodeDetailsPanel({ node }: NodeDetailsPanelProps) {
         <NodeConnections nodeNum={node.node_num} hours={historyHours} />
       </div>
 
+      {/* Source Last Seen Table */}
+      {sourceRecords.length > 1 && (
+        <div className="source-history-section">
+          <h2>Source History</h2>
+          <table className="source-history-table">
+            <thead>
+              <tr>
+                <th>Source</th>
+                <th>Last Seen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sourceRecords.map((record) => (
+                <tr key={record.id}>
+                  <td>{record.source_name || 'Unknown'}</td>
+                  <td>{formatLastHeard(record.last_heard)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {/* Telemetry Charts Section */}
       <div className="telemetry-section">
         <div className="telemetry-header">
@@ -201,6 +231,7 @@ export default function NodeDetailsPanel({ node }: NodeDetailsPanelProps) {
               metricKey={metric.key}
               metricLabel={metric.label}
               hours={historyHours}
+              solarData={solarMap}
             />
           ))}
         </div>
@@ -214,11 +245,13 @@ function TelemetryChartWrapper({
   metricKey,
   metricLabel,
   hours,
+  solarData,
 }: {
   nodeNum: number
   metricKey: string
   metricLabel: string
   hours: number
+  solarData?: Map<number, number>
 }) {
   const { data, isLoading, error } = useTelemetryHistory(nodeNum, metricKey, hours)
 
@@ -238,7 +271,7 @@ function TelemetryChartWrapper({
   return (
     <div className="telemetry-chart-card">
       <div className="telemetry-chart-title">{data.metric} ({data.unit})</div>
-      <TelemetryChart data={data} />
+      <TelemetryChart data={data} solarData={solarData} />
     </div>
   )
 }

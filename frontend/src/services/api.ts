@@ -4,7 +4,9 @@ import type {
   CollectionStatus,
   LoginRequest,
   MeshMonitorSourceCreate,
+  MeshMonitorSourceUpdate,
   MqttSourceCreate,
+  MqttSourceUpdate,
   Node,
   RegisterRequest,
   Source,
@@ -60,12 +62,12 @@ export async function createMqttSource(data: MqttSourceCreate): Promise<Source> 
   return response.data
 }
 
-export async function updateMeshMonitorSource(id: string, data: Partial<MeshMonitorSourceCreate>): Promise<Source> {
+export async function updateMeshMonitorSource(id: string, data: MeshMonitorSourceUpdate): Promise<Source> {
   const response = await api.put<Source>(`/api/admin/sources/meshmonitor/${id}`, data)
   return response.data
 }
 
-export async function updateMqttSource(id: string, data: Partial<MqttSourceCreate>): Promise<Source> {
+export async function updateMqttSource(id: string, data: MqttSourceUpdate): Promise<Source> {
   const response = await api.put<Source>(`/api/admin/sources/mqtt/${id}`, data)
   return response.data
 }
@@ -322,5 +324,142 @@ export async function generateUtilization(): Promise<UtilizationGenerateResponse
 
 export async function fetchUtilizationCells(): Promise<UtilizationCell[]> {
   const response = await api.get<UtilizationCell[]>('/api/utilization/cells')
+  return response.data
+}
+
+// Solar Production
+export interface SolarDataPoint {
+  timestamp: number
+  wattHours: number
+  sourceCount: number
+}
+
+export async function fetchSolarData(hours?: number): Promise<SolarDataPoint[]> {
+  const params = new URLSearchParams()
+  if (hours) params.append('hours', hours.toString())
+
+  const response = await api.get<SolarDataPoint[]>(`/api/solar?${params.toString()}`)
+  return response.data
+}
+
+// Solar Analysis
+export interface SolarPattern {
+  date: string
+  sunrise: { time: string; value: number }
+  peak: { time: string; value: number }
+  sunset: { time: string; value: number }
+  rise: number
+  fall: number
+  charge_rate_per_hour: number
+  discharge_rate_per_hour: number | null
+}
+
+export interface SolarChartPoint {
+  timestamp: number
+  value: number
+}
+
+export interface SolarNode {
+  node_num: number
+  node_name: string
+  solar_score: number
+  days_analyzed: number
+  days_with_pattern: number
+  recent_patterns: SolarPattern[]
+  metric_type: 'battery' | 'voltage'
+  chart_data: SolarChartPoint[]
+  avg_charge_rate_per_hour: number | null
+  avg_discharge_rate_per_hour: number | null
+  insufficient_solar: boolean | null
+}
+
+export interface SolarProductionPoint {
+  timestamp: number
+  wattHours: number
+}
+
+export interface SolarNodesAnalysis {
+  lookback_days: number
+  total_nodes_analyzed: number
+  solar_nodes_count: number
+  solar_nodes: SolarNode[]
+  solar_production: SolarProductionPoint[]
+  avg_charging_hours_per_day: number | null
+  avg_discharge_hours_per_day: number | null
+}
+
+export async function fetchSolarNodesAnalysis(lookbackDays?: number): Promise<SolarNodesAnalysis> {
+  const params = new URLSearchParams()
+  if (lookbackDays) params.append('lookback_days', lookbackDays.toString())
+
+  const response = await api.get<SolarNodesAnalysis>(`/api/analysis/solar-nodes?${params.toString()}`)
+  return response.data
+}
+
+// Solar Forecast Analysis
+export interface ForecastDay {
+  date: string
+  forecast_wh: number
+  avg_historical_wh: number
+  pct_of_average: number
+  is_low: boolean
+}
+
+export interface ForecastSimulationDay {
+  timestamp: string
+  simulated_battery: number
+  phase: 'sunrise' | 'peak' | 'sunset'
+  forecast_factor: number
+}
+
+export interface NodeAtRisk {
+  node_num: number
+  node_name: string
+  current_battery: number
+  min_simulated_battery: number
+  avg_charge_rate_per_hour: number
+  avg_discharge_rate_per_hour: number
+  simulation: ForecastSimulationDay[]
+}
+
+export interface SolarForecastAnalysis {
+  lookback_days: number
+  historical_days_analyzed: number
+  avg_historical_daily_wh: number
+  low_output_warning: boolean
+  forecast_days: ForecastDay[]
+  nodes_at_risk_count: number
+  nodes_at_risk: NodeAtRisk[]
+  solar_simulations: NodeAtRisk[]
+}
+
+export async function fetchSolarForecastAnalysis(lookbackDays?: number): Promise<SolarForecastAnalysis> {
+  const params = new URLSearchParams()
+  if (lookbackDays) params.append('lookback_days', lookbackDays.toString())
+
+  const response = await api.get<SolarForecastAnalysis>(`/api/analysis/solar-forecast?${params.toString()}`)
+  return response.data
+}
+
+// Solar Schedule Settings
+export interface SolarScheduleSettings {
+  enabled: boolean
+  schedules: string[]  // Array of "HH:MM" time strings
+  apprise_urls: string[]
+  lookback_days: number
+}
+
+export async function getSolarScheduleSettings(): Promise<SolarScheduleSettings> {
+  const response = await api.get<SolarScheduleSettings>('/api/settings/solar-schedule')
+  return response.data
+}
+
+export async function updateSolarScheduleSettings(settings: SolarScheduleSettings): Promise<SolarScheduleSettings> {
+  const response = await api.put<SolarScheduleSettings>('/api/settings/solar-schedule', settings)
+  return response.data
+}
+
+export async function testSolarNotification(): Promise<{ success: boolean; message: string }> {
+  const response = await api.post<{ success: boolean; message: string }>('/api/settings/solar-schedule/test')
   return response.data
 }

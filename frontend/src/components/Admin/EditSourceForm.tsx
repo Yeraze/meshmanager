@@ -12,13 +12,15 @@ interface EditSourceFormProps {
 export function EditSourceForm({ source, onSuccess, onCancel }: EditSourceFormProps) {
   const [error, setError] = useState<string | null>(null)
 
-  // MeshMonitor fields
+  // Common fields
   const [name, setName] = useState(source.name)
+  const [enabled, setEnabled] = useState(source.enabled)
+
+  // MeshMonitor fields
   const [url, setUrl] = useState(source.url || '')
   const [apiToken, setApiToken] = useState('') // Don't pre-fill for security
   const [pollInterval, setPollInterval] = useState(source.poll_interval_seconds || 300)
   const [historicalDaysBack, setHistoricalDaysBack] = useState(source.historical_days_back || 1)
-  const [enabled, setEnabled] = useState(source.enabled)
 
   // MQTT fields
   const [mqttHost, setMqttHost] = useState(source.mqtt_host || '')
@@ -108,9 +110,7 @@ export function EditSourceForm({ source, onSuccess, onCancel }: EditSourceFormPr
 
   return (
     <form onSubmit={handleSubmit} className={styles.addForm}>
-      <div className={styles.formRow}>
-        <h3 style={{ margin: '0 0 12px 0', color: 'var(--ctp-text)' }}>Edit Source: {source.name}</h3>
-      </div>
+      <h4>Edit {source.type === 'meshmonitor' ? 'MeshMonitor' : 'MQTT'} Source</h4>
 
       {error && <div className={styles.error}>{error}</div>}
 
@@ -124,6 +124,17 @@ export function EditSourceForm({ source, onSuccess, onCancel }: EditSourceFormPr
           required
           placeholder="My MeshMonitor"
         />
+      </div>
+
+      <div className={styles.formRow}>
+        <label className={styles.checkbox}>
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => setEnabled(e.target.checked)}
+          />
+          Enabled
+        </label>
       </div>
 
       {source.type === 'meshmonitor' ? (
@@ -141,17 +152,14 @@ export function EditSourceForm({ source, onSuccess, onCancel }: EditSourceFormPr
           </div>
 
           <div className={styles.formRow}>
-            <label htmlFor="edit-apiToken">API Token (optional)</label>
+            <label htmlFor="edit-apiToken">API Token (leave blank to keep current)</label>
             <input
               id="edit-apiToken"
               type="password"
               value={apiToken}
               onChange={(e) => setApiToken(e.target.value)}
-              placeholder="Leave blank to keep existing token"
+              placeholder="Enter new token or leave blank"
             />
-            <small style={{ display: 'block', marginTop: '4px', color: '#666' }}>
-              Leave blank to keep the existing token unchanged
-            </small>
           </div>
 
           <div className={styles.formRow}>
@@ -211,27 +219,25 @@ export function EditSourceForm({ source, onSuccess, onCancel }: EditSourceFormPr
           </div>
 
           <div className={styles.formRow}>
-            <label htmlFor="edit-mqttUsername">Username (optional)</label>
+            <label htmlFor="edit-mqttUsername">Username (leave blank to keep current)</label>
             <input
               id="edit-mqttUsername"
               type="text"
               value={mqttUsername}
               onChange={(e) => setMqttUsername(e.target.value)}
+              placeholder="Enter new username or leave blank"
             />
           </div>
 
           <div className={styles.formRow}>
-            <label htmlFor="edit-mqttPassword">Password (optional)</label>
+            <label htmlFor="edit-mqttPassword">Password (leave blank to keep current)</label>
             <input
               id="edit-mqttPassword"
               type="password"
               value={mqttPassword}
               onChange={(e) => setMqttPassword(e.target.value)}
-              placeholder="Leave blank to keep existing password"
+              placeholder="Enter new password or leave blank"
             />
-            <small style={{ display: 'block', marginTop: '4px', color: '#666' }}>
-              Leave blank to keep the existing password unchanged
-            </small>
           </div>
 
           <div className={styles.formRow}>
@@ -259,26 +265,14 @@ export function EditSourceForm({ source, onSuccess, onCancel }: EditSourceFormPr
         </>
       )}
 
-      <div className={styles.formRow}>
-        <label className={styles.checkbox}>
-          <input
-            type="checkbox"
-            checked={enabled}
-            onChange={(e) => setEnabled(e.target.checked)}
-          />
-          Enabled
-        </label>
-      </div>
-
       <div className={styles.formActions}>
         <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={isPending}>
           Cancel
         </button>
         <button type="submit" className="btn btn-primary" disabled={isPending}>
-          {isPending ? 'Updating...' : 'Update Source'}
+          {isPending ? 'Saving...' : 'Save Changes'}
         </button>
       </div>
     </form>
   )
 }
-

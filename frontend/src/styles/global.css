@@ -1101,6 +1101,14 @@ body {
   background-color: var(--color-bg);
 }
 
+.analysis-page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background-color: var(--color-bg);
+}
+
 .settings-header,
 .graphs-header {
   margin-bottom: var(--spacing-xl);
@@ -1763,6 +1771,56 @@ body {
 
 .node-info-value.signal-low {
   color: var(--color-error);
+}
+
+/* Source History Section */
+.source-history-section {
+  margin-bottom: var(--spacing-xl);
+}
+
+.source-history-section h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0 0 var(--spacing-md) 0;
+}
+
+.source-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.source-history-table th,
+.source-history-table td {
+  padding: var(--spacing-sm) var(--spacing-md);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.source-history-table th {
+  background-color: var(--color-bg-tertiary);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.source-history-table td {
+  font-size: 0.875rem;
+  color: var(--color-text);
+}
+
+.source-history-table tr:last-child td {
+  border-bottom: none;
+}
+
+.source-history-table tr:hover td {
+  background-color: var(--color-bg-tertiary);
 }
 
 /* Telemetry Section */

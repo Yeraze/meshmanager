@@ -34,6 +34,8 @@ import {
   deleteSource,
   testSource,
   syncSource,
+  fetchSolarNodesAnalysis,
+  fetchSolarForecastAnalysis,
 } from './api'
 
 describe('API Service', () => {
@@ -277,6 +279,117 @@ describe('API Service', () => {
 
       expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/utilization/config')
       expect(result).toEqual(mockConfig)
+    })
+  })
+
+  describe('Solar Analysis endpoints', () => {
+    it('fetchSolarNodesAnalysis should call GET /api/analysis/solar-nodes', async () => {
+      const mockAnalysis = {
+        lookback_days: 7,
+        total_nodes_analyzed: 50,
+        solar_nodes_count: 5,
+        avg_charging_hours_per_day: 10.5,
+        avg_discharge_hours_per_day: 13.5,
+        solar_nodes: [
+          {
+            node_num: 12345678,
+            node_name: 'Solar Node',
+            solar_score: 85.7,
+            days_analyzed: 7,
+            days_with_pattern: 6,
+            recent_patterns: [],
+            metric_type: 'battery',
+            chart_data: [],
+            avg_charge_rate_per_hour: 3.85,
+            avg_discharge_rate_per_hour: 0.54,
+            insufficient_solar: false,
+          },
+        ],
+        solar_production: [],
+      }
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: mockAnalysis })
+
+      const result = await fetchSolarNodesAnalysis()
+
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/analysis/solar-nodes?')
+      expect(result).toEqual(mockAnalysis)
+    })
+
+    it('fetchSolarNodesAnalysis should include lookback_days param when provided', async () => {
+      const mockAnalysis = {
+        lookback_days: 14,
+        total_nodes_analyzed: 50,
+        solar_nodes_count: 5,
+        avg_charging_hours_per_day: 10.5,
+        avg_discharge_hours_per_day: 13.5,
+        solar_nodes: [],
+        solar_production: [],
+      }
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: mockAnalysis })
+
+      await fetchSolarNodesAnalysis(14)
+
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith(
+        expect.stringContaining('lookback_days=14')
+      )
+    })
+
+    it('fetchSolarForecastAnalysis should call GET /api/analysis/solar-forecast', async () => {
+      const mockForecast = {
+        lookback_days: 7,
+        historical_days_analyzed: 7,
+        avg_historical_daily_wh: 1500.0,
+        low_output_warning: false,
+        forecast_days: [
+          {
+            date: '2024-01-16',
+            forecast_wh: 1400,
+            avg_historical_wh: 1500,
+            pct_of_average: 93.3,
+            is_low: false,
+          },
+        ],
+        nodes_at_risk_count: 0,
+        nodes_at_risk: [],
+      }
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: mockForecast })
+
+      const result = await fetchSolarForecastAnalysis()
+
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/analysis/solar-forecast?')
+      expect(result).toEqual(mockForecast)
+    })
+
+    it('fetchSolarForecastAnalysis should include lookback_days param when provided', async () => {
+      const mockForecast = {
+        lookback_days: 14,
+        historical_days_analyzed: 14,
+        avg_historical_daily_wh: 1600.0,
+        low_output_warning: true,
+        forecast_days: [],
+        nodes_at_risk_count: 1,
+        nodes_at_risk: [
+          {
+            node_num: 12345678,
+            node_name: 'At Risk Node',
+            current_battery: 60,
+            min_simulated_battery: 35,
+            avg_charge_rate_per_hour: 3.5,
+            avg_discharge_rate_per_hour: 0.6,
+            simulation: [
+              { date: '2024-01-16', simulated_battery: 55, forecast_factor: 0.7 },
+              { date: '2024-01-17', simulated_battery: 35, forecast_factor: 0.65 },
+            ],
+          },
+        ],
+      }
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: mockForecast })
+
+      await fetchSolarForecastAnalysis(14)
+
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith(
+        expect.stringContaining('lookback_days=14')
+      )
     })
   })
 })

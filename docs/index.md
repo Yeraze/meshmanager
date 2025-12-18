@@ -5,6 +5,9 @@ hero:
   name: "MeshManager"
   text: "Multi-Source Mesh Network Management"
   tagline: Aggregate, analyze, and monitor your Meshtastic mesh network across multiple MeshMonitor instances
+  image:
+    src: /images/logo.png
+    alt: MeshManager
   actions:
     - theme: brand
       text: Get Started

@@ -30,6 +30,7 @@ export default function NavSidebar({ currentPage, onPageChange }: NavSidebarProp
   return (
     <nav className={`nav-sidebar ${isCollapsed ? 'collapsed' : ''}`}>
       <div className="nav-header">
+        <img src="/logo-32.png" alt="MeshManager" className="nav-logo" />
         {!isCollapsed && <span className="nav-title">MeshManager</span>}
         <button
           className="nav-toggle"

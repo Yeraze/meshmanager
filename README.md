@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/public/images/logo.png" alt="MeshManager Logo" width="200">
+</p>
+
 # MeshManager
 
 [![Tests](https://github.com/Yeraze/meshmanager/actions/workflows/tests.yml/badge.svg)](https://github.com/Yeraze/meshmanager/actions/workflows/tests.yml)

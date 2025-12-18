@@ -1003,12 +1003,19 @@ body {
   min-height: 56px;
 }
 
+.nav-logo {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
 .nav-title {
   font-size: 1rem;
   font-weight: 600;
   color: var(--color-primary);
   white-space: nowrap;
   overflow: hidden;
+  margin-left: var(--spacing-sm);
 }
 
 .nav-toggle {

@@ -11,9 +11,11 @@ interface GraphNode {
   short_name?: string | null
   name?: string
   long_name?: string
-  hw_model?: number
-  role?: number
+  hw_model?: string
+  role?: string
   last_heard?: string | null
+  latitude?: number
+  longitude?: number
   x?: number
   y?: number
   fx?: number
@@ -93,11 +95,11 @@ export default function NodeConnections({ nodeNum, hours = 24 }: NodeConnections
       }))
 
     // Ensure nodes have all necessary properties
-    const nodes = data.nodes.map((node: GraphNode) => ({
+    const nodes = data.nodes.map((node) => ({
       ...node,
-      id: node.id || node.node_num,
+      id: node.id ?? node.node_num,
       short_name: node.short_name || null,
-      name: node.name || node.long_name || `Node ${node.id || node.node_num}`,
+      name: node.name || node.long_name || `Node ${node.id ?? node.node_num}`,
     }))
     
     return { nodes, links }
@@ -176,10 +178,7 @@ export default function NodeConnections({ nodeNum, hours = 24 }: NodeConnections
           forcesConfigured.current = true
           
           // Restart simulation with higher alpha to give it energy to spread out
-          const simulation = graphRef.current.d3Force()
-          if (simulation) {
-            simulation.alpha(1.0).restart()
-          }
+          graphRef.current.d3ReheatSimulation()
           return true
         }
       }
@@ -206,9 +205,10 @@ export default function NodeConnections({ nodeNum, hours = 24 }: NodeConnections
   const handleAutoArrange = () => {
     if (graphRef.current) {
       // Clear fixed positions and restart simulation
-      graphData.nodes.forEach((node: GraphNode) => {
-        node.fx = undefined
-        node.fy = undefined
+      graphData.nodes.forEach((node) => {
+        // fx/fy are runtime properties added by ForceGraph2D
+        (node as { fx?: number; fy?: number }).fx = undefined;
+        (node as { fx?: number; fy?: number }).fy = undefined
       })
       // Use d3Force method directly to configure forces (match the values above)
       graphRef.current.d3Force('charge')?.strength(-500)
@@ -216,10 +216,7 @@ export default function NodeConnections({ nodeNum, hours = 24 }: NodeConnections
       graphRef.current.d3Force('center')?.strength(0.3)
       graphRef.current.d3Force('collision')?.radius(10)
       // Restart simulation
-      const simulation = graphRef.current.d3Force()
-      if (simulation) {
-        simulation.alpha(1).restart()
-      }
+      graphRef.current.d3ReheatSimulation()
     }
   }
 

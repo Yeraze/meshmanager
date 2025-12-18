@@ -7,7 +7,7 @@ export default defineConfig({
   base: '/',  // Custom domain: meshmanager.org
 
   head: [
-    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/images/logo.svg' }],
+    ['link', { rel: 'icon', type: 'image/png', href: '/images/logo.png' }],
     ['meta', { name: 'theme-color', content: '#3eaf7c' }],
     ['meta', { name: 'og:type', content: 'website' }],
     ['meta', { name: 'og:site_name', content: 'MeshManager' }],
@@ -15,7 +15,7 @@ export default defineConfig({
 
   themeConfig: {
     // https://vitepress.dev/reference/default-theme-config
-    logo: '/images/logo.svg',
+    logo: '/images/logo.png',
 
     nav: [
       { text: 'Home', link: '/' },

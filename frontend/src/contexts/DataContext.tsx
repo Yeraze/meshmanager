@@ -20,7 +20,10 @@ const DataContext = createContext<DataContextValue | null>(null)
 export function DataProvider({ children }: { children: ReactNode }) {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
   const [enabledSourceIds, setEnabledSourceIds] = useState<Set<string>>(new Set())
-  const [showActiveOnly, setShowActiveOnly] = useState(false)
+  const [showActiveOnly, setShowActiveOnlyState] = useState(() => {
+    const stored = localStorage.getItem('showActiveOnly')
+    return stored !== null ? stored === 'true' : true // Default to true
+  })
   const [activeHours, setActiveHours] = useState(24)
   const [onlineHours, setOnlineHours] = useState(1)
 
@@ -38,6 +41,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const enableAllSources = (sourceIds: string[]) => {
     setEnabledSourceIds(new Set(sourceIds))
+  }
+
+  const setShowActiveOnly = (active: boolean) => {
+    localStorage.setItem('showActiveOnly', String(active))
+    setShowActiveOnlyState(active)
   }
 
   const value: DataContextValue = {

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { DataProvider, useDataContext } from './DataContext'
 import type { ReactNode } from 'react'
@@ -8,6 +8,9 @@ const wrapper = ({ children }: { children: ReactNode }) => (
 )
 
 describe('DataContext', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
   describe('useDataContext', () => {
     it('should throw error when used outside DataProvider', () => {
       expect(() => {
@@ -20,7 +23,7 @@ describe('DataContext', () => {
 
       expect(result.current.selectedNode).toBeNull()
       expect(result.current.enabledSourceIds.size).toBe(0)
-      expect(result.current.showActiveOnly).toBe(false)
+      expect(result.current.showActiveOnly).toBe(true) // Default is true
       expect(result.current.activeHours).toBe(24)
       expect(result.current.onlineHours).toBe(1)
     })
@@ -174,14 +177,19 @@ describe('DataContext', () => {
   })
 
   describe('showActiveOnly', () => {
-    it('should update showActiveOnly when setShowActiveOnly is called', () => {
+    it('should default to true when no localStorage value', () => {
       const { result } = renderHook(() => useDataContext(), { wrapper })
+      expect(result.current.showActiveOnly).toBe(true)
+    })
 
+    it('should read initial value from localStorage', () => {
+      localStorage.setItem('showActiveOnly', 'false')
+      const { result } = renderHook(() => useDataContext(), { wrapper })
       expect(result.current.showActiveOnly).toBe(false)
+    })
 
-      act(() => {
-        result.current.setShowActiveOnly(true)
-      })
+    it('should update showActiveOnly and persist to localStorage', () => {
+      const { result } = renderHook(() => useDataContext(), { wrapper })
 
       expect(result.current.showActiveOnly).toBe(true)
 
@@ -190,6 +198,14 @@ describe('DataContext', () => {
       })
 
       expect(result.current.showActiveOnly).toBe(false)
+      expect(localStorage.getItem('showActiveOnly')).toBe('false')
+
+      act(() => {
+        result.current.setShowActiveOnly(true)
+      })
+
+      expect(result.current.showActiveOnly).toBe(true)
+      expect(localStorage.getItem('showActiveOnly')).toBe('true')
     })
   })
 

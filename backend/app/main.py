@@ -13,6 +13,7 @@ from app.routers import (
     auth_router,
     coverage_router,
     health_router,
+    messages_router,
     metrics_router,
     sources_router,
     ui_router,
@@ -100,6 +101,7 @@ app.include_router(sources_router)
 app.include_router(ui_router)
 app.include_router(coverage_router)
 app.include_router(utilization_router)
+app.include_router(messages_router)
 
 
 @app.get("/")

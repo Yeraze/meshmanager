@@ -542,3 +542,78 @@ export async function fetchMessageUtilizationAnalysis(
   const response = await api.get<MessageUtilizationAnalysis>(`/api/analysis/message-utilization?${queryParams.toString()}`)
   return response.data
 }
+
+// Message Channels (Communication Page)
+export interface ChannelSourceName {
+  source_name: string
+  channel_name: string | null
+}
+
+export interface ChannelSummary {
+  channel_index: number
+  display_name: string
+  message_count: number
+  last_message_at: string | null
+  source_names: ChannelSourceName[]
+}
+
+export interface MessageResponse {
+  packet_id: string
+  from_node_num: number
+  to_node_num: number | null
+  channel: number
+  text: string | null
+  emoji: string | null
+  reply_id: number | null
+  hop_limit: number | null
+  hop_start: number | null
+  rx_time: string | null
+  received_at: string
+  from_short_name: string | null
+  from_long_name: string | null
+  source_count: number
+}
+
+export interface MessagesListResponse {
+  messages: MessageResponse[]
+  has_more: boolean
+  next_cursor: string | null
+}
+
+export interface MessageSourceDetail {
+  source_id: string
+  source_name: string
+  rx_snr: number | null
+  rx_rssi: number | null
+  hop_limit: number | null
+  hop_start: number | null
+  hop_count: number | null
+  rx_time: string | null
+  received_at: string
+}
+
+export async function fetchMessageChannels(): Promise<ChannelSummary[]> {
+  const response = await api.get<ChannelSummary[]>('/api/messages/channels')
+  return response.data
+}
+
+export async function fetchMessages(
+  channel: number,
+  limit?: number,
+  before?: string
+): Promise<MessagesListResponse> {
+  const params = new URLSearchParams()
+  params.append('channel', channel.toString())
+  if (limit) params.append('limit', limit.toString())
+  if (before) params.append('before', before)
+
+  const response = await api.get<MessagesListResponse>(`/api/messages?${params.toString()}`)
+  return response.data
+}
+
+export async function fetchMessageSources(packetId: string): Promise<MessageSourceDetail[]> {
+  const response = await api.get<MessageSourceDetail[]>(
+    `/api/messages/${encodeURIComponent(packetId)}/sources`
+  )
+  return response.data
+}

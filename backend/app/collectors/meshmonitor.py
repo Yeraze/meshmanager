@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.collectors.base import BaseCollector
 from app.database import async_session_maker
-from app.models import Message, Node, SolarProduction, Source, Telemetry, Traceroute
+from app.models import Channel, Message, Node, SolarProduction, Source, Telemetry, Traceroute
 from app.schemas.source import SourceTestResult
 
 logger = logging.getLogger(__name__)
@@ -212,6 +212,9 @@ class MeshMonitorCollector(BaseCollector):
                 # Collect nodes
                 await self._collect_nodes(client, headers)
 
+                # Collect channels
+                await self._collect_channels(client, headers)
+
                 # Collect messages
                 await self._collect_messages(client, headers)
 
@@ -362,6 +365,83 @@ class MeshMonitorCollector(BaseCollector):
                     node_data["lastHeard"], tz=UTC
                 )
             db.add(node)
+
+    async def _collect_channels(self, client: httpx.AsyncClient, headers: dict) -> None:
+        """Collect channel configuration from the v1 API."""
+        try:
+            response = await client.get(
+                f"{self.source.url}/api/v1/channels",
+                headers=headers,
+            )
+            if response.status_code == 404:
+                # API not available on this MeshMonitor version
+                logger.debug(f"Channels API not available on {self.source.name}")
+                return
+            if response.status_code != 200:
+                logger.warning(f"Failed to fetch channels: {response.status_code}")
+                return
+
+            data = response.json()
+            if not data.get("success"):
+                logger.warning(f"Channels API returned error: {data}")
+                return
+
+            channels_data = data.get("data", [])
+
+            async with async_session_maker() as db:
+                for channel_data in channels_data:
+                    await self._upsert_channel(db, channel_data)
+                await db.commit()
+
+            logger.debug(f"Collected {len(channels_data)} channels from {self.source.name}")
+        except Exception as e:
+            logger.error(f"Error collecting channels: {e}")
+
+    async def _upsert_channel(self, db, channel_data: dict) -> None:
+        """Insert or update a channel configuration."""
+        channel_index = channel_data.get("id")
+        if channel_index is None:
+            return
+
+        # Skip disabled channels (role 0)
+        role = channel_data.get("role", 0)
+        if role == 0:
+            return
+
+        result = await db.execute(
+            select(Channel).where(
+                Channel.source_id == self.source.id,
+                Channel.channel_index == channel_index,
+            )
+        )
+        channel = result.scalar()
+
+        # Map role number to string
+        role_name = channel_data.get("roleName", "").lower()
+        if not role_name:
+            role_map = {1: "primary", 2: "secondary"}
+            role_name = role_map.get(role, "unknown")
+
+        if channel:
+            # Update existing channel
+            channel.name = channel_data.get("name")
+            channel.role = role_name
+            channel.uplink_enabled = channel_data.get("uplinkEnabled", False)
+            channel.downlink_enabled = channel_data.get("downlinkEnabled", False)
+            channel.position_precision = channel_data.get("positionPrecision")
+            channel.updated_at = datetime.now(UTC)
+        else:
+            # Create new channel
+            channel = Channel(
+                source_id=self.source.id,
+                channel_index=channel_index,
+                name=channel_data.get("name"),
+                role=role_name,
+                uplink_enabled=channel_data.get("uplinkEnabled", False),
+                downlink_enabled=channel_data.get("downlinkEnabled", False),
+                position_precision=channel_data.get("positionPrecision"),
+            )
+            db.add(channel)
 
     async def _collect_messages(self, client: httpx.AsyncClient, headers: dict) -> None:
         """Collect messages from the API."""

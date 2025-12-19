@@ -1,0 +1,156 @@
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { fetchMessageChannels } from '../../services/api'
+import ChannelList from './ChannelList'
+import MessageList from './MessageList'
+import MessageDetailModal from './MessageDetailModal'
+
+export default function CommunicationPage() {
+  const [selectedChannel, setSelectedChannel] = useState<number | null>(null)
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
+
+  const {
+    data: channels,
+    isLoading: channelsLoading,
+    error: channelsError,
+  } = useQuery({
+    queryKey: ['message-channels'],
+    queryFn: fetchMessageChannels,
+    refetchInterval: 30000, // Refresh every 30 seconds
+  })
+
+  const handleChannelSelect = (channelIndex: number) => {
+    setSelectedChannel(channelIndex)
+  }
+
+  const handleMessageClick = (packetId: string) => {
+    setSelectedMessageId(packetId)
+  }
+
+  const handleCloseModal = () => {
+    setSelectedMessageId(null)
+  }
+
+  // Get the selected channel info
+  const selectedChannelInfo = channels?.find((c) => c.channel_index === selectedChannel)
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        height: '100%',
+        background: 'var(--color-surface)',
+        borderRadius: '8px',
+        border: '1px solid var(--color-border)',
+        overflow: 'hidden',
+      }}
+    >
+      {/* Left Sidebar - Channel List */}
+      <div
+        style={{
+          width: '280px',
+          flexShrink: 0,
+          borderRight: '1px solid var(--color-border)',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
+        <div style={{ padding: '1rem', borderBottom: '1px solid var(--color-border)' }}>
+          <h3 style={{ margin: 0, fontSize: '1rem' }}>Channels</h3>
+        </div>
+
+        <ChannelList
+          channels={channels || []}
+          selectedChannel={selectedChannel}
+          onChannelSelect={handleChannelSelect}
+          isLoading={channelsLoading}
+          error={channelsError}
+        />
+      </div>
+
+      {/* Right Content - Message List */}
+      <div
+        style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
+        {selectedChannel !== null ? (
+          <>
+            <div
+              style={{
+                padding: '1rem',
+                borderBottom: '1px solid var(--color-border)',
+                background: 'var(--color-surface)',
+              }}
+            >
+              <h3 style={{ margin: 0, fontSize: '1rem' }}>
+                {selectedChannelInfo?.display_name || `Channel ${selectedChannel}`}
+              </h3>
+              <p
+                style={{
+                  margin: '0.25rem 0 0 0',
+                  fontSize: '0.75rem',
+                  color: 'var(--color-text-muted)',
+                }}
+              >
+                {selectedChannelInfo?.message_count.toLocaleString()} messages
+              </p>
+              {/* Show channel names from each source */}
+              {selectedChannelInfo?.source_names && selectedChannelInfo.source_names.length > 0 && (
+                <div
+                  style={{
+                    marginTop: '0.5rem',
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '0.5rem',
+                  }}
+                >
+                  {selectedChannelInfo.source_names.map((sn, idx) => (
+                    <span
+                      key={idx}
+                      style={{
+                        fontSize: '0.7rem',
+                        padding: '0.25rem 0.5rem',
+                        background: 'var(--color-surface-elevated, rgba(255,255,255,0.05))',
+                        borderRadius: '4px',
+                        color: 'var(--color-text-muted)',
+                      }}
+                      title={`Channel name on ${sn.source_name}`}
+                    >
+                      <strong>{sn.source_name}:</strong> {sn.channel_name || '(unnamed)'}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+            <MessageList channelIndex={selectedChannel} onMessageClick={handleMessageClick} />
+          </>
+        ) : (
+          <div
+            style={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--color-text-muted)',
+            }}
+          >
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>💬</div>
+              <p>Select a channel to view messages</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Message Detail Modal */}
+      {selectedMessageId && (
+        <MessageDetailModal packetId={selectedMessageId} onClose={handleCloseModal} />
+      )}
+    </div>
+  )
+}

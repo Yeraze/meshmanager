@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, type ReactNode } from 'react'
 import type { Node } from '../types/api'
 
-export type Page = 'map' | 'nodes' | 'graphs' | 'analysis' | 'settings'
+export type Page = 'map' | 'nodes' | 'graphs' | 'analysis' | 'communication' | 'settings'
 
 interface DataContextValue {
   selectedNode: Node | null

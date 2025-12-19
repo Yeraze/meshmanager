@@ -1,0 +1,136 @@
+.overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: var(--color-surface, #1e1e2e);
+  border: 1px solid var(--color-border, #313244);
+  border-radius: 12px;
+  width: 90%;
+  max-width: 700px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--color-border, #313244);
+}
+
+.title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--color-text, #cdd6f4);
+}
+
+.closeButton {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: var(--color-text-muted, #a6adc8);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: color 0.15s ease;
+}
+
+.closeButton:hover {
+  color: var(--color-text, #cdd6f4);
+}
+
+.content {
+  padding: 1.5rem;
+  overflow-y: auto;
+}
+
+.subtitle {
+  margin: 0 0 1rem 0;
+  font-size: 0.9rem;
+  color: var(--color-text-muted, #a6adc8);
+}
+
+.loading,
+.error,
+.empty {
+  text-align: center;
+  padding: 2rem;
+  color: var(--color-text-muted, #a6adc8);
+}
+
+.error {
+  color: var(--color-error, #f38ba8);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.table th {
+  text-align: left;
+  padding: 0.75rem 0.5rem;
+  border-bottom: 2px solid var(--color-border, #313244);
+  color: var(--color-text-muted, #a6adc8);
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
+
+.table td {
+  padding: 0.75rem 0.5rem;
+  border-bottom: 1px solid var(--color-border, #313244);
+  color: var(--color-text, #cdd6f4);
+}
+
+.table tbody tr:hover {
+  background: var(--color-surface-hover, rgba(255, 255, 255, 0.03));
+}
+
+.sourceName {
+  font-weight: 500;
+  color: var(--color-primary, #89b4fa);
+}
+
+.numeric {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  text-align: right;
+}
+
+.timestamp {
+  font-size: 0.8rem;
+  color: var(--color-text-muted, #a6adc8);
+}
+
+.legend {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background: var(--color-surface-elevated, rgba(255, 255, 255, 0.03));
+  border-radius: 8px;
+  font-size: 0.75rem;
+  color: var(--color-text-muted, #a6adc8);
+}
+
+.legend p {
+  margin: 0 0 0.5rem 0;
+}
+
+.legend p:last-child {
+  margin-bottom: 0;
+}

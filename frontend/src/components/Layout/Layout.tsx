@@ -4,6 +4,7 @@ import MapPage from '../Map/MapPage'
 import NodeDetailsPage from '../NodeDetails/NodeDetailsPage'
 import { GraphsPage } from '../Graphs'
 import { AnalysisPage } from '../Analysis'
+import { CommunicationPage } from '../Communication'
 import { SettingsPage } from '../Settings'
 import { useDataContext } from '../../contexts/DataContext'
 
@@ -20,6 +21,8 @@ export default function Layout() {
         return <GraphsPage />
       case 'analysis':
         return <AnalysisPage />
+      case 'communication':
+        return <CommunicationPage />
       case 'settings':
         return <SettingsPage />
       default:

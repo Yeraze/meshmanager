@@ -17,6 +17,7 @@ export default function NavSidebar({ currentPage, onPageChange }: NavSidebarProp
       { id: 'nodes', label: 'Node Details', icon: '📡' },
       { id: 'graphs', label: 'Graphs', icon: '📊' },
       { id: 'analysis', label: 'Analysis', icon: '🔬' },
+      { id: 'communication', label: 'Communication', icon: '💬' },
     ]
 
     if (isAuthenticated) {

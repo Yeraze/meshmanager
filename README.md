@@ -144,13 +144,23 @@ Without OIDC configured, the application runs in read-only mode.
 
 The `/metrics` endpoint exposes:
 
-- `meshmanager_node_battery_level` - Node battery levels
-- `meshmanager_node_voltage` - Node voltages
-- `meshmanager_node_last_heard_timestamp` - Last heard timestamps
-- `meshmanager_active_nodes_total` - Active nodes per source
-- `meshmanager_messages_last_hour` - Messages in last hour
-- `meshmanager_source_healthy` - Source health status
-- `meshmanager_db_rows_total` - Database row counts
+### Source Metrics
+- `meshmanager_source_healthy` - Source collection status (1=healthy, 0=error)
+- `meshmanager_source_last_collection_timestamp` - Last successful collection timestamp
+
+### Node Metrics
+- `meshmanager_node_battery_level` - Node battery level (0-100)
+- `meshmanager_node_voltage` - Node voltage
+- `meshmanager_node_last_heard_timestamp` - Node last heard timestamp (Unix seconds)
+- `meshmanager_node_channel_utilization` - Node channel utilization (0-100)
+
+### Network Metrics
+- `meshmanager_active_nodes_total` - Active nodes per source (heard in last hour)
+- `meshmanager_nodes_total` - Total nodes ever seen per source
+- `meshmanager_messages_last_hour` - Messages received in last hour
+
+### Database Metrics
+- `meshmanager_db_rows_total` - Database row counts by table (nodes, messages, telemetry, traceroutes)
 
 ## Architecture
 

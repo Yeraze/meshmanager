@@ -175,10 +175,9 @@ npm run lint             # ESLint (warnings allowed, no errors)
 ## Version Updates
 
 When bumping version:
-1. Update `package.json`
-2. Update `helm/meshmonitor/Chart.yaml` (version + appVersion)
-3. Run `npm install` to regenerate lock file
-4. Commit all three files together
+1. Update `frontend/package.json`
+2. Run `npm install` to regenerate lock file
+3. Commit both files together
 
 ---
 

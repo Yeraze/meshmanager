@@ -1500,21 +1500,26 @@ async def analyze_solar_forecast(
                     metric_candidates.append((channel_name, stats, normalized))
 
             # Pick the metric with highest normalized variance
+            chosen_metric_type = None
             for name, stats, variance in metric_candidates:
                 if variance > best_variance:
                     best_variance = variance
                     chosen_stats = stats
+                    chosen_metric_type = name
 
             # Fallback
             if chosen_stats is None:
                 if battery_is_solar:
                     chosen_stats = battery_stats
+                    chosen_metric_type = "battery"
                 elif voltage_is_solar:
                     chosen_stats = voltage_stats
+                    chosen_metric_type = "voltage"
                 elif ina_channels_solar:
                     for channel_name, is_solar in ina_channels_solar.items():
                         if is_solar:
                             chosen_stats = ina_channel_stats[channel_name]
+                            chosen_metric_type = channel_name
                             break
 
             charge_rates = chosen_stats["charge_rates"] if chosen_stats else []
@@ -1612,6 +1617,8 @@ async def analyze_solar_forecast(
                         })
 
                 # Add to all solar simulations list (for chart display)
+                # At-risk threshold only applies to battery-based nodes (40%)
+                at_risk_threshold = 40 if chosen_metric_type == "battery" else None
                 all_solar_simulations.append({
                     "node_num": node_num,
                     "node_name": node_names.get(node_num, f"!{node_num:08x}"),
@@ -1620,10 +1627,14 @@ async def analyze_solar_forecast(
                     "avg_charge_rate_per_hour": round(avg_charge_rate, 2),
                     "avg_discharge_rate_per_hour": round(avg_discharge_rate, 2),
                     "simulation": forecast_simulation,
+                    "metric_type": chosen_metric_type,
+                    "at_risk_threshold": at_risk_threshold,
                 })
 
-                # Flag if simulation shows battery dropping below 50%
-                if min_simulated < 50:
+                # Flag if simulation shows battery dropping below 40% threshold
+                # Only applies to battery-based nodes since simulation uses battery percentage
+                # Voltage/INA nodes are excluded because their chart shows voltage but simulation uses battery %
+                if chosen_metric_type == "battery" and min_simulated < 40:
                     nodes_at_risk.append({
                         "node_num": node_num,
                         "node_name": node_names.get(node_num, f"!{node_num:08x}"),
@@ -1632,6 +1643,8 @@ async def analyze_solar_forecast(
                         "avg_charge_rate_per_hour": round(avg_charge_rate, 2),
                         "avg_discharge_rate_per_hour": round(avg_discharge_rate, 2),
                         "simulation": forecast_simulation,
+                        "metric_type": "battery",
+                        "at_risk_threshold": 40,
                     })
 
     # Sort nodes at risk by minimum simulated battery (lowest first)

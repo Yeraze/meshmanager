@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.database import get_db
-from app.models import CoverageCell, SystemSetting, Telemetry
+from app.models import CoverageCell, Node, SystemSetting, Telemetry
 
 router = APIRouter(prefix="/api/coverage", tags=["coverage"])
 
@@ -874,3 +874,66 @@ async def export_geotiff(db: AsyncSession = Depends(get_db)) -> Response:
         media_type="image/tiff",
         headers={"Content-Disposition": "attachment; filename=coverage.tif"},
     )
+
+
+class MessageActivityPoint(BaseModel):
+    """A single message activity point for heatmap rendering."""
+
+    lat: float
+    lng: float
+    count: int = 1
+
+
+@router.get("/message-activity", response_model=list[MessageActivityPoint])
+async def get_message_activity(
+    lookback_days: int = 7,
+    bounds_south: float | None = None,
+    bounds_west: float | None = None,
+    bounds_north: float | None = None,
+    bounds_east: float | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> list[MessageActivityPoint]:
+    """Get message activity points for heatmap rendering.
+
+    Each point represents telemetry/messages sent from a node's location.
+    Points are aggregated by node to show activity counts per location.
+    Uses Telemetry data (which includes device, environment, power, position data).
+    """
+    cutoff = datetime.now(UTC) - timedelta(days=lookback_days)
+
+    # Get telemetry with their sender nodes' positions
+    # Join Telemetry -> Node on node_num
+    query = (
+        select(
+            Node.latitude,
+            Node.longitude,
+            Telemetry.node_num,
+        )
+        .join(Node, Telemetry.node_num == Node.node_num)
+        .where(Telemetry.received_at >= cutoff)
+        .where(Node.latitude.isnot(None))
+        .where(Node.longitude.isnot(None))
+    )
+
+    result = await db.execute(query)
+    rows = result.all()
+
+    # Aggregate by node position (since same node_num may appear multiple times)
+    # Group by (lat, lng) rounded to 4 decimal places for aggregation
+    position_counts: dict[tuple[float, float], int] = {}
+    for row in rows:
+        # Round to 4 decimal places (~11m precision) for aggregation
+        lat_key = round(row.latitude, 4)
+        lng_key = round(row.longitude, 4)
+        key = (lat_key, lng_key)
+        position_counts[key] = position_counts.get(key, 0) + 1
+
+    points = []
+    for (lat, lng), count in position_counts.items():
+        # Filter by bounds if specified
+        if all([bounds_south, bounds_west, bounds_north, bounds_east]):
+            if not (bounds_south <= lat <= bounds_north and bounds_west <= lng <= bounds_east):
+                continue
+        points.append(MessageActivityPoint(lat=lat, lng=lng, count=count))
+
+    return points

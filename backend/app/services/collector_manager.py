@@ -185,6 +185,15 @@ class CollectorManager:
                 max_concurrent=10,  # Process 10 nodes in parallel
             ))
             logger.info(f"Triggered per-node historical sync for source {source_id} (days_back={days_back})")
+
+            # Also collect historical messages
+            if hasattr(collector, 'collect_messages_historical'):
+                asyncio.create_task(collector.collect_messages_historical(
+                    batch_size=500,
+                    delay_seconds=2.0,
+                ))
+                logger.info(f"Triggered historical message sync for source {source_id}")
+
             return True
         return False
 

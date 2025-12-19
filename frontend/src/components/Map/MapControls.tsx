@@ -23,6 +23,11 @@ interface MapControlsProps {
   positionHistoryDays: number
   onPositionHistoryDaysChange: (days: number) => void
   positionHistoryCount: number
+  showMessageActivity: boolean
+  onShowMessageActivityChange: (show: boolean) => void
+  messageActivityDays: number
+  onMessageActivityDaysChange: (days: number) => void
+  messageActivityCount: number
   showNodes: boolean
   onShowNodesChange: (show: boolean) => void
 }
@@ -47,6 +52,11 @@ export default function MapControls({
   positionHistoryDays,
   onPositionHistoryDaysChange,
   positionHistoryCount,
+  showMessageActivity,
+  onShowMessageActivityChange,
+  messageActivityDays,
+  onMessageActivityDaysChange,
+  messageActivityCount,
   showNodes,
   onShowNodesChange,
 }: MapControlsProps) {
@@ -219,6 +229,48 @@ export default function MapControls({
               <select
                 value={positionHistoryDays}
                 onChange={(e) => onPositionHistoryDaysChange(Number(e.target.value))}
+                style={{
+                  padding: '0.25rem',
+                  fontSize: '0.75rem',
+                  borderRadius: '4px',
+                  border: '1px solid var(--border-color, #ccc)',
+                  background: 'var(--bg-secondary, #fff)',
+                  color: 'var(--text-primary, #333)',
+                }}
+              >
+                <option value={1}>1 day</option>
+                <option value={3}>3 days</option>
+                <option value={7}>7 days</option>
+                <option value={14}>14 days</option>
+                <option value={30}>30 days</option>
+              </select>
+            )}
+          </div>
+        </div>
+
+        {/* Message Activity Heatmap */}
+        <div className="map-control-group">
+          <label className="map-control-label">
+            Message Activity
+            {showMessageActivity && messageActivityCount > 0 && (
+              <span style={{ fontSize: '0.7rem', opacity: 0.7, marginLeft: '0.25rem' }}>
+                ({messageActivityCount.toLocaleString()})
+              </span>
+            )}
+          </label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <label className="toggle-switch">
+              <input
+                type="checkbox"
+                checked={showMessageActivity}
+                onChange={(e) => onShowMessageActivityChange(e.target.checked)}
+              />
+              <span className="toggle-slider"></span>
+            </label>
+            {showMessageActivity && (
+              <select
+                value={messageActivityDays}
+                onChange={(e) => onMessageActivityDaysChange(Number(e.target.value))}
                 style={{
                   padding: '0.25rem',
                   fontSize: '0.75rem',

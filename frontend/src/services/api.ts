@@ -263,6 +263,26 @@ export async function fetchPositionHistory(params?: PositionHistoryParams): Prom
   return response.data
 }
 
+// Message Activity
+export interface MessageActivityPoint {
+  lat: number
+  lng: number
+  count: number
+}
+
+export interface MessageActivityParams {
+  lookback_days?: number
+  bounds_south?: number
+  bounds_west?: number
+  bounds_north?: number
+  bounds_east?: number
+}
+
+export async function fetchMessageActivity(params?: MessageActivityParams): Promise<MessageActivityPoint[]> {
+  const response = await api.get<MessageActivityPoint[]>('/api/coverage/message-activity', { params })
+  return response.data
+}
+
 // Utilization Map
 export type AggregationType = 'min' | 'max' | 'avg'
 
@@ -461,5 +481,64 @@ export async function updateSolarScheduleSettings(settings: SolarScheduleSetting
 
 export async function testSolarNotification(): Promise<{ success: boolean; message: string }> {
   const response = await api.post<{ success: boolean; message: string }>('/api/settings/solar-schedule/test')
+  return response.data
+}
+
+// Message Utilization Analysis
+export interface MessageUtilizationNode {
+  node_num: number
+  node_name: string
+  total: number
+  breakdown: Record<string, number>
+}
+
+export interface MessageUtilizationHour {
+  hour: number
+  total: number
+  breakdown: Record<string, number>
+}
+
+export interface MessageUtilizationFilters {
+  text: boolean
+  device: boolean
+  environment: boolean
+  power: boolean
+  position: boolean
+  air_quality: boolean
+}
+
+export interface MessageUtilizationAnalysis {
+  lookback_days: number
+  total_messages: number
+  total_nodes: number
+  type_breakdown: Record<string, number>
+  top_nodes: MessageUtilizationNode[]
+  hourly_histogram: MessageUtilizationHour[]
+  filters: MessageUtilizationFilters
+}
+
+export interface MessageUtilizationParams {
+  lookback_days?: number
+  include_text?: boolean
+  include_device?: boolean
+  include_environment?: boolean
+  include_power?: boolean
+  include_position?: boolean
+  include_air_quality?: boolean
+}
+
+export async function fetchMessageUtilizationAnalysis(
+  params?: MessageUtilizationParams
+): Promise<MessageUtilizationAnalysis> {
+  const queryParams = new URLSearchParams()
+  if (params?.lookback_days) queryParams.append('lookback_days', params.lookback_days.toString())
+  if (params?.include_text !== undefined) queryParams.append('include_text', params.include_text.toString())
+  if (params?.include_device !== undefined) queryParams.append('include_device', params.include_device.toString())
+  if (params?.include_environment !== undefined) queryParams.append('include_environment', params.include_environment.toString())
+  if (params?.include_power !== undefined) queryParams.append('include_power', params.include_power.toString())
+  if (params?.include_position !== undefined) queryParams.append('include_position', params.include_position.toString())
+  if (params?.include_air_quality !== undefined) queryParams.append('include_air_quality', params.include_air_quality.toString())
+
+  const response = await api.get<MessageUtilizationAnalysis>(`/api/analysis/message-utilization?${queryParams.toString()}`)
   return response.data
 }

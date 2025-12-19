@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import NetworkTopology from './NetworkTopology'
 import SolarMonitoring from './SolarMonitoring'
+import MessageUtilization from './MessageUtilization'
 
-type AnalysisType = 'network-topology' | 'solar-monitoring' | null
+type AnalysisType = 'network-topology' | 'solar-monitoring' | 'message-utilization' | null
 
 interface AnalysisCard {
   id: AnalysisType
@@ -24,6 +25,12 @@ const analyses: AnalysisCard[] = [
     description: 'Identify solar-powered nodes by analyzing battery and voltage patterns that show daytime charging and nighttime discharge.',
     icon: '☀️',
   },
+  {
+    id: 'message-utilization',
+    title: 'Message Utilization',
+    description: 'Analyze message activity across the mesh network. View top senders and hourly activity patterns for different message types.',
+    icon: '📊',
+  },
 ]
 
 export default function AnalysisPage() {
@@ -35,6 +42,8 @@ export default function AnalysisPage() {
         return <NetworkTopology />
       case 'solar-monitoring':
         return <SolarMonitoring />
+      case 'message-utilization':
+        return <MessageUtilization />
       default:
         return null
     }

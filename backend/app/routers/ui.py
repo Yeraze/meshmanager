@@ -7,7 +7,8 @@ from sqlalchemy import func, literal_column, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import Node, SolarProduction, Source, SystemSetting, Telemetry, Traceroute
+from app.models import Message, Node, SolarProduction, Source, SystemSetting, Telemetry, Traceroute
+from app.models.telemetry import TelemetryType
 from app.schemas.node import NodeResponse, NodeSummary
 from app.schemas.telemetry import TelemetryHistory, TelemetryHistoryPoint, TelemetryResponse
 from app.services.collector_manager import collector_manager
@@ -1793,3 +1794,131 @@ async def test_solar_notification(
         )
 
     return {"success": True, "message": "Test notification sent successfully"}
+
+
+@router.get("/analysis/message-utilization")
+async def analyze_message_utilization(
+    db: AsyncSession = Depends(get_db),
+    lookback_days: int = Query(default=7, ge=1, le=90, description="Days of history to analyze"),
+    include_text: bool = Query(default=True, description="Include text messages"),
+    include_device: bool = Query(default=True, description="Include device telemetry"),
+    include_environment: bool = Query(default=True, description="Include environment telemetry"),
+    include_power: bool = Query(default=True, description="Include power telemetry"),
+    include_position: bool = Query(default=True, description="Include position telemetry"),
+    include_air_quality: bool = Query(default=True, description="Include air quality telemetry"),
+) -> dict:
+    """Analyze message utilization across the mesh network.
+
+    Returns:
+    - top_nodes: Top 10 nodes by message count
+    - hourly_histogram: Message count by hour of day (0-23)
+    - type_breakdown: Message count by type
+    - total_messages: Total message count
+    """
+    from collections import defaultdict
+
+    cutoff = datetime.now(UTC) - timedelta(days=lookback_days)
+
+    # Get node names for display
+    node_result = await db.execute(select(Node))
+    nodes = node_result.scalars().all()
+    node_names: dict[int, str] = {}
+    for node in nodes:
+        if node.long_name:
+            node_names[node.node_num] = node.long_name
+        elif node.short_name:
+            node_names[node.node_num] = node.short_name
+        else:
+            node_names[node.node_num] = f"!{node.node_num:08x}"
+
+    # Track counts
+    node_counts: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    hourly_counts: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    type_totals: dict[str, int] = defaultdict(int)
+
+    # Query text messages if enabled
+    if include_text:
+        msg_result = await db.execute(
+            select(Message)
+            .where(Message.received_at >= cutoff)
+        )
+        messages = msg_result.scalars().all()
+
+        for msg in messages:
+            node_counts[msg.from_node_num]["text"] += 1
+            hour = msg.received_at.hour
+            hourly_counts[hour]["text"] += 1
+            type_totals["text"] += 1
+
+    # Build telemetry type filters
+    telemetry_types = []
+    if include_device:
+        telemetry_types.append(TelemetryType.DEVICE)
+    if include_environment:
+        telemetry_types.append(TelemetryType.ENVIRONMENT)
+    if include_power:
+        telemetry_types.append(TelemetryType.POWER)
+    if include_position:
+        telemetry_types.append(TelemetryType.POSITION)
+    if include_air_quality:
+        telemetry_types.append(TelemetryType.AIR_QUALITY)
+
+    # Query telemetry if any types are enabled
+    if telemetry_types:
+        telemetry_result = await db.execute(
+            select(Telemetry)
+            .where(Telemetry.received_at >= cutoff)
+            .where(Telemetry.telemetry_type.in_(telemetry_types))
+        )
+        telemetry_rows = telemetry_result.scalars().all()
+
+        for t in telemetry_rows:
+            type_key = t.telemetry_type.value
+            node_counts[t.node_num][type_key] += 1
+            hour = t.received_at.hour
+            hourly_counts[hour][type_key] += 1
+            type_totals[type_key] += 1
+
+    # Calculate top 10 nodes by total message count
+    node_totals = []
+    for node_num, type_counts in node_counts.items():
+        total = sum(type_counts.values())
+        node_totals.append({
+            "node_num": node_num,
+            "node_name": node_names.get(node_num, f"!{node_num:08x}"),
+            "total": total,
+            "breakdown": dict(type_counts),
+        })
+
+    node_totals.sort(key=lambda x: x["total"], reverse=True)
+    top_nodes = node_totals[:10]
+
+    # Build hourly histogram
+    hourly_histogram = []
+    for hour in range(24):
+        type_counts = hourly_counts.get(hour, {})
+        hourly_histogram.append({
+            "hour": hour,
+            "total": sum(type_counts.values()),
+            "breakdown": dict(type_counts),
+        })
+
+    # Calculate total messages
+    total_messages = sum(type_totals.values())
+
+    return {
+        "lookback_days": lookback_days,
+        "total_messages": total_messages,
+        "total_nodes": len(node_counts),
+        "type_breakdown": dict(type_totals),
+        "top_nodes": top_nodes,
+        "hourly_histogram": hourly_histogram,
+        "filters": {
+            "text": include_text,
+            "device": include_device,
+            "environment": include_environment,
+            "power": include_power,
+            "position": include_position,
+            "air_quality": include_air_quality,
+        },
+    }

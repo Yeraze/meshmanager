@@ -6,7 +6,7 @@ import { useNodes } from '../../hooks/useNodes'
 import { useTraceroutes } from '../../hooks/useMapData'
 import { useDataContext } from '../../contexts/DataContext'
 import { getTilesetById, DEFAULT_TILESET_ID, type TilesetId } from '../../config/tilesets'
-import { fetchCoverageConfig, fetchCoverageCells, fetchPositionHistory, fetchUtilizationConfig, fetchUtilizationCells } from '../../services/api'
+import { fetchCoverageConfig, fetchCoverageCells, fetchPositionHistory, fetchMessageActivity, fetchUtilizationConfig, fetchUtilizationCells } from '../../services/api'
 import MapControls from './MapControls'
 import CoverageImageOverlay from './CoverageImageOverlay'
 import UtilizationImageOverlay from './UtilizationImageOverlay'
@@ -22,6 +22,8 @@ const STORAGE_KEY_SHOW_COVERAGE = 'meshmanager_map_show_coverage'
 const STORAGE_KEY_SHOW_UTILIZATION = 'meshmanager_map_show_utilization'
 const STORAGE_KEY_SHOW_POSITION_HISTORY = 'meshmanager_map_show_position_history'
 const STORAGE_KEY_POSITION_HISTORY_DAYS = 'meshmanager_map_position_history_days'
+const STORAGE_KEY_SHOW_MESSAGE_ACTIVITY = 'meshmanager_map_show_message_activity'
+const STORAGE_KEY_MESSAGE_ACTIVITY_DAYS = 'meshmanager_map_message_activity_days'
 const STORAGE_KEY_SHOW_NODES = 'meshmanager_map_show_nodes'
 const STORAGE_KEY_MAP_CENTER = 'meshmanager_map_center'
 const STORAGE_KEY_MAP_ZOOM = 'meshmanager_map_zoom'
@@ -173,6 +175,12 @@ export default function MapContainer() {
   const [positionHistoryDays, setPositionHistoryDays] = useState<number>(() =>
     loadSetting(STORAGE_KEY_POSITION_HISTORY_DAYS, 7)
   )
+  const [showMessageActivity, setShowMessageActivity] = useState<boolean>(() =>
+    loadSetting(STORAGE_KEY_SHOW_MESSAGE_ACTIVITY, false)
+  )
+  const [messageActivityDays, setMessageActivityDays] = useState<number>(() =>
+    loadSetting(STORAGE_KEY_MESSAGE_ACTIVITY_DAYS, 7)
+  )
   const [showNodes, setShowNodes] = useState<boolean>(() =>
     loadSetting(STORAGE_KEY_SHOW_NODES, true)
   )
@@ -212,6 +220,13 @@ export default function MapContainer() {
     queryKey: ['position-history', positionHistoryDays],
     queryFn: () => fetchPositionHistory({ lookback_days: positionHistoryDays }),
     enabled: showPositionHistory,
+  })
+
+  // Message activity for heatmap
+  const { data: messageActivity = [] } = useQuery({
+    queryKey: ['message-activity', messageActivityDays],
+    queryFn: () => fetchMessageActivity({ lookback_days: messageActivityDays }),
+    enabled: showMessageActivity,
   })
 
   const { data: allNodes = [] } = useNodes({
@@ -269,6 +284,16 @@ export default function MapContainer() {
   const handlePositionHistoryDaysChange = useCallback((days: number) => {
     setPositionHistoryDays(days)
     saveSetting(STORAGE_KEY_POSITION_HISTORY_DAYS, days)
+  }, [])
+
+  const handleShowMessageActivityChange = useCallback((show: boolean) => {
+    setShowMessageActivity(show)
+    saveSetting(STORAGE_KEY_SHOW_MESSAGE_ACTIVITY, show)
+  }, [])
+
+  const handleMessageActivityDaysChange = useCallback((days: number) => {
+    setMessageActivityDays(days)
+    saveSetting(STORAGE_KEY_MESSAGE_ACTIVITY_DAYS, days)
   }, [])
 
   const handleShowNodesChange = useCallback((show: boolean) => {
@@ -447,6 +472,11 @@ export default function MapContainer() {
         positionHistoryDays={positionHistoryDays}
         onPositionHistoryDaysChange={handlePositionHistoryDaysChange}
         positionHistoryCount={positionHistory.length}
+        showMessageActivity={showMessageActivity}
+        onShowMessageActivityChange={handleShowMessageActivityChange}
+        messageActivityDays={messageActivityDays}
+        onMessageActivityDaysChange={handleMessageActivityDaysChange}
+        messageActivityCount={messageActivity.length}
         showNodes={showNodes}
         onShowNodesChange={handleShowNodesChange}
       />
@@ -477,6 +507,16 @@ export default function MapContainer() {
         {/* Position history heatmap */}
         {showPositionHistory && positionHistory.length > 0 && (
           <HeatmapLayer points={positionHistory} radius={25} blur={15} />
+        )}
+
+        {/* Message activity heatmap */}
+        {showMessageActivity && messageActivity.length > 0 && (
+          <HeatmapLayer
+            points={messageActivity.map(p => ({ lat: p.lat, lng: p.lng, intensity: p.count }))}
+            radius={30}
+            blur={20}
+            max={Math.max(...messageActivity.map(p => p.count), 1)}
+          />
         )}
 
         {/* Traceroute segments - weighted by usage */}
@@ -601,6 +641,39 @@ export default function MapContainer() {
                 <span>{label}</span>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Message Activity Legend */}
+      {showMessageActivity && messageActivity.length > 0 && (
+        <div style={{
+          position: 'absolute',
+          bottom: showUtilization && utilizationCells.length > 0 ? '180px' : '20px',
+          left: '20px',
+          background: 'var(--color-surface)',
+          padding: '0.75rem',
+          borderRadius: '8px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+          zIndex: 1000,
+          fontSize: '0.75rem',
+        }}>
+          <div style={{ fontWeight: 'bold', marginBottom: '0.5rem' }}>Message Activity</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <div style={{
+              width: '80px',
+              height: '16px',
+              background: 'linear-gradient(to right, blue, cyan, lime, yellow, red)',
+              border: '1px solid rgba(255,255,255,0.3)',
+              borderRadius: '2px',
+            }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>
+            <span>Low</span>
+            <span>High</span>
+          </div>
+          <div style={{ marginTop: '4px', opacity: 0.7 }}>
+            {messageActivity.length} locations
           </div>
         </div>
       )}

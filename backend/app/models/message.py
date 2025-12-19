@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -14,6 +14,9 @@ class Message(Base):
     """A text message from the mesh network."""
 
     __tablename__ = "messages"
+    __table_args__ = (
+        Index("idx_messages_source_packet", "source_id", "packet_id", unique=True),
+    )
 
     id: Mapped[str] = mapped_column(
         UUID(as_uuid=False),
@@ -28,7 +31,7 @@ class Message(Base):
     )
 
     # Message identification
-    packet_id: Mapped[int | None] = mapped_column(BigInteger)
+    packet_id: Mapped[str | None] = mapped_column(String(64))  # MeshMonitor uses composite string IDs
     from_node_num: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     to_node_num: Mapped[int | None] = mapped_column(BigInteger)
     channel: Mapped[int] = mapped_column(Integer, default=0)

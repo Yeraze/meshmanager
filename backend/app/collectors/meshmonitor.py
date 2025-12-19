@@ -376,50 +376,195 @@ class MeshMonitorCollector(BaseCollector):
                 return
 
             data = response.json()
-            messages_data = data if isinstance(data, list) else data.get("messages", [])
+            # MeshMonitor wraps data in {"success": true, "count": N, "data": [...]}
+            if isinstance(data, dict) and "data" in data:
+                messages_data = data.get("data", [])
+            elif isinstance(data, list):
+                messages_data = data
+            else:
+                messages_data = data.get("messages", [])
 
             async with async_session_maker() as db:
+                inserted_count = 0
                 for msg_data in messages_data:
-                    await self._insert_message(db, msg_data)
+                    try:
+                        inserted = await self._insert_message(db, msg_data)
+                        if inserted:
+                            inserted_count += 1
+                    except Exception as e:
+                        logger.debug(f"Failed to insert message: {e}")
+                        continue
                 await db.commit()
 
-            logger.debug(f"Collected {len(messages_data)} messages")
+            logger.debug(f"Collected {inserted_count} messages (of {len(messages_data)} fetched)")
         except Exception as e:
             logger.error(f"Error collecting messages: {e}")
 
-    async def _insert_message(self, db, msg_data: dict) -> None:
-        """Insert a message if it doesn't exist."""
+    async def _insert_message(self, db, msg_data: dict) -> bool:
+        """Insert a message if it doesn't exist using ON CONFLICT DO NOTHING.
+
+        Returns:
+            True if record was inserted, False if skipped (duplicate or error)
+        """
+        from uuid import uuid4
+
         packet_id = msg_data.get("packetId") or msg_data.get("id")
         if not packet_id:
+            return False
+
+        # Ensure packet_id is a string
+        packet_id = str(packet_id)
+
+        # Get received_at from timestamp (milliseconds) or createdAt
+        timestamp_ms = msg_data.get("timestamp") or msg_data.get("createdAt")
+        try:
+            received_at = (
+                datetime.fromtimestamp(timestamp_ms / 1000, tz=UTC)
+                if timestamp_ms
+                else datetime.now(UTC)
+            )
+        except (TypeError, ValueError, OSError) as e:
+            logger.warning(f"Invalid timestamp {timestamp_ms}: {e}")
+            received_at = datetime.now(UTC)
+
+        # Get rx_time (milliseconds)
+        rx_time = None
+        rx_time_ms = msg_data.get("rxTime")
+        if rx_time_ms:
+            try:
+                rx_time = datetime.fromtimestamp(rx_time_ms / 1000, tz=UTC)
+            except (TypeError, ValueError, OSError) as e:
+                logger.warning(f"Invalid rx_time {rx_time_ms}: {e}")
+
+        # Handle broadcast address (0xFFFFFFFF = 4294967295)
+        to_node_num = msg_data.get("toNodeNum") or msg_data.get("to")
+        if to_node_num == 4294967295:
+            to_node_num = None  # Store as NULL for broadcast messages
+
+        # Build values dict for the insert
+        values = {
+            "id": str(uuid4()),
+            "source_id": self.source.id,
+            "packet_id": packet_id,
+            "from_node_num": msg_data.get("fromNodeNum") or msg_data.get("from"),
+            "to_node_num": to_node_num,
+            "channel": msg_data.get("channel", 0),
+            "text": msg_data.get("text"),
+            "reply_id": msg_data.get("replyId"),
+            "emoji": msg_data.get("emoji"),
+            "hop_limit": msg_data.get("hopLimit"),
+            "hop_start": msg_data.get("hopStart"),
+            "rx_snr": msg_data.get("rxSnr"),
+            "rx_rssi": msg_data.get("rxRssi"),
+            "rx_time": rx_time,
+            "received_at": received_at,
+        }
+
+        # Use PostgreSQL INSERT ... ON CONFLICT DO NOTHING
+        stmt = pg_insert(Message).values(**values).on_conflict_do_nothing(
+            index_elements=["source_id", "packet_id"]
+        )
+        result = await db.execute(stmt)
+        return result.rowcount > 0
+
+    async def collect_messages_historical(
+        self, batch_size: int = 500, delay_seconds: float = 2.0, max_batches: int = 100
+    ) -> None:
+        """Collect historical messages in batches to avoid rate limiting.
+
+        Args:
+            batch_size: Number of records per batch
+            delay_seconds: Delay between batches
+            max_batches: Maximum number of batches to fetch
+        """
+        if not self.source.url:
+            logger.warning(f"Source {self.source.name} has no URL configured")
             return
 
-        # Check if message already exists
-        result = await db.execute(
-            select(Message).where(
-                Message.source_id == self.source.id,
-                Message.packet_id == packet_id,
-            )
+        logger.info(
+            f"Starting historical message collection for {self.source.name} "
+            f"(batch_size={batch_size}, delay={delay_seconds}s, max_batches={max_batches})"
         )
-        if result.scalar():
-            return  # Already exists
 
-        message = Message(
-            source_id=self.source.id,
-            packet_id=packet_id,
-            from_node_num=msg_data.get("fromNodeNum") or msg_data.get("from"),
-            to_node_num=msg_data.get("toNodeNum") or msg_data.get("to"),
-            channel=msg_data.get("channel", 0),
-            text=msg_data.get("text"),
-            reply_id=msg_data.get("replyId"),
-            emoji=msg_data.get("emoji"),
-            hop_limit=msg_data.get("hopLimit"),
-            hop_start=msg_data.get("hopStart"),
-            rx_snr=msg_data.get("rxSnr"),
-            rx_rssi=msg_data.get("rxRssi"),
-        )
-        if msg_data.get("rxTime"):
-            message.rx_time = datetime.fromtimestamp(msg_data["rxTime"], tz=UTC)
-        db.add(message)
+        total_collected = 0
+        offset = 0
+
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                headers = self._get_headers()
+
+                for batch_num in range(max_batches):
+                    if not self._running:
+                        logger.info(f"Historical message collection stopped for {self.source.name}")
+                        break
+
+                    # Fetch a batch of messages
+                    try:
+                        response = await client.get(
+                            f"{self.source.url}/api/v1/messages",
+                            headers=headers,
+                            params={"limit": batch_size, "offset": offset},
+                        )
+                        if response.status_code != 200:
+                            logger.warning(
+                                f"Failed to fetch messages batch {batch_num + 1}: {response.status_code}"
+                            )
+                            break
+
+                        data = response.json()
+                        # MeshMonitor wraps data in {"success": true, "count": N, "data": [...]}
+                        if isinstance(data, dict) and "data" in data:
+                            messages_data = data.get("data", [])
+                        elif isinstance(data, list):
+                            messages_data = data
+                        else:
+                            messages_data = data.get("messages", [])
+
+                        if not messages_data:
+                            logger.info(f"No more historical messages for {self.source.name}")
+                            break
+
+                        # Insert messages
+                        async with async_session_maker() as db:
+                            batch_inserted = 0
+                            for msg_data in messages_data:
+                                try:
+                                    inserted = await self._insert_message(db, msg_data)
+                                    if inserted:
+                                        batch_inserted += 1
+                                except Exception as e:
+                                    logger.debug(f"Failed to insert message: {e}")
+                                    continue
+                            await db.commit()
+
+                        total_collected += batch_inserted
+                        offset += batch_size
+
+                        logger.debug(
+                            f"Historical messages batch {batch_num + 1}: inserted {batch_inserted} "
+                            f"of {len(messages_data)} fetched (total: {total_collected}) from {self.source.name}"
+                        )
+
+                        # If we got fewer messages than requested, we've reached the end
+                        if len(messages_data) < batch_size:
+                            logger.info(f"Reached end of historical messages for {self.source.name}")
+                            break
+
+                        # Delay before next batch to avoid rate limiting
+                        if batch_num < max_batches - 1:
+                            await asyncio.sleep(delay_seconds)
+
+                    except Exception as e:
+                        logger.error(f"Error collecting messages batch {batch_num + 1}: {e}")
+                        break
+
+            logger.info(
+                f"Historical message collection complete for {self.source.name}: "
+                f"{total_collected} messages"
+            )
+
+        except Exception as e:
+            logger.error(f"Error in historical message collection: {e}")
 
     async def _collect_telemetry(self, client: httpx.AsyncClient, headers: dict) -> None:
         """Collect telemetry from the API."""
@@ -1642,6 +1787,11 @@ class MeshMonitorCollector(BaseCollector):
             )
             # Also collect historical solar data
             await self.collect_solar_historical(
+                batch_size=500,
+                delay_seconds=2.0,
+            )
+            # Also collect historical messages
+            await self.collect_messages_historical(
                 batch_size=500,
                 delay_seconds=2.0,
             )

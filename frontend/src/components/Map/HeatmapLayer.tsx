@@ -4,7 +4,7 @@ import L from 'leaflet'
 import 'leaflet.heat'
 
 interface HeatmapLayerProps {
-  points: Array<{ lat: number; lng: number }>
+  points: Array<{ lat: number; lng: number; intensity?: number }>
   radius?: number
   blur?: number
   maxZoom?: number
@@ -50,7 +50,7 @@ export default function HeatmapLayer({
 
     // Convert points to format expected by leaflet.heat
     // Each point is [lat, lng, intensity] - intensity defaults to 1
-    const heatData: Array<[number, number, number]> = points.map(p => [p.lat, p.lng, 1])
+    const heatData: Array<[number, number, number]> = points.map(p => [p.lat, p.lng, p.intensity ?? 1])
 
     // Remove existing layer
     if (heatLayerRef.current) {

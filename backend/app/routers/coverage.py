@@ -8,12 +8,12 @@ from xml.etree import ElementTree as ET
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.database import get_db
-from app.models import CoverageCell, SystemSetting, Telemetry
+from app.models import CoverageCell, Node, SystemSetting, Telemetry
 
 router = APIRouter(prefix="/api/coverage", tags=["coverage"])
 
@@ -874,3 +874,65 @@ async def export_geotiff(db: AsyncSession = Depends(get_db)) -> Response:
         media_type="image/tiff",
         headers={"Content-Disposition": "attachment; filename=coverage.tif"},
     )
+
+
+class MessageActivityPoint(BaseModel):
+    """A single message activity point for heatmap rendering."""
+
+    lat: float
+    lng: float
+    count: int = 1
+
+
+@router.get("/message-activity", response_model=list[MessageActivityPoint])
+async def get_message_activity(
+    lookback_days: int = 7,
+    bounds_south: float | None = None,
+    bounds_west: float | None = None,
+    bounds_north: float | None = None,
+    bounds_east: float | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> list[MessageActivityPoint]:
+    """Get message activity points for heatmap rendering.
+
+    Each point represents telemetry/messages sent from a node's location.
+    Points are aggregated by node to show activity counts per location.
+    Uses Telemetry data (which includes device, environment, power, position data).
+    """
+    cutoff = datetime.now(UTC) - timedelta(days=lookback_days)
+
+    # Use SQL aggregation to group by rounded coordinates (~11m precision)
+    # This avoids loading all rows into memory
+    lat_rounded = func.round(Node.latitude, 4).label("lat")
+    lng_rounded = func.round(Node.longitude, 4).label("lng")
+
+    query = (
+        select(
+            lat_rounded,
+            lng_rounded,
+            func.count().label("count"),
+        )
+        .join(Node, Telemetry.node_num == Node.node_num)
+        .where(Telemetry.received_at >= cutoff)
+        .where(Node.latitude.isnot(None))
+        .where(Node.longitude.isnot(None))
+    )
+
+    # Apply bounds filter in SQL if specified
+    if all([bounds_south, bounds_west, bounds_north, bounds_east]):
+        query = query.where(
+            Node.latitude >= bounds_south,
+            Node.latitude <= bounds_north,
+            Node.longitude >= bounds_west,
+            Node.longitude <= bounds_east,
+        )
+
+    query = query.group_by(lat_rounded, lng_rounded)
+
+    result = await db.execute(query)
+    rows = result.all()
+
+    return [
+        MessageActivityPoint(lat=float(row.lat), lng=float(row.lng), count=row.count)
+        for row in rows
+    ]

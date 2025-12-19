@@ -416,15 +416,25 @@ class MeshMonitorCollector(BaseCollector):
         packet_id = str(packet_id)
 
         # Get received_at from timestamp (milliseconds) or createdAt
-        received_at = datetime.now(UTC)
         timestamp_ms = msg_data.get("timestamp") or msg_data.get("createdAt")
-        if timestamp_ms:
-            received_at = datetime.fromtimestamp(timestamp_ms / 1000, tz=UTC)
+        try:
+            received_at = (
+                datetime.fromtimestamp(timestamp_ms / 1000, tz=UTC)
+                if timestamp_ms
+                else datetime.now(UTC)
+            )
+        except (TypeError, ValueError, OSError) as e:
+            logger.warning(f"Invalid timestamp {timestamp_ms}: {e}")
+            received_at = datetime.now(UTC)
 
         # Get rx_time (milliseconds)
         rx_time = None
-        if msg_data.get("rxTime"):
-            rx_time = datetime.fromtimestamp(msg_data["rxTime"] / 1000, tz=UTC)
+        rx_time_ms = msg_data.get("rxTime")
+        if rx_time_ms:
+            try:
+                rx_time = datetime.fromtimestamp(rx_time_ms / 1000, tz=UTC)
+            except (TypeError, ValueError, OSError) as e:
+                logger.warning(f"Invalid rx_time {rx_time_ms}: {e}")
 
         # Handle broadcast address (0xFFFFFFFF = 4294967295)
         to_node_num = msg_data.get("toNodeNum") or msg_data.get("to")

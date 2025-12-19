@@ -8,7 +8,7 @@ from xml.etree import ElementTree as ET
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -901,13 +901,16 @@ async def get_message_activity(
     """
     cutoff = datetime.now(UTC) - timedelta(days=lookback_days)
 
-    # Get telemetry with their sender nodes' positions
-    # Join Telemetry -> Node on node_num
+    # Use SQL aggregation to group by rounded coordinates (~11m precision)
+    # This avoids loading all rows into memory
+    lat_rounded = func.round(Node.latitude, 4).label("lat")
+    lng_rounded = func.round(Node.longitude, 4).label("lng")
+
     query = (
         select(
-            Node.latitude,
-            Node.longitude,
-            Telemetry.node_num,
+            lat_rounded,
+            lng_rounded,
+            func.count().label("count"),
         )
         .join(Node, Telemetry.node_num == Node.node_num)
         .where(Telemetry.received_at >= cutoff)
@@ -915,25 +918,21 @@ async def get_message_activity(
         .where(Node.longitude.isnot(None))
     )
 
+    # Apply bounds filter in SQL if specified
+    if all([bounds_south, bounds_west, bounds_north, bounds_east]):
+        query = query.where(
+            Node.latitude >= bounds_south,
+            Node.latitude <= bounds_north,
+            Node.longitude >= bounds_west,
+            Node.longitude <= bounds_east,
+        )
+
+    query = query.group_by(lat_rounded, lng_rounded)
+
     result = await db.execute(query)
     rows = result.all()
 
-    # Aggregate by node position (since same node_num may appear multiple times)
-    # Group by (lat, lng) rounded to 4 decimal places for aggregation
-    position_counts: dict[tuple[float, float], int] = {}
-    for row in rows:
-        # Round to 4 decimal places (~11m precision) for aggregation
-        lat_key = round(row.latitude, 4)
-        lng_key = round(row.longitude, 4)
-        key = (lat_key, lng_key)
-        position_counts[key] = position_counts.get(key, 0) + 1
-
-    points = []
-    for (lat, lng), count in position_counts.items():
-        # Filter by bounds if specified
-        if all([bounds_south, bounds_west, bounds_north, bounds_east]):
-            if not (bounds_south <= lat <= bounds_north and bounds_west <= lng <= bounds_east):
-                continue
-        points.append(MessageActivityPoint(lat=lat, lng=lng, count=count))
-
-    return points
+    return [
+        MessageActivityPoint(lat=float(row.lat), lng=float(row.lng), count=row.count)
+        for row in rows
+    ]

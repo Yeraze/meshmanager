@@ -28,9 +28,17 @@ def upgrade() -> None:
         existing_nullable=True,
         postgresql_using="packet_id::VARCHAR(64)",
     )
+    # Add unique index for ON CONFLICT clause
+    op.create_index(
+        "idx_messages_source_packet",
+        "messages",
+        ["source_id", "packet_id"],
+        unique=True,
+    )
 
 
 def downgrade() -> None:
+    op.drop_index("idx_messages_source_packet", table_name="messages")
     # Note: This may fail if there are non-numeric packet_ids
     op.alter_column(
         "messages",

@@ -1012,7 +1012,10 @@ function SolarNodeCard({
                           return [`${(value as number).toFixed(0)} Wh`, 'Forecast Solar']
                         }
                         if (name === 'forecastBattery') {
-                          return [`${value}%`, 'Forecast Battery']
+                          return [
+                            node.metric_type === 'battery' ? `${value}%` : `${(value as number).toFixed(2)}V`,
+                            node.metric_type === 'battery' ? 'Forecast Battery' : 'Forecast Voltage',
+                          ]
                         }
                         if (name === 'value') {
                           return [
@@ -1065,7 +1068,8 @@ function SolarNodeCard({
                       />
                     )}
                     {/* Forecast battery line - dashed orange for visibility */}
-                    {hasForecastData && (
+                    {/* Only show for battery nodes - voltage/INA forecasts use battery % which doesn't match chart scale */}
+                    {hasForecastData && node.metric_type === 'battery' && (
                       <Line
                         yAxisId="left"
                         type="monotone"
@@ -1078,11 +1082,11 @@ function SolarNodeCard({
                         isAnimationActive={false}
                       />
                     )}
-                    {/* 50% warning line for battery forecast when node is at risk */}
+                    {/* Warning line at risk threshold (40% for battery) */}
                     {hasForecastData && node.metric_type === 'battery' && (
                       <ReferenceLine
                         yAxisId="left"
-                        y={50}
+                        y={40}
                         stroke="#ef4444"
                         strokeDasharray="3 3"
                       />

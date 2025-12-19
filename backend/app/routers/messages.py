@@ -1,6 +1,6 @@
 """Message and channel endpoints for the Communication page."""
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query

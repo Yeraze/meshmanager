@@ -1846,8 +1846,9 @@ async def analyze_message_utilization(
             node_names[node.node_num] = node.short_name
         else:
             node_names[node.node_num] = f"!{node.node_num:08x}"
-        # Track locally connected nodes (hops_away == 0)
-        if node.hops_away == 0:
+        # Track locally connected nodes (hops_away == 0 or NULL)
+        # NULL typically means the node is the local node (source's own node)
+        if node.hops_away is None or node.hops_away == 0:
             local_nodes.add((node.source_id, node.node_num))
 
     # Track counts

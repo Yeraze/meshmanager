@@ -1865,6 +1865,9 @@ async def analyze_message_utilization(
         messages = msg_result.scalars().all()
 
         for msg in messages:
+            # Skip messages from locally connected nodes if flag is set
+            if exclude_local_nodes and (msg.source_id, msg.from_node_num) in local_nodes:
+                continue
             node_counts[msg.from_node_num]["text"] += 1
             hour = msg.received_at.hour
             hourly_counts[hour]["text"] += 1

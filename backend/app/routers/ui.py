@@ -1819,6 +1819,7 @@ async def analyze_message_utilization(
     include_power: bool = Query(default=True, description="Include power telemetry"),
     include_position: bool = Query(default=True, description="Include position telemetry"),
     include_air_quality: bool = Query(default=True, description="Include air quality telemetry"),
+    exclude_local_nodes: bool = Query(default=False, description="Exclude telemetry from nodes directly connected to sources (hops_away=0)"),
 ) -> dict:
     """Analyze message utilization across the mesh network.
 
@@ -1832,10 +1833,12 @@ async def analyze_message_utilization(
 
     cutoff = datetime.now(UTC) - timedelta(days=lookback_days)
 
-    # Get node names for display
+    # Get node names for display and identify local nodes
     node_result = await db.execute(select(Node))
     nodes = node_result.scalars().all()
     node_names: dict[int, str] = {}
+    # Track local nodes: set of (source_id, node_num) tuples for nodes with hops_away == 0
+    local_nodes: set[tuple[str, int]] = set()
     for node in nodes:
         if node.long_name:
             node_names[node.node_num] = node.long_name
@@ -1843,6 +1846,9 @@ async def analyze_message_utilization(
             node_names[node.node_num] = node.short_name
         else:
             node_names[node.node_num] = f"!{node.node_num:08x}"
+        # Track locally connected nodes (hops_away == 0)
+        if node.hops_away == 0:
+            local_nodes.add((node.source_id, node.node_num))
 
     # Track counts
     node_counts: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
@@ -1886,6 +1892,9 @@ async def analyze_message_utilization(
         telemetry_rows = telemetry_result.scalars().all()
 
         for t in telemetry_rows:
+            # Skip telemetry from locally connected nodes if flag is set
+            if exclude_local_nodes and (t.source_id, t.node_num) in local_nodes:
+                continue
             type_key = t.telemetry_type.value
             node_counts[t.node_num][type_key] += 1
             hour = t.received_at.hour
@@ -1933,5 +1942,7 @@ async def analyze_message_utilization(
             "power": include_power,
             "position": include_position,
             "air_quality": include_air_quality,
+            "exclude_local_nodes": exclude_local_nodes,
         },
+        "local_nodes_excluded": len(local_nodes) if exclude_local_nodes else 0,
     }

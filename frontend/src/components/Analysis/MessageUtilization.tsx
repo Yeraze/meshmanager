@@ -44,9 +44,10 @@ export default function MessageUtilization() {
   const [includePower, setIncludePower] = useState(true)
   const [includePosition, setIncludePosition] = useState(true)
   const [includeAirQuality, setIncludeAirQuality] = useState(true)
+  const [excludeLocalNodes, setExcludeLocalNodes] = useState(false)
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['message-utilization', lookbackDays, includeText, includeDevice, includeEnvironment, includePower, includePosition, includeAirQuality],
+    queryKey: ['message-utilization', lookbackDays, includeText, includeDevice, includeEnvironment, includePower, includePosition, includeAirQuality, excludeLocalNodes],
     queryFn: () => fetchMessageUtilizationAnalysis({
       lookback_days: lookbackDays,
       include_text: includeText,
@@ -55,6 +56,7 @@ export default function MessageUtilization() {
       include_power: includePower,
       include_position: includePosition,
       include_air_quality: includeAirQuality,
+      exclude_local_nodes: excludeLocalNodes,
     }),
     enabled: runAnalysis,
   })
@@ -186,6 +188,22 @@ export default function MessageUtilization() {
             </label>
           </div>
 
+          {/* Exclusions */}
+          <div style={controlGroupStyle}>
+            <div style={labelStyle}>Exclusions</div>
+            <label style={checkboxStyle}>
+              <input
+                type="checkbox"
+                checked={excludeLocalNodes}
+                onChange={(e) => setExcludeLocalNodes(e.target.checked)}
+              />
+              <span style={{ fontSize: '0.85rem' }}>Exclude Local Nodes</span>
+            </label>
+            <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 1.5rem' }}>
+              Exclude telemetry from nodes directly connected to sources (via IP/MQTT), as they don't impact mesh traffic.
+            </p>
+          </div>
+
           {/* Analyze Button */}
           <div style={controlGroupStyle}>
             <button
@@ -223,6 +241,11 @@ export default function MessageUtilization() {
                 <div>
                   Active Nodes: <strong>{data.total_nodes}</strong>
                 </div>
+                {data.local_nodes_excluded > 0 && (
+                  <div style={{ color: 'var(--color-text-muted)' }}>
+                    Local Nodes Excluded: <strong>{data.local_nodes_excluded}</strong>
+                  </div>
+                )}
               </div>
             </div>
           )}

@@ -505,6 +505,7 @@ export interface MessageUtilizationFilters {
   power: boolean
   position: boolean
   air_quality: boolean
+  exclude_local_nodes: boolean
 }
 
 export interface MessageUtilizationAnalysis {
@@ -515,6 +516,7 @@ export interface MessageUtilizationAnalysis {
   top_nodes: MessageUtilizationNode[]
   hourly_histogram: MessageUtilizationHour[]
   filters: MessageUtilizationFilters
+  local_nodes_excluded: number
 }
 
 export interface MessageUtilizationParams {
@@ -525,6 +527,7 @@ export interface MessageUtilizationParams {
   include_power?: boolean
   include_position?: boolean
   include_air_quality?: boolean
+  exclude_local_nodes?: boolean
 }
 
 export async function fetchMessageUtilizationAnalysis(
@@ -538,6 +541,7 @@ export async function fetchMessageUtilizationAnalysis(
   if (params?.include_power !== undefined) queryParams.append('include_power', params.include_power.toString())
   if (params?.include_position !== undefined) queryParams.append('include_position', params.include_position.toString())
   if (params?.include_air_quality !== undefined) queryParams.append('include_air_quality', params.include_air_quality.toString())
+  if (params?.exclude_local_nodes !== undefined) queryParams.append('exclude_local_nodes', params.exclude_local_nodes.toString())
 
   const response = await api.get<MessageUtilizationAnalysis>(`/api/analysis/message-utilization?${queryParams.toString()}`)
   return response.data

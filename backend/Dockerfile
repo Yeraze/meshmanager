@@ -3,10 +3,11 @@ FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
-# Install build dependencies
+# Install build dependencies (libgdal-dev needed for fiona on ARM64)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
+    libgdal-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy all source files
@@ -23,6 +24,7 @@ WORKDIR /app
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
+    gdal-bin \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy installed packages from builder

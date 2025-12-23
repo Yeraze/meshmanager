@@ -3,6 +3,12 @@ name: Release
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., 0.3.1-test)'
+        required: true
+        default: 'test'
 
 env:
   REGISTRY: ghcr.io
@@ -36,8 +42,13 @@ jobs:
       - name: Extract version and set image prefix
         id: version
         run: |
-          # Remove 'v' prefix if present (e.g., v0.1.0 -> 0.1.0)
-          VERSION=${GITHUB_REF_NAME#v}
+          # Use workflow_dispatch input if provided, otherwise use release tag
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            # Remove 'v' prefix if present (e.g., v0.1.0 -> 0.1.0)
+            VERSION=${GITHUB_REF_NAME#v}
+          fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           # Lowercase the repository name for Docker
           IMAGE_PREFIX=$(echo "${{ github.repository_owner }}/meshmanager" | tr '[:upper:]' '[:lower:]')

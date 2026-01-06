@@ -1048,9 +1048,9 @@ async def identify_solar_nodes(
                         })
             all_chart_data.sort(key=lambda x: x["timestamp"])
 
-            # Calculate average rates from chosen metric
-            charge_rates = chosen_stats["charge_rates"]
-            discharge_rates = chosen_stats["discharge_rates"]
+            # Calculate average rates from chosen metric (filter None values)
+            charge_rates = [r for r in chosen_stats["charge_rates"] if r is not None]
+            discharge_rates = [r for r in chosen_stats["discharge_rates"] if r is not None]
             avg_charge_rate = round(sum(charge_rates) / len(charge_rates), 2) if charge_rates else None
             avg_discharge_rate = round(sum(discharge_rates) / len(discharge_rates), 2) if discharge_rates else None
 

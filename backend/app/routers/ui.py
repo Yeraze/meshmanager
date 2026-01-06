@@ -832,10 +832,10 @@ async def identify_solar_nodes(
                             "time": battery_result["sunset"]["time"].strftime("%H:%M"),
                             "value": round(battery_result["sunset"]["value"], 1),
                         },
-                        "rise": round(battery_result["rise"], 1),
-                        "fall": round(battery_result["fall"], 1),
-                        "charge_rate_per_hour": round(battery_result["charge_rate"], 2),
-                        "discharge_rate_per_hour": round(battery_result["discharge_rate"], 2) if battery_result["discharge_rate"] else None,
+                        "rise": round(battery_result["rise"], 1) if battery_result["rise"] is not None else None,
+                        "fall": round(battery_result["fall"], 1) if battery_result["fall"] is not None else None,
+                        "charge_rate_per_hour": round(battery_result["charge_rate"], 2) if battery_result["charge_rate"] is not None else None,
+                        "discharge_rate_per_hour": round(battery_result["discharge_rate"], 2) if battery_result["discharge_rate"] is not None else None,
                     })
                     # Track sunset for next day's discharge calculation
                     battery_stats["previous_day_sunset"] = {
@@ -881,10 +881,10 @@ async def identify_solar_nodes(
                             "time": voltage_result["sunset"]["time"].strftime("%H:%M"),
                             "value": round(voltage_result["sunset"]["value"], 1),
                         },
-                        "rise": round(voltage_result["rise"], 1),
-                        "fall": round(voltage_result["fall"], 1),
-                        "charge_rate_per_hour": round(voltage_result["charge_rate"], 2),
-                        "discharge_rate_per_hour": round(voltage_result["discharge_rate"], 2) if voltage_result["discharge_rate"] else None,
+                        "rise": round(voltage_result["rise"], 1) if voltage_result["rise"] is not None else None,
+                        "fall": round(voltage_result["fall"], 1) if voltage_result["fall"] is not None else None,
+                        "charge_rate_per_hour": round(voltage_result["charge_rate"], 2) if voltage_result["charge_rate"] is not None else None,
+                        "discharge_rate_per_hour": round(voltage_result["discharge_rate"], 2) if voltage_result["discharge_rate"] is not None else None,
                     })
                     # Track sunset for next day's discharge calculation
                     voltage_stats["previous_day_sunset"] = {
@@ -932,10 +932,10 @@ async def identify_solar_nodes(
                                 "time": ina_result["sunset"]["time"].strftime("%H:%M"),
                                 "value": round(ina_result["sunset"]["value"], 3),
                             },
-                            "rise": round(ina_result["rise"], 3),
-                            "fall": round(ina_result["fall"], 3),
-                            "charge_rate_per_hour": round(ina_result["charge_rate"], 4),
-                            "discharge_rate_per_hour": round(ina_result["discharge_rate"], 4) if ina_result["discharge_rate"] else None,
+                            "rise": round(ina_result["rise"], 3) if ina_result["rise"] is not None else None,
+                            "fall": round(ina_result["fall"], 3) if ina_result["fall"] is not None else None,
+                            "charge_rate_per_hour": round(ina_result["charge_rate"], 4) if ina_result["charge_rate"] is not None else None,
+                            "discharge_rate_per_hour": round(ina_result["discharge_rate"], 4) if ina_result["discharge_rate"] is not None else None,
                         })
                         stats["previous_day_sunset"] = {
                             "time": ina_result["sunset"]["time"],

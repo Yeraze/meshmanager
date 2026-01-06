@@ -116,6 +116,8 @@ if STATIC_DIR.exists():
     # Serve static assets (JS, CSS, images, etc.)
     app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
 
+    # IMPORTANT: This catch-all route must be registered AFTER all API routers
+    # to ensure API routes (e.g., /health, /api/*) take priority over SPA routing
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
         """Serve the SPA frontend - returns index.html for all non-API routes."""

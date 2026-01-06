@@ -2,7 +2,7 @@
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -38,8 +38,21 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", description="Logging level")
     cors_origins: list[str] = Field(
         default=["http://localhost:5173", "http://localhost:8080"],
-        description="Allowed CORS origins",
+        description="Allowed CORS origins (comma-separated or JSON array)",
     )
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v: str | list[str] | None) -> list[str]:
+        """Parse CORS origins from comma-separated string or list."""
+        if v is None:
+            return ["http://localhost:5173", "http://localhost:8080"]
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            # Handle comma-separated values
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return v
 
     # Defaults
     default_poll_interval: int = Field(

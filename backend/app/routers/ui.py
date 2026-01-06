@@ -1522,12 +1522,14 @@ async def analyze_solar_forecast(
                             chosen_metric_type = channel_name
                             break
 
-            charge_rates = chosen_stats["charge_rates"] if chosen_stats else []
-            discharge_rates = chosen_stats["discharge_rates"] if chosen_stats else []
+            charge_rates = [r for r in (chosen_stats["charge_rates"] if chosen_stats else []) if r is not None]
+            discharge_rates = [r for r in (chosen_stats["discharge_rates"] if chosen_stats else []) if r is not None]
             avg_charge_rate = sum(charge_rates) / len(charge_rates) if charge_rates else 0
             avg_discharge_rate = sum(discharge_rates) / len(discharge_rates) if discharge_rates else 0
-            avg_charging_hours = sum(all_charging_hours) / len(all_charging_hours) if all_charging_hours else 10
-            avg_discharge_hours = sum(all_discharge_hours) / len(all_discharge_hours) if all_discharge_hours else 14
+            valid_charging_hours = [h for h in all_charging_hours if h is not None]
+            valid_discharge_hours = [h for h in all_discharge_hours if h is not None]
+            avg_charging_hours = sum(valid_charging_hours) / len(valid_charging_hours) if valid_charging_hours else 10
+            avg_discharge_hours = sum(valid_discharge_hours) / len(valid_discharge_hours) if valid_discharge_hours else 14
 
             # Simulate using battery level (we always need battery for the simulation)
             if last_known_battery is not None:

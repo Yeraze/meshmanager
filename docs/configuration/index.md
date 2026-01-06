@@ -7,12 +7,10 @@ MeshManager is designed to be configured primarily through the web interface, wi
 ### Docker Compose (Recommended)
 
 The recommended deployment method uses Docker Compose with:
-- **Frontend**: React application served by Nginx
-- **Backend**: FastAPI Python application
+- **MeshManager**: Unified application (FastAPI backend + React frontend)
 - **Database**: PostgreSQL 16
-- **Proxy**: Nginx reverse proxy
 
-See [Docker Deployment](/configuration/docker) for detailed instructions.
+See [Docker Deployment](/configuration/docker) for detailed instructions, or use the [Docker Configurator](/configuration/configurator) to generate a customized compose file.
 
 ### Development Setup
 

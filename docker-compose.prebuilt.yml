@@ -1,12 +1,12 @@
-# MeshManager - Pre-built Docker Images
+# MeshManager - Pre-built Docker Image
 #
 # Usage:
-#   1. Copy this file and docker/nginx.conf to your deployment directory
+#   1. Copy this file to your deployment directory
 #   2. Create a .env file with required variables (see .env.example)
 #   3. Run: docker compose -f docker-compose.prebuilt.yml up -d
 #
-# To update to a specific version, change the image tags below.
-# Available at: https://github.com/Yeraze/meshmanager/pkgs/container/meshmanager-backend
+# To use a specific version, set MESHMANAGER_VERSION in your .env file.
+# Available at: https://github.com/Yeraze/meshmanager/pkgs/container/meshmanager
 
 services:
   postgres:
@@ -25,9 +25,11 @@ services:
       retries: 5
     restart: unless-stopped
 
-  backend:
-    image: ghcr.io/yeraze/meshmanager-backend:${MESHMANAGER_VERSION:-latest}
-    container_name: meshmanager-backend
+  meshmanager:
+    image: ghcr.io/yeraze/meshmanager:${MESHMANAGER_VERSION:-latest}
+    container_name: meshmanager
+    ports:
+      - "${HTTP_PORT:-8080}:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://meshmanager:${POSTGRES_PASSWORD:-meshmanager}@postgres/meshmanager
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
@@ -36,29 +38,9 @@ services:
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
       OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      CORS_ORIGINS: '["http://localhost:8080"]'
     depends_on:
       postgres:
         condition: service_healthy
-    restart: unless-stopped
-
-  frontend:
-    image: ghcr.io/yeraze/meshmanager-frontend:${MESHMANAGER_VERSION:-latest}
-    container_name: meshmanager-frontend
-    depends_on:
-      - backend
-    restart: unless-stopped
-
-  nginx:
-    image: nginx:alpine
-    container_name: meshmanager-nginx
-    ports:
-      - "${HTTP_PORT:-8080}:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      - frontend
-      - backend
     restart: unless-stopped
 
 volumes:

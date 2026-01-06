@@ -9,30 +9,85 @@ This guide will help you get MeshManager up and running quickly.
   - A running [MeshMonitor](https://meshmonitor.org) instance, or
   - Access to a Meshtastic MQTT broker
 
-## Quick Start
+## Quick Start with Docker Compose
 
-### 1. Clone the Repository
+::: tip Docker Configurator
+Need OIDC authentication or custom settings? Use the [Docker Configurator](/configuration/configurator) to generate a customized compose file.
+:::
 
-```bash
-git clone https://github.com/yeraze/meshmanager.git
-cd meshmanager
+### 1. Create a `docker-compose.yml` file
+
+```yaml
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: meshmanager-db
+    environment:
+      POSTGRES_DB: meshmanager
+      POSTGRES_USER: meshmanager
+      POSTGRES_PASSWORD: meshmanager  # Change in production
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meshmanager"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  meshmanager:
+    image: ghcr.io/yeraze/meshmanager:latest
+    container_name: meshmanager
+    ports:
+      - "8080:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://meshmanager:meshmanager@postgres/meshmanager
+      SESSION_SECRET: change-me-to-random-string  # Required: generate with `openssl rand -hex 32`
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
 ```
 
-### 2. Start the Services
-
-For development:
+::: warning Required Configuration
+You **must** change `SESSION_SECRET` to a random string. Generate one with:
 ```bash
-docker compose -f docker-compose.dev.yml up -d
+openssl rand -hex 32
 ```
+:::
 
-For production:
+### 2. Start the services
+
 ```bash
 docker compose up -d
 ```
 
-### 3. Access the Application
+### 3. Access the application
 
 Open your browser to [http://localhost:8080](http://localhost:8080)
+
+That's it! No complex configuration needed for basic usage.
+
+::: tip Version Pinning
+To use a specific version instead of `latest`, change the image tag:
+```yaml
+image: ghcr.io/yeraze/meshmanager:0.4.0
+```
+:::
+
+## Building from Source
+
+For development or customization, you can build locally:
+
+```bash
+git clone https://github.com/yeraze/meshmanager.git
+cd meshmanager
+docker compose -f docker-compose.dev.yml up -d
+```
 
 ## Initial Configuration
 

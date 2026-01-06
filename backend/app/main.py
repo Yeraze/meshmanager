@@ -2,10 +2,13 @@
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.responses import FileResponse
 
 from app.config import get_settings
 from app.database import close_db, init_db
@@ -104,13 +107,33 @@ app.include_router(utilization_router)
 app.include_router(messages_router)
 
 
-@app.get("/")
-async def root():
-    """Root endpoint - redirects to frontend or shows API info."""
-    return {
-        "name": "MeshManager",
-        "version": "0.1.0",
-        "docs": "/docs",
-        "health": "/health",
-        "metrics": "/metrics",
-    }
+# Static files directory (for unified Docker image)
+STATIC_DIR = Path(__file__).parent.parent / "static"
+
+
+# Mount static files if the directory exists (unified Docker image)
+if STATIC_DIR.exists():
+    # Serve static assets (JS, CSS, images, etc.)
+    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """Serve the SPA frontend - returns index.html for all non-API routes."""
+        # Try to serve the exact file first (for files like favicon.ico)
+        file_path = STATIC_DIR / full_path
+        if file_path.is_file():
+            return FileResponse(file_path)
+        # Otherwise return index.html for SPA routing
+        return FileResponse(STATIC_DIR / "index.html")
+else:
+    # Fallback when running without frontend (development/API-only mode)
+    @app.get("/")
+    async def root():
+        """Root endpoint - shows API info when no frontend is bundled."""
+        return {
+            "name": "MeshManager",
+            "version": "0.4.0",
+            "docs": "/docs",
+            "health": "/health",
+            "metrics": "/metrics",
+        }

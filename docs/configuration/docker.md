@@ -14,14 +14,25 @@ Access the application at [http://localhost:8080](http://localhost:8080).
 
 ## Architecture
 
-The Docker Compose setup includes:
+### Production (Pre-built Images)
+
+Using pre-built images, the stack consists of just two containers:
 
 | Service | Image | Purpose |
 |---------|-------|---------|
-| `frontend` | meshmanager-frontend | React SPA served by Nginx |
-| `backend` | meshmanager-backend | FastAPI Python application |
+| `meshmanager` | ghcr.io/yeraze/meshmanager | Unified app (FastAPI + React SPA) |
 | `postgres` | postgres:16-alpine | PostgreSQL database |
-| `nginx` | nginx:alpine | Reverse proxy |
+
+### Development (Build from Source)
+
+When building from source, the stack uses separate containers:
+
+| Service | Purpose |
+|---------|---------|
+| `frontend` | React SPA with hot reloading |
+| `backend` | FastAPI Python application |
+| `postgres` | PostgreSQL database |
+| `nginx` | Reverse proxy |
 
 ## Compose Files
 
@@ -74,13 +85,13 @@ Ensure the `postgres_data` volume is backed up regularly.
 
 ## Networking
 
-By default, services communicate on an internal Docker network. Only the Nginx proxy is exposed to the host.
+By default, services communicate on an internal Docker network. Only the MeshManager application is exposed to the host.
 
 ### Port Configuration
 
 | Port | Service | Purpose |
 |------|---------|---------|
-| 8080 | nginx | HTTP access |
+| 8080 | meshmanager | HTTP access (maps to internal port 8000) |
 | 5432 | postgres | Database (internal only by default) |
 
 ### Exposing Database
@@ -96,11 +107,11 @@ services:
 
 ## Health Checks
 
-Both frontend and backend services include health checks:
+The MeshManager container includes a health check:
 
 ```yaml
 healthcheck:
-  test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+  test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health')"]
   interval: 30s
   timeout: 10s
   retries: 3
@@ -131,13 +142,20 @@ docker compose up -d
 # All services
 docker compose logs -f
 
-# Specific service
+# Specific service (production)
+docker compose logs -f meshmanager
+
+# Specific service (development)
 docker compose logs -f backend
 ```
 
 ### Restart Services
 
 ```bash
+# Production
+docker compose restart meshmanager
+
+# Development
 docker compose restart backend
 ```
 

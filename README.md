@@ -6,8 +6,7 @@
 
 [![Tests](https://github.com/Yeraze/meshmanager/actions/workflows/tests.yml/badge.svg)](https://github.com/Yeraze/meshmanager/actions/workflows/tests.yml)
 [![Release](https://github.com/Yeraze/meshmanager/actions/workflows/release.yml/badge.svg)](https://github.com/Yeraze/meshmanager/actions/workflows/release.yml)
-[![Backend Docker](https://img.shields.io/badge/docker-backend-blue?logo=docker)](https://ghcr.io/yeraze/meshmanager-backend)
-[![Frontend Docker](https://img.shields.io/badge/docker-frontend-blue?logo=docker)](https://ghcr.io/yeraze/meshmanager-frontend)
+[![Docker](https://img.shields.io/badge/docker-ghcr.io-blue?logo=docker)](https://ghcr.io/yeraze/meshmanager)
 [![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
 Management and oversight application for aggregating data from multiple MeshMonitor instances and Meshtastic MQTT servers.
@@ -53,30 +52,50 @@ docker compose -f docker-compose.dev.yml down
 
 The easiest way to deploy MeshManager is using pre-built Docker images:
 
-1. Download the required files:
-   ```bash
-   mkdir meshmanager && cd meshmanager
-   curl -O https://raw.githubusercontent.com/Yeraze/meshmanager/main/docker-compose.prebuilt.yml
-   curl -O https://raw.githubusercontent.com/Yeraze/meshmanager/main/docker/nginx.conf
-   curl -O https://raw.githubusercontent.com/Yeraze/meshmanager/main/.env.example
+1. Create a `docker-compose.yml`:
+   ```yaml
+   services:
+     postgres:
+       image: postgres:16-alpine
+       environment:
+         POSTGRES_DB: meshmanager
+         POSTGRES_USER: meshmanager
+         POSTGRES_PASSWORD: meshmanager
+       volumes:
+         - postgres_data:/var/lib/postgresql/data
+       healthcheck:
+         test: ["CMD-SHELL", "pg_isready -U meshmanager"]
+         interval: 10s
+         timeout: 5s
+         retries: 5
+       restart: unless-stopped
+
+     meshmanager:
+       image: ghcr.io/yeraze/meshmanager:latest
+       ports:
+         - "8080:8000"
+       environment:
+         DATABASE_URL: postgresql+asyncpg://meshmanager:meshmanager@postgres/meshmanager
+         SESSION_SECRET: your-secret-here  # Generate with: openssl rand -hex 32
+       depends_on:
+         postgres:
+           condition: service_healthy
+       restart: unless-stopped
+
+   volumes:
+     postgres_data:
    ```
 
-2. Configure your environment:
+2. Start the stack:
    ```bash
-   cp .env.example .env
-   # Edit .env with your settings (SESSION_SECRET is required)
+   docker compose up -d
    ```
 
-3. Start the stack:
-   ```bash
-   docker compose -f docker-compose.prebuilt.yml up -d
-   ```
-
-4. Access the application at http://localhost:8080
+3. Access the application at http://localhost:8080
 
 To use a specific version instead of `latest`:
-```bash
-MESHMANAGER_VERSION=0.1.0 docker compose -f docker-compose.prebuilt.yml up -d
+```yaml
+image: ghcr.io/yeraze/meshmanager:0.4.0
 ```
 
 ### Production (Build from Source)
@@ -166,19 +185,19 @@ The `/metrics` endpoint exposes:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                         MeshManager                                  │
+│                         MeshManager                                 │
 ├─────────────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                  │
-│  │   React     │  │   FastAPI   │  │  PostgreSQL │                  │
-│  │  Frontend   │◄─┤   Backend   │◄─┤   Database  │                  │
-│  └─────────────┘  └──────┬──────┘  └─────────────┘                  │
-│                          │                                           │
-│         ┌────────────────┼────────────────┐                         │
-│         ▼                ▼                ▼                         │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                  │
-│  │ MeshMonitor │  │ MeshMonitor │  │    MQTT     │                  │
-│  │  Collector  │  │  Collector  │  │  Collector  │                  │
-│  └─────────────┘  └─────────────┘  └─────────────┘                  │
+│  ┌───────────────────────────────────┐  ┌─────────────┐             │
+│  │         meshmanager               │  │  PostgreSQL │             │
+│  │  (FastAPI + React SPA bundled)    │◄─┤   Database  │             │
+│  └──────────────┬────────────────────┘  └─────────────┘             │
+│                 │                                                   │
+│    ┌────────────┼────────────────┐                                  │
+│    ▼            ▼                ▼                                  │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐                           │
+│  │MeshMonitor│ │MeshMonitor│ │   MQTT   │                           │
+│  │ Collector │ │ Collector │ │ Collector│                           │
+│  └──────────┘  └──────────┘  └──────────┘                           │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 

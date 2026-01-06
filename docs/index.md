@@ -34,7 +34,7 @@ features:
     details: Visualize your mesh network topology with traceroute data showing node connections and signal quality.
   - icon: 🐳
     title: Docker Ready
-    details: Deploy easily with Docker Compose. Includes PostgreSQL database and Nginx reverse proxy for production deployments.
+    details: Deploy easily with Docker Compose. Just two containers - MeshManager and PostgreSQL - for simple production deployments.
 ---
 
 ## What is MeshManager?
@@ -51,15 +51,12 @@ MeshManager is a management and oversight application designed to aggregate data
 
 ### Quick Start
 
-```bash
-# Clone the repository
-git clone https://github.com/yeraze/meshmanager.git
-cd meshmanager
+Create a `docker-compose.yml` with MeshManager and PostgreSQL, then:
 
-# Start with Docker Compose
+```bash
 docker compose up -d
 ```
 
-Then open [http://localhost:8080](http://localhost:8080) in your browser.
+Open [http://localhost:8080](http://localhost:8080) in your browser.
 
-See the [Getting Started](/getting-started) guide for detailed setup instructions.
+See the [Getting Started](/getting-started) guide for the complete compose file and setup instructions.

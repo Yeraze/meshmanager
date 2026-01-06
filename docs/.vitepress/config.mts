@@ -44,6 +44,7 @@ export default defineConfig({
           text: 'Configuration',
           items: [
             { text: 'Overview', link: '/configuration/' },
+            { text: 'Docker Configurator', link: '/configuration/configurator' },
             { text: 'Docker Deployment', link: '/configuration/docker' },
             { text: 'Environment Variables', link: '/configuration/environment' },
             { text: 'Data Sources', link: '/configuration/sources' },

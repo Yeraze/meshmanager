@@ -2,6 +2,7 @@
 
 import logging
 from contextlib import asynccontextmanager
+from importlib.metadata import version
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -34,6 +35,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
+
+# Get version from package metadata (set in pyproject.toml)
+APP_VERSION = version("meshmanager")
 
 
 @asynccontextmanager
@@ -76,7 +80,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="MeshManager",
     description="Management and oversight application for MeshMonitor and Meshtastic MQTT",
-    version="0.1.0",
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 
@@ -134,7 +138,7 @@ else:
         """Root endpoint - shows API info when no frontend is bundled."""
         return {
             "name": "MeshManager",
-            "version": "0.4.0",
+            "version": APP_VERSION,
             "docs": "/docs",
             "health": "/health",
             "metrics": "/metrics",

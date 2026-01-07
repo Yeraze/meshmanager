@@ -14,7 +14,7 @@ import sqlalchemy as sa
 
 # revision identifiers
 revision = "d1e2f3g4h5i6"
-down_revision = "add_historical_days_back_to_sources"
+down_revision = "add_historical_days_back"
 branch_labels = None
 depends_on = None
 

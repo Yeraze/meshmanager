@@ -2,7 +2,7 @@
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
 from uuid import uuid4
 
@@ -14,8 +14,8 @@ from starlette.responses import Response
 from app.auth.middleware import require_admin
 from app.database import get_db
 from app.models import Source
-from app.models.source import SourceType
 from app.models.settings import SystemSetting
+from app.models.source import SourceType
 from app.schemas.config import (
     AnalysisConfig,
     BoundsConfig,
@@ -139,7 +139,7 @@ async def export_config(
     # Build export
     export_data = ConfigExport(
         version="1.0",
-        exported_at=datetime.now(timezone.utc).isoformat(),
+        exported_at=datetime.now(UTC).isoformat(),
         meshmanager_version=APP_VERSION,
         sources=export_sources,
         display_settings=DisplaySettingsConfig(),  # Default values, frontend manages these
@@ -147,7 +147,7 @@ async def export_config(
     )
 
     # Generate filename
-    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    date_str = datetime.now(UTC).strftime("%Y-%m-%d")
     filename = f"meshmanager-config-{date_str}.json"
 
     # Return as downloadable JSON
@@ -174,160 +174,165 @@ async def import_config(
         merge_sources: If True, keep existing sources and add new ones.
                       If False (default), delete all existing sources first.
     """
-    warnings: list[str] = []
-    sources_imported = 0
-    sources_skipped = 0
-    analysis_configs_imported: list[str] = []
-
-    # Validate version
+    # Validate version before starting transaction
     if config.version != "1.0":
         raise HTTPException(
             status_code=400,
             detail=f"Unsupported config version: {config.version}. Expected: 1.0",
         )
 
-    # Import sources
-    if config.sources:
-        if not merge_sources:
-            # Delete all existing sources
-            existing_result = await db.execute(select(Source))
-            existing_sources = existing_result.scalars().all()
-            for source in existing_sources:
-                await db.delete(source)
-            await db.flush()
-            logger.info(f"Deleted {len(existing_sources)} existing sources")
+    warnings: list[str] = []
+    sources_imported = 0
+    sources_skipped = 0
+    analysis_configs_imported: list[str] = []
 
-        # Get existing source names for duplicate checking
-        existing_names_result = await db.execute(select(Source.name))
-        existing_names = {name for (name,) in existing_names_result.all()}
+    try:
+        # Import sources
+        if config.sources:
+            if not merge_sources:
+                # Delete all existing sources
+                existing_result = await db.execute(select(Source))
+                existing_sources = existing_result.scalars().all()
+                for source in existing_sources:
+                    await db.delete(source)
+                await db.flush()
+                logger.info(f"Deleted {len(existing_sources)} existing sources")
 
-        for source_config in config.sources:
-            # Skip duplicates in merge mode
-            if merge_sources and source_config.name in existing_names:
-                sources_skipped += 1
-                warnings.append(f"Skipped duplicate source: {source_config.name}")
-                continue
+            # Get existing source names for duplicate checking
+            existing_names_result = await db.execute(select(Source.name))
+            existing_names = {name for (name,) in existing_names_result.all()}
 
-            # Create new source (without credentials)
-            try:
-                source_type = SourceType(source_config.type)
-            except ValueError:
-                sources_skipped += 1
-                warnings.append(f"Invalid source type '{source_config.type}' for source: {source_config.name}")
-                continue
+            for source_config in config.sources:
+                # Skip duplicates in merge mode
+                if merge_sources and source_config.name in existing_names:
+                    sources_skipped += 1
+                    warnings.append(f"Skipped duplicate source: {source_config.name}")
+                    continue
 
-            new_source = Source(
-                id=str(uuid4()),
-                name=source_config.name,
-                type=source_type,
-                enabled=False,  # Disabled by default since credentials are missing
-                url=source_config.url,
-                poll_interval_seconds=source_config.poll_interval_seconds or 300,
-                historical_days_back=source_config.historical_days_back or 1,
-                mqtt_host=source_config.mqtt_host,
-                mqtt_port=source_config.mqtt_port or 1883,
-                mqtt_topic_pattern=source_config.mqtt_topic_pattern,
-                mqtt_use_tls=source_config.mqtt_use_tls or False,
-                # Credentials left blank - user must re-enter
-                api_token=None,
-                mqtt_username=None,
-                mqtt_password=None,
-            )
-            db.add(new_source)
-            sources_imported += 1
-            existing_names.add(source_config.name)
+                # Create new source (without credentials)
+                try:
+                    source_type = SourceType(source_config.type)
+                except ValueError:
+                    sources_skipped += 1
+                    warnings.append(f"Invalid source type '{source_config.type}' for source: {source_config.name}")
+                    continue
 
-        if sources_imported > 0:
-            warnings.append(
-                f"Imported {sources_imported} source(s) in DISABLED state. "
-                "Please edit each source to add credentials and enable."
-            )
+                new_source = Source(
+                    id=str(uuid4()),
+                    name=source_config.name,
+                    type=source_type,
+                    enabled=False,  # Disabled by default since credentials are missing
+                    url=source_config.url,
+                    poll_interval_seconds=source_config.poll_interval_seconds or 300,
+                    historical_days_back=source_config.historical_days_back or 1,
+                    mqtt_host=source_config.mqtt_host,
+                    mqtt_port=source_config.mqtt_port or 1883,
+                    mqtt_topic_pattern=source_config.mqtt_topic_pattern,
+                    mqtt_use_tls=source_config.mqtt_use_tls or False,
+                    # Credentials left blank - user must re-enter
+                    api_token=None,
+                    mqtt_username=None,
+                    mqtt_password=None,
+                )
+                db.add(new_source)
+                sources_imported += 1
+                existing_names.add(source_config.name)
 
-    # Import analysis configs
-    if config.analysis:
-        # Coverage config
-        if config.analysis.coverage_config:
-            cc = config.analysis.coverage_config
-            coverage_value = {
-                "enabled": cc.enabled,
-                "resolution": cc.resolution,
-                "unit": cc.unit,
-                "lookback_days": cc.lookback_days,
-            }
-            if cc.bounds:
-                coverage_value.update({
-                    "bounds_south": cc.bounds.south,
-                    "bounds_west": cc.bounds.west,
-                    "bounds_north": cc.bounds.north,
-                    "bounds_east": cc.bounds.east,
-                })
+            if sources_imported > 0:
+                warnings.append(
+                    f"Imported {sources_imported} source(s) in DISABLED state. "
+                    "Please edit each source to add credentials and enable."
+                )
 
-            coverage_setting = await db.execute(
-                select(SystemSetting).where(SystemSetting.key == COVERAGE_CONFIG_KEY)
-            )
-            existing = coverage_setting.scalar_one_or_none()
-            if existing:
-                existing.value = coverage_value
-            else:
-                db.add(SystemSetting(key=COVERAGE_CONFIG_KEY, value=coverage_value))
-            analysis_configs_imported.append("coverage_config")
+        # Import analysis configs
+        if config.analysis:
+            # Coverage config
+            if config.analysis.coverage_config:
+                cc = config.analysis.coverage_config
+                coverage_value = {
+                    "enabled": cc.enabled,
+                    "resolution": cc.resolution,
+                    "unit": cc.unit,
+                    "lookback_days": cc.lookback_days,
+                }
+                if cc.bounds:
+                    coverage_value.update({
+                        "bounds_south": cc.bounds.south,
+                        "bounds_west": cc.bounds.west,
+                        "bounds_north": cc.bounds.north,
+                        "bounds_east": cc.bounds.east,
+                    })
 
-        # Utilization config
-        if config.analysis.utilization_config:
-            uc = config.analysis.utilization_config
-            util_value = {
-                "enabled": uc.enabled,
-                "resolution": uc.resolution,
-                "unit": uc.unit,
-                "lookback_days": uc.lookback_days,
-                "aggregation": uc.aggregation,
-            }
-            if uc.bounds:
-                util_value.update({
-                    "bounds_south": uc.bounds.south,
-                    "bounds_west": uc.bounds.west,
-                    "bounds_north": uc.bounds.north,
-                    "bounds_east": uc.bounds.east,
-                })
+                coverage_setting = await db.execute(
+                    select(SystemSetting).where(SystemSetting.key == COVERAGE_CONFIG_KEY)
+                )
+                existing = coverage_setting.scalar_one_or_none()
+                if existing:
+                    existing.value = coverage_value
+                else:
+                    db.add(SystemSetting(key=COVERAGE_CONFIG_KEY, value=coverage_value))
+                analysis_configs_imported.append("coverage_config")
 
-            util_setting = await db.execute(
-                select(SystemSetting).where(SystemSetting.key == UTILIZATION_CONFIG_KEY)
-            )
-            existing = util_setting.scalar_one_or_none()
-            if existing:
-                existing.value = util_value
-            else:
-                db.add(SystemSetting(key=UTILIZATION_CONFIG_KEY, value=util_value))
-            analysis_configs_imported.append("utilization_config")
+            # Utilization config
+            if config.analysis.utilization_config:
+                uc = config.analysis.utilization_config
+                util_value = {
+                    "enabled": uc.enabled,
+                    "resolution": uc.resolution,
+                    "unit": uc.unit,
+                    "lookback_days": uc.lookback_days,
+                    "aggregation": uc.aggregation,
+                }
+                if uc.bounds:
+                    util_value.update({
+                        "bounds_south": uc.bounds.south,
+                        "bounds_west": uc.bounds.west,
+                        "bounds_north": uc.bounds.north,
+                        "bounds_east": uc.bounds.east,
+                    })
 
-        # Solar schedule config
-        if config.analysis.solar_schedule:
-            sc = config.analysis.solar_schedule
-            solar_value = {
-                "enabled": sc.enabled,
-                "schedules": sc.schedules,
-                "apprise_urls": sc.apprise_urls,
-                "lookback_days": sc.lookback_days,
-            }
+                util_setting = await db.execute(
+                    select(SystemSetting).where(SystemSetting.key == UTILIZATION_CONFIG_KEY)
+                )
+                existing = util_setting.scalar_one_or_none()
+                if existing:
+                    existing.value = util_value
+                else:
+                    db.add(SystemSetting(key=UTILIZATION_CONFIG_KEY, value=util_value))
+                analysis_configs_imported.append("utilization_config")
 
-            solar_setting = await db.execute(
-                select(SystemSetting).where(SystemSetting.key == SOLAR_SCHEDULE_KEY)
-            )
-            existing = solar_setting.scalar_one_or_none()
-            if existing:
-                existing.value = solar_value
-            else:
-                db.add(SystemSetting(key=SOLAR_SCHEDULE_KEY, value=solar_value))
-            analysis_configs_imported.append("solar_schedule")
+            # Solar schedule config
+            if config.analysis.solar_schedule:
+                sc = config.analysis.solar_schedule
+                solar_value = {
+                    "enabled": sc.enabled,
+                    "schedules": sc.schedules,
+                    "apprise_urls": sc.apprise_urls,
+                    "lookback_days": sc.lookback_days,
+                }
 
-    await db.commit()
+                solar_setting = await db.execute(
+                    select(SystemSetting).where(SystemSetting.key == SOLAR_SCHEDULE_KEY)
+                )
+                existing = solar_setting.scalar_one_or_none()
+                if existing:
+                    existing.value = solar_value
+                else:
+                    db.add(SystemSetting(key=SOLAR_SCHEDULE_KEY, value=solar_value))
+                analysis_configs_imported.append("solar_schedule")
 
-    return ImportResult(
-        success=True,
-        sources_imported=sources_imported,
-        sources_skipped=sources_skipped,
-        display_settings_imported=config.display_settings is not None,
-        analysis_configs_imported=analysis_configs_imported,
-        warnings=warnings,
-        display_settings=config.display_settings,
-    )
+        await db.commit()
+
+        return ImportResult(
+            success=True,
+            sources_imported=sources_imported,
+            sources_skipped=sources_skipped,
+            display_settings_imported=config.display_settings is not None,
+            analysis_configs_imported=analysis_configs_imported,
+            warnings=warnings,
+            display_settings=config.display_settings,
+        )
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Config import failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Import failed: {e}")

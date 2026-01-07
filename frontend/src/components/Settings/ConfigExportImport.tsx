@@ -26,7 +26,6 @@ export default function ConfigExportImport() {
       URL.revokeObjectURL(url)
     },
     onError: (error: Error) => {
-      console.error('Export failed:', error)
       alert('Failed to export configuration: ' + error.message)
     },
   })
@@ -69,6 +68,25 @@ export default function ConfigExportImport() {
     // Reset state
     setImportResult(null)
     setImportError(null)
+
+    // File size validation (max 10MB)
+    const MAX_FILE_SIZE = 10 * 1024 * 1024
+    if (file.size > MAX_FILE_SIZE) {
+      setImportError('File too large (max 10MB)')
+      event.target.value = ''
+      return
+    }
+
+    // Confirmation for replace mode (destructive action)
+    if (!mergeSources) {
+      const confirmed = window.confirm(
+        'This will DELETE all existing sources and replace them with the imported configuration. Are you sure?'
+      )
+      if (!confirmed) {
+        event.target.value = ''
+        return
+      }
+    }
 
     try {
       const text = await file.text()

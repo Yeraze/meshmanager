@@ -15,6 +15,7 @@ from app.config import get_settings
 from app.database import close_db, init_db
 from app.routers import (
     auth_router,
+    config_router,
     coverage_router,
     health_router,
     messages_router,
@@ -108,6 +109,7 @@ app.include_router(health_router)
 app.include_router(metrics_router)
 app.include_router(auth_router)
 app.include_router(sources_router)
+app.include_router(config_router)
 app.include_router(ui_router)
 app.include_router(coverage_router)
 app.include_router(utilization_router)

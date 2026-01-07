@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useAuthContext } from '../../contexts/AuthContext'
+import ConfigExportImport from './ConfigExportImport'
+import DisplaySettings from './DisplaySettings'
 import SourcesSettings from './SourcesSettings'
 import UserSettings from './UserSettings'
-import DisplaySettings from './DisplaySettings'
 
 type SettingsTab = 'display' | 'sources' | 'user'
 
@@ -40,7 +41,12 @@ export default function SettingsPage() {
       </div>
 
       <div className="settings-content">
-        {activeTab === 'display' && <DisplaySettings />}
+        {activeTab === 'display' && (
+          <>
+            <DisplaySettings />
+            {isAdmin && <ConfigExportImport />}
+          </>
+        )}
         {activeTab === 'sources' && isAdmin && <SourcesSettings />}
         {activeTab === 'user' && <UserSettings />}
       </div>

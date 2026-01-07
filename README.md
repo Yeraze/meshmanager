@@ -95,7 +95,7 @@ The easiest way to deploy MeshManager is using pre-built Docker images:
 
 To use a specific version instead of `latest`:
 ```yaml
-image: ghcr.io/yeraze/meshmanager:0.4.0
+image: ghcr.io/yeraze/meshmanager:0.5.0
 ```
 
 ### Production (Build from Source)

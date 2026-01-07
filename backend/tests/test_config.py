@@ -138,7 +138,7 @@ class TestConfigSchemas:
         config = ConfigExport(
             version="1.0",
             exported_at="2026-01-07T12:00:00Z",
-            meshmanager_version="0.4.0",
+            meshmanager_version="0.5.0",
             sources=[
                 ExportSourceConfig(
                     name="Test",
@@ -187,7 +187,7 @@ class TestConfigSchemas:
         config = ConfigExport(
             version="1.0",
             exported_at="2026-01-07T12:00:00Z",
-            meshmanager_version="0.4.0",
+            meshmanager_version="0.5.0",
         )
         json_str = json.dumps(config.model_dump())
         assert "version" in json_str
@@ -198,7 +198,7 @@ class TestConfigSchemas:
         json_data = {
             "version": "1.0",
             "exported_at": "2026-01-07T12:00:00Z",
-            "meshmanager_version": "0.4.0",
+            "meshmanager_version": "0.5.0",
             "sources": [
                 {
                     "name": "My Source",

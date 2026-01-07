@@ -28,6 +28,7 @@ This enables hot-reloading and exposes additional debugging ports.
 
 Configure where MeshManager pulls data from:
 - [Data Sources](/configuration/sources) - MeshMonitor and MQTT connections
+- [Configuration Backup](/configuration/sources#configuration-backup) - Export/import your configuration
 
 ### Solar Integration
 

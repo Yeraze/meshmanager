@@ -75,7 +75,7 @@ That's it! No complex configuration needed for basic usage.
 ::: tip Version Pinning
 To use a specific version instead of `latest`, change the image tag:
 ```yaml
-image: ghcr.io/yeraze/meshmanager:0.4.0
+image: ghcr.io/yeraze/meshmanager:0.5.0
 ```
 :::
 

@@ -139,3 +139,48 @@ Each source displays status information:
 - Check the source health status
 - Review application logs for errors
 - Verify the MeshMonitor or MQTT broker has data
+
+## Configuration Backup
+
+MeshManager allows you to export and import your configuration for backup or migration purposes.
+
+### Exporting Configuration
+
+1. Navigate to **Settings** > **Display** tab
+2. Find the **Configuration Backup** section
+3. Check **Include credentials** if you want API tokens and passwords included
+4. Click **Export Configuration**
+5. Save the downloaded JSON file
+
+::: warning Credentials Security
+When "Include credentials" is checked, the exported file contains sensitive data (API tokens, MQTT passwords). Store this file securely and do not share it publicly.
+:::
+
+### Importing Configuration
+
+1. Navigate to **Settings** > **Display** tab
+2. Find the **Configuration Backup** section
+3. Optionally check **Merge with existing sources** to keep current sources
+4. Click **Import Configuration**
+5. Select your previously exported JSON file
+
+### What's Included
+
+The export includes:
+- **Sources** - All configured data sources (MeshMonitor and MQTT)
+- **Display Settings** - Active hours and online thresholds
+- **Analysis Config** - Coverage, utilization, and solar analysis settings
+
+### Import Behavior
+
+| Option | Behavior |
+|--------|----------|
+| **Replace** (default) | Deletes all existing sources, imports new ones |
+| **Merge** | Keeps existing sources, adds new ones (skips duplicates by name) |
+
+### Credentials Handling
+
+| Export Option | Import Result |
+|---------------|---------------|
+| **With credentials** | Sources imported enabled and functional |
+| **Without credentials** | Sources imported disabled; re-enter credentials manually |

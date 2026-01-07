@@ -2,6 +2,7 @@
 
 import logging
 from contextlib import asynccontextmanager
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -34,6 +35,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
+
+# Get version from package metadata (set in pyproject.toml)
+try:
+    APP_VERSION = version("meshmanager")
+except PackageNotFoundError:
+    APP_VERSION = "0.0.0-dev"
 
 
 @asynccontextmanager
@@ -76,7 +83,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="MeshManager",
     description="Management and oversight application for MeshMonitor and Meshtastic MQTT",
-    version="0.1.0",
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 
@@ -116,6 +123,8 @@ if STATIC_DIR.exists():
     # Serve static assets (JS, CSS, images, etc.)
     app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
 
+    # IMPORTANT: This catch-all route must be registered AFTER all API routers
+    # to ensure API routes (e.g., /health, /api/*) take priority over SPA routing
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
         """Serve the SPA frontend - returns index.html for all non-API routes."""
@@ -132,7 +141,7 @@ else:
         """Root endpoint - shows API info when no frontend is bundled."""
         return {
             "name": "MeshManager",
-            "version": "0.4.0",
+            "version": APP_VERSION,
             "docs": "/docs",
             "health": "/health",
             "metrics": "/metrics",

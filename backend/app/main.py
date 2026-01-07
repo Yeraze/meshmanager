@@ -2,7 +2,7 @@
 
 import logging
 from contextlib import asynccontextmanager
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -37,7 +37,10 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 # Get version from package metadata (set in pyproject.toml)
-APP_VERSION = version("meshmanager")
+try:
+    APP_VERSION = version("meshmanager")
+except PackageNotFoundError:
+    APP_VERSION = "0.0.0-dev"
 
 
 @asynccontextmanager

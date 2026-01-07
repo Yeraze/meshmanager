@@ -4,7 +4,7 @@ MeshMonitor returns composite string IDs like "2068784147_2133719606"
 which cannot be stored as BigInteger.
 
 Revision ID: d1e2f3g4h5i6
-Revises: add_historical_days_back_to_sources
+Revises: add_historical_days_back
 Create Date: 2024-12-18
 """
 

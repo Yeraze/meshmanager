@@ -33,6 +33,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://meshmanager:${POSTGRES_PASSWORD:-meshmanager}@postgres/meshmanager
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
+      TZ: ${TZ:-America/New_York}
       OIDC_ISSUER: ${OIDC_ISSUER:-}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}

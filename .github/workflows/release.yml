@@ -12,15 +12,21 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ${{ github.repository_owner }}/meshmanager
 
 jobs:
-  build-and-push:
-    name: Build and Push Docker Images
+  build:
+    name: Build ${{ matrix.platform }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            suffix: amd64
+          - platform: linux/arm64
+            suffix: arm64
 
     steps:
       - name: Checkout code
@@ -39,52 +45,95 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract version and set image prefix
+      - name: Extract version
         id: version
         run: |
-          # Use workflow_dispatch input if provided, otherwise use release tag
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             VERSION="${{ github.event.inputs.version }}"
           else
-            # Remove 'v' prefix if present (e.g., v0.1.0 -> 0.1.0)
             VERSION=${GITHUB_REF_NAME#v}
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          # Lowercase the repository name for Docker
           IMAGE_PREFIX=$(echo "${{ github.repository_owner }}/meshmanager" | tr '[:upper:]' '[:lower:]')
           echo "image_prefix=$IMAGE_PREFIX" >> $GITHUB_OUTPUT
-          echo "Building version: $VERSION"
-          echo "Image prefix: $IMAGE_PREFIX"
 
-      - name: Build and push unified MeshManager image
+      - name: Build and push platform image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platform }}
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ steps.version.outputs.image_prefix }}:${{ steps.version.outputs.version }}
-            ${{ env.REGISTRY }}/${{ steps.version.outputs.image_prefix }}:latest
+            ${{ env.REGISTRY }}/${{ steps.version.outputs.image_prefix }}:${{ steps.version.outputs.version }}-${{ matrix.suffix }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.version=${{ steps.version.outputs.version }}
             org.opencontainers.image.revision=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.suffix }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.suffix }}
+
+  manifest:
+    name: Create Multi-Arch Manifest
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=${GITHUB_REF_NAME#v}
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          IMAGE_PREFIX=$(echo "${{ github.repository_owner }}/meshmanager" | tr '[:upper:]' '[:lower:]')
+          echo "image_prefix=$IMAGE_PREFIX" >> $GITHUB_OUTPUT
+
+      - name: Create and push manifest
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ steps.version.outputs.image_prefix }}"
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Create version manifest
+          docker manifest create ${IMAGE}:${VERSION} \
+            ${IMAGE}:${VERSION}-amd64 \
+            ${IMAGE}:${VERSION}-arm64
+          docker manifest push ${IMAGE}:${VERSION}
+
+          # Create latest manifest
+          docker manifest create ${IMAGE}:latest \
+            ${IMAGE}:${VERSION}-amd64 \
+            ${IMAGE}:${VERSION}-arm64
+          docker manifest push ${IMAGE}:latest
 
       - name: Summary
         run: |
-          echo "## Docker Image Published" >> $GITHUB_STEP_SUMMARY
+          VERSION="${{ steps.version.outputs.version }}"
+          IMAGE="${{ env.REGISTRY }}/${{ steps.version.outputs.image_prefix }}"
+          echo "## Docker Images Published" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Version: \`${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "Version: \`${VERSION}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Platforms: \`linux/amd64\`, \`linux/arm64\`" >> $GITHUB_STEP_SUMMARY
+          echo "### Multi-Arch Image (recommended):" >> $GITHUB_STEP_SUMMARY
+          echo "\`${IMAGE}:${VERSION}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Image:" >> $GITHUB_STEP_SUMMARY
-          echo "\`${{ env.REGISTRY }}/${{ steps.version.outputs.image_prefix }}:${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "### Platform-Specific Images:" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${IMAGE}:${VERSION}-amd64\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${IMAGE}:${VERSION}-arm64\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Pull Command:" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${{ env.REGISTRY }}/${{ steps.version.outputs.image_prefix }}:${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${IMAGE}:${VERSION}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

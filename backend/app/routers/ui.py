@@ -1110,9 +1110,25 @@ async def identify_solar_nodes(
     # Add insufficient_solar flag to each node
     # Formula: if (charge_rate * charging_hours) <= (discharge_rate * discharge_hours) * 1.1
     # This means the node isn't generating enough to keep up with its overnight discharge
+    #
+    # IMPORTANT: Nodes that regularly reach full charge (>= 98%) are considered to have
+    # sufficient solar, even if their charge_rate appears low. When a battery is already
+    # at 100%, it reports 0 charge rate since it can't charge further, which would
+    # incorrectly flag it as insufficient.
     for node in solar_candidates:
         charge_rate = node.get("avg_charge_rate_per_hour")
         discharge_rate = node.get("avg_discharge_rate_per_hour")
+        recent_patterns = node.get("recent_patterns", [])
+
+        # Check if node regularly reaches full charge (peak >= 98%)
+        # If most recent days show near-full battery, solar is sufficient
+        if recent_patterns:
+            peak_values = [p.get("peak", {}).get("value", 0) for p in recent_patterns]
+            days_at_full = sum(1 for pv in peak_values if pv >= 98)
+            # If majority of recent days reached full charge, solar is sufficient
+            if days_at_full >= len(peak_values) / 2:
+                node["insufficient_solar"] = False
+                continue
 
         if charge_rate is not None and discharge_rate is not None and avg_charging_hours_per_day and avg_discharge_hours_per_day:
             total_charge = charge_rate * avg_charging_hours_per_day

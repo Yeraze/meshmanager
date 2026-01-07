@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy import select
@@ -15,6 +16,9 @@ from app.services.notifications import notification_service
 logger = logging.getLogger(__name__)
 
 SETTINGS_KEY = "solar_analysis.schedule"
+
+# Default timezone if none configured
+DEFAULT_TIMEZONE = "America/New_York"
 
 
 class SchedulerService:
@@ -59,7 +63,16 @@ class SchedulerService:
             try:
                 settings = await self.get_settings()
                 if settings and settings.get("enabled"):
-                    current_time = datetime.now().strftime("%H:%M")
+                    # Use TZ environment variable, fallback to default
+                    tz_name = os.environ.get("TZ", DEFAULT_TIMEZONE)
+                    try:
+                        tz = ZoneInfo(tz_name)
+                    except Exception:
+                        logger.warning(f"Invalid timezone '{tz_name}', using {DEFAULT_TIMEZONE}")
+                        tz = ZoneInfo(DEFAULT_TIMEZONE)
+
+                    # Get current time in the configured timezone
+                    current_time = datetime.now(tz).strftime("%H:%M")
                     schedules = settings.get("schedules", [])
 
                     # Check if current time matches any schedule and we haven't run this minute

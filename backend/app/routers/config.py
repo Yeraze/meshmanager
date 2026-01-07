@@ -49,13 +49,19 @@ SOLAR_SCHEDULE_KEY = "solar_analysis.schedule"
 async def export_config(
     db: AsyncSession = Depends(get_db),
     _admin: None = Depends(require_admin),
+    include_credentials: bool = False,
 ) -> Response:
-    """Export all configuration to a downloadable JSON file."""
+    """Export all configuration to a downloadable JSON file.
+
+    Args:
+        include_credentials: If True, include API tokens and passwords in export.
+                            WARNING: This creates a file with sensitive data.
+    """
     # Query all sources
     result = await db.execute(select(Source))
     sources = result.scalars().all()
 
-    # Convert sources to export format (exclude sensitive data)
+    # Convert sources to export format
     export_sources = []
     for source in sources:
         source_config = ExportSourceConfig(
@@ -69,6 +75,10 @@ async def export_config(
             mqtt_port=source.mqtt_port,
             mqtt_topic_pattern=source.mqtt_topic_pattern,
             mqtt_use_tls=source.mqtt_use_tls,
+            # Include credentials only when requested
+            api_token=source.api_token if include_credentials else None,
+            mqtt_username=source.mqtt_username if include_credentials else None,
+            mqtt_password=source.mqtt_password if include_credentials else None,
         )
         export_sources.append(source_config)
 
@@ -141,6 +151,7 @@ async def export_config(
         version="1.0",
         exported_at=datetime.now(UTC).isoformat(),
         meshmanager_version=APP_VERSION,
+        includes_credentials=include_credentials,
         sources=export_sources,
         display_settings=DisplaySettingsConfig(),  # Default values, frontend manages these
         analysis=analysis,
@@ -217,11 +228,19 @@ async def import_config(
                     warnings.append(f"Invalid source type '{source_config.type}' for source: {source_config.name}")
                     continue
 
+                # Determine if source should be enabled based on credentials
+                has_credentials = bool(
+                    source_config.api_token
+                    or (source_config.mqtt_username and source_config.mqtt_password)
+                )
+                # Keep original enabled state if credentials are present, otherwise disable
+                source_enabled = source_config.enabled if has_credentials else False
+
                 new_source = Source(
                     id=str(uuid4()),
                     name=source_config.name,
                     type=source_type,
-                    enabled=False,  # Disabled by default since credentials are missing
+                    enabled=source_enabled,
                     url=source_config.url,
                     poll_interval_seconds=source_config.poll_interval_seconds or 300,
                     historical_days_back=source_config.historical_days_back or 1,
@@ -229,16 +248,17 @@ async def import_config(
                     mqtt_port=source_config.mqtt_port or 1883,
                     mqtt_topic_pattern=source_config.mqtt_topic_pattern,
                     mqtt_use_tls=source_config.mqtt_use_tls or False,
-                    # Credentials left blank - user must re-enter
-                    api_token=None,
-                    mqtt_username=None,
-                    mqtt_password=None,
+                    # Include credentials if present in import
+                    api_token=source_config.api_token,
+                    mqtt_username=source_config.mqtt_username,
+                    mqtt_password=source_config.mqtt_password,
                 )
                 db.add(new_source)
                 sources_imported += 1
                 existing_names.add(source_config.name)
 
-            if sources_imported > 0:
+            # Add appropriate warning based on whether credentials were included
+            if sources_imported > 0 and not config.includes_credentials:
                 warnings.append(
                     f"Imported {sources_imported} source(s) in DISABLED state. "
                     "Please edit each source to add credentials and enable."

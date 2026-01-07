@@ -1940,6 +1940,11 @@ body {
   color: var(--color-error);
 }
 
+.settings-warning {
+  font-size: 0.9em;
+  color: var(--color-warning);
+}
+
 .settings-warnings {
   margin-top: var(--spacing-sm);
   padding-top: var(--spacing-sm);

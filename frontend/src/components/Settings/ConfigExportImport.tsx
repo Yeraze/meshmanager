@@ -8,11 +8,12 @@ export default function ConfigExportImport() {
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
   const [mergeSources, setMergeSources] = useState(false)
+  const [includeCredentials, setIncludeCredentials] = useState(true)
   const queryClient = useQueryClient()
   const { setActiveHours, setOnlineHours } = useDataContext()
 
   const exportMutation = useMutation({
-    mutationFn: exportConfig,
+    mutationFn: (options: { include_credentials: boolean }) => exportConfig(options),
     onSuccess: (blob) => {
       // Create download link
       const url = URL.createObjectURL(blob)
@@ -54,7 +55,7 @@ export default function ConfigExportImport() {
   })
 
   const handleExport = () => {
-    exportMutation.mutate()
+    exportMutation.mutate({ include_credentials: includeCredentials })
   }
 
   const handleImportClick = () => {
@@ -127,8 +128,23 @@ export default function ConfigExportImport() {
         <h3>Export Configuration</h3>
         <p className="settings-description">
           Download your sources, display settings, and analysis configurations as a JSON file.
-          Sensitive data (API tokens, passwords) are excluded for security.
         </p>
+
+        <div className="form-group">
+          <label className="form-label">
+            <input
+              type="checkbox"
+              checked={includeCredentials}
+              onChange={(e) => setIncludeCredentials(e.target.checked)}
+            />
+            {' '}Include credentials (API tokens, passwords)
+          </label>
+          {includeCredentials && (
+            <p className="settings-warning" style={{ marginTop: '0.5rem', marginBottom: 0 }}>
+              Warning: The exported file will contain sensitive credentials. Store it securely.
+            </p>
+          )}
+        </div>
 
         <button
           className="btn btn-primary"
@@ -143,7 +159,7 @@ export default function ConfigExportImport() {
         <h3>Import Configuration</h3>
         <p className="settings-description">
           Restore configuration from a previously exported JSON file.
-          Note: You will need to re-enter API tokens and passwords after import.
+          If the export included credentials, sources will be restored fully functional.
         </p>
 
         <div className="form-group">

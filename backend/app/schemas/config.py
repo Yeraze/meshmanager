@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 
 
 class ExportSourceConfig(BaseModel):
-    """Source configuration for export (excludes sensitive data)."""
+    """Source configuration for export."""
 
     name: str
     type: str  # "meshmonitor" or "mqtt"
@@ -13,11 +13,14 @@ class ExportSourceConfig(BaseModel):
     url: str | None = None
     poll_interval_seconds: int | None = None
     historical_days_back: int | None = None
+    api_token: str | None = None  # Only included when include_credentials=True
     # MQTT fields
     mqtt_host: str | None = None
     mqtt_port: int | None = None
     mqtt_topic_pattern: str | None = None
     mqtt_use_tls: bool | None = None
+    mqtt_username: str | None = None  # Only included when include_credentials=True
+    mqtt_password: str | None = None  # Only included when include_credentials=True
 
 
 class DisplaySettingsConfig(BaseModel):
@@ -80,6 +83,7 @@ class ConfigExport(BaseModel):
     version: str = "1.0"
     exported_at: str
     meshmanager_version: str
+    includes_credentials: bool = False  # Flag indicating if credentials are included
     sources: list[ExportSourceConfig] = Field(default_factory=list)
     display_settings: DisplaySettingsConfig | None = None
     analysis: AnalysisConfig | None = None
@@ -91,6 +95,7 @@ class ConfigImport(BaseModel):
     version: str
     exported_at: str | None = None
     meshmanager_version: str | None = None
+    includes_credentials: bool = False  # If True, sources have credentials and can be enabled
     sources: list[ExportSourceConfig] = Field(default_factory=list)
     display_settings: DisplaySettingsConfig | None = None
     analysis: AnalysisConfig | None = None

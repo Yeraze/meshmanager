@@ -638,8 +638,18 @@ export interface ImportResult {
   display_settings: DisplaySettingsConfig | null
 }
 
-export async function exportConfig(): Promise<Blob> {
-  const response = await api.get('/api/admin/config/export', {
+export async function exportConfig(options?: {
+  include_credentials?: boolean
+}): Promise<Blob> {
+  const params = new URLSearchParams()
+  if (options?.include_credentials !== undefined) {
+    params.append('include_credentials', String(options.include_credentials))
+  }
+  const queryString = params.toString()
+  const url = queryString
+    ? `/api/admin/config/export?${queryString}`
+    : '/api/admin/config/export'
+  const response = await api.get(url, {
     responseType: 'blob',
   })
   return response.data

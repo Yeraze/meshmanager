@@ -65,6 +65,9 @@ jobs:
           file: ./Dockerfile
           platforms: ${{ matrix.platform }}
           push: true
+          # Disable provenance to create simple images (not manifest lists)
+          # This allows docker manifest create to combine them later
+          provenance: false
           tags: |
             ${{ env.REGISTRY }}/${{ steps.version.outputs.image_prefix }}:${{ steps.version.outputs.version }}-${{ matrix.suffix }}
           labels: |

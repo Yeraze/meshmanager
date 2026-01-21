@@ -8,7 +8,7 @@ from xml.etree import ElementTree as ET
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
-from sqlalchemy import delete, func, select
+from sqlalchemy import Numeric, cast, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -903,8 +903,8 @@ async def get_message_activity(
 
     # Use SQL aggregation to group by rounded coordinates (~11m precision)
     # This avoids loading all rows into memory
-    lat_rounded = func.round(Node.latitude, 4).label("lat")
-    lng_rounded = func.round(Node.longitude, 4).label("lng")
+    lat_rounded = func.round(cast(Node.latitude, Numeric), 4).label("lat")
+    lng_rounded = func.round(cast(Node.longitude, Numeric), 4).label("lng")
 
     query = (
         select(
@@ -912,7 +912,12 @@ async def get_message_activity(
             lng_rounded,
             func.count().label("count"),
         )
-        .join(Node, Telemetry.node_num == Node.node_num)
+        .select_from(Telemetry)
+        .join(
+            Node,
+            (Telemetry.node_num == Node.node_num)
+            & (Telemetry.source_id == Node.source_id),
+        )
         .where(Telemetry.received_at >= cutoff)
         .where(Node.latitude.isnot(None))
         .where(Node.longitude.isnot(None))

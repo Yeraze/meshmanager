@@ -10,25 +10,49 @@ import 'leaflet/dist/leaflet.css'
 
 type UnitType = 'miles' | 'kilometers'
 
+function normalizeLng(lng: number) {
+  const normalized = ((lng + 180) % 360 + 360) % 360 - 180
+  return normalized
+}
+
+function normalizeBounds(bounds: { south: number; west: number; north: number; east: number }) {
+  const south = Math.max(-90, Math.min(90, bounds.south))
+  const north = Math.max(-90, Math.min(90, bounds.north))
+  let west = normalizeLng(bounds.west)
+  let east = normalizeLng(bounds.east)
+
+  if (west > east) {
+    const temp = west
+    west = east
+    east = temp
+  }
+
+  return { south, west, north, east }
+}
+
 // Component to track map bounds and report them
 function BoundsTracker({ onBoundsChange }: { onBoundsChange: (bounds: { south: number; west: number; north: number; east: number }) => void }) {
   const map = useMapEvents({
     moveend: () => {
       const bounds = map.getBounds()
       onBoundsChange({
-        south: bounds.getSouth(),
-        west: bounds.getWest(),
-        north: bounds.getNorth(),
-        east: bounds.getEast(),
+        ...normalizeBounds({
+          south: bounds.getSouth(),
+          west: bounds.getWest(),
+          north: bounds.getNorth(),
+          east: bounds.getEast(),
+        }),
       })
     },
     zoomend: () => {
       const bounds = map.getBounds()
       onBoundsChange({
-        south: bounds.getSouth(),
-        west: bounds.getWest(),
-        north: bounds.getNorth(),
-        east: bounds.getEast(),
+        ...normalizeBounds({
+          south: bounds.getSouth(),
+          west: bounds.getWest(),
+          north: bounds.getNorth(),
+          east: bounds.getEast(),
+        }),
       })
     },
   })
@@ -37,10 +61,12 @@ function BoundsTracker({ onBoundsChange }: { onBoundsChange: (bounds: { south: n
   useEffect(() => {
     const bounds = map.getBounds()
     onBoundsChange({
-      south: bounds.getSouth(),
-      west: bounds.getWest(),
-      north: bounds.getNorth(),
-      east: bounds.getEast(),
+      ...normalizeBounds({
+        south: bounds.getSouth(),
+        west: bounds.getWest(),
+        north: bounds.getNorth(),
+        east: bounds.getEast(),
+      }),
     })
   }, [map, onBoundsChange])
 
@@ -98,12 +124,12 @@ export default function GraphsPage() {
       setUnit(config.unit as UnitType)
       setLookbackDays(config.lookback_days)
       if (config.bounds_south && config.bounds_west && config.bounds_north && config.bounds_east) {
-        setCurrentBounds({
+        setCurrentBounds(normalizeBounds({
           south: config.bounds_south,
           west: config.bounds_west,
           north: config.bounds_north,
           east: config.bounds_east,
-        })
+        }))
       }
     }
   }, [config])

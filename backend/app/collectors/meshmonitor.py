@@ -168,14 +168,14 @@ class MeshMonitorCollector(BaseCollector):
                         message=f"Health check failed: {response.status_code}",
                     )
 
-                # Try to get nodes
+                # Try to get nodes (use v1 API for token auth)
                 response = await client.get(
-                    f"{self.source.url}/api/nodes",
+                    f"{self.source.url}/api/v1/nodes",
                     headers=self._get_headers(),
                 )
                 if response.status_code == 200:
                     data = response.json()
-                    nodes = data if isinstance(data, list) else data.get("nodes", [])
+                    nodes = data if isinstance(data, list) else data.get("data", [])
                     return SourceTestResult(
                         success=True,
                         message="Connection successful",
@@ -255,10 +255,10 @@ class MeshMonitorCollector(BaseCollector):
                     await db.commit()
 
     async def _collect_nodes(self, client: httpx.AsyncClient, headers: dict) -> None:
-        """Collect nodes from the API."""
+        """Collect nodes from the API (uses v1 API for token auth)."""
         try:
             response = await client.get(
-                f"{self.source.url}/api/nodes",
+                f"{self.source.url}/api/v1/nodes",
                 headers=headers,
             )
             if response.status_code != 200:
@@ -266,7 +266,7 @@ class MeshMonitorCollector(BaseCollector):
                 return
 
             data = response.json()
-            nodes_data = data if isinstance(data, list) else data.get("nodes", [])
+            nodes_data = data if isinstance(data, list) else data.get("data", [])
 
             async with async_session_maker() as db:
                 for node_data in nodes_data:

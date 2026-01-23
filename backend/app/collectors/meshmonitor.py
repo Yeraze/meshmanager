@@ -168,14 +168,14 @@ class MeshMonitorCollector(BaseCollector):
                         message=f"Health check failed: {response.status_code}",
                     )
 
-                # Try to get nodes
+                # Try to get nodes (use v1 API for token auth)
                 response = await client.get(
-                    f"{self.source.url}/api/nodes",
+                    f"{self.source.url}/api/v1/nodes",
                     headers=self._get_headers(),
                 )
                 if response.status_code == 200:
                     data = response.json()
-                    nodes = data if isinstance(data, list) else data.get("nodes", [])
+                    nodes = data if isinstance(data, list) else data.get("data", [])
                     return SourceTestResult(
                         success=True,
                         message="Connection successful",
@@ -255,10 +255,10 @@ class MeshMonitorCollector(BaseCollector):
                     await db.commit()
 
     async def _collect_nodes(self, client: httpx.AsyncClient, headers: dict) -> None:
-        """Collect nodes from the API."""
+        """Collect nodes from the API (uses v1 API for token auth)."""
         try:
             response = await client.get(
-                f"{self.source.url}/api/nodes",
+                f"{self.source.url}/api/v1/nodes",
                 headers=headers,
             )
             if response.status_code != 200:
@@ -266,7 +266,7 @@ class MeshMonitorCollector(BaseCollector):
                 return
 
             data = response.json()
-            nodes_data = data if isinstance(data, list) else data.get("nodes", [])
+            nodes_data = data if isinstance(data, list) else data.get("data", [])
 
             async with async_session_maker() as db:
                 for node_data in nodes_data:
@@ -320,14 +320,22 @@ class MeshMonitorCollector(BaseCollector):
             node.long_name = long_name
             node.hw_model = hw_model
             node.role = role
-            node.latitude = position.get("latitude") or position.get("lat")
-            node.longitude = position.get("longitude") or position.get("lon")
-            node.altitude = position.get("altitude") or position.get("alt")
+            # Only update position if new data has it (don't overwrite with None)
+            new_lat = position.get("latitude") or position.get("lat")
+            new_lon = position.get("longitude") or position.get("lon")
+            new_alt = position.get("altitude") or position.get("alt")
+            if new_lat is not None:
+                node.latitude = new_lat
+            if new_lon is not None:
+                node.longitude = new_lon
+            if new_alt is not None:
+                node.altitude = new_alt
             if position.get("time"):
                 node.position_time = datetime.fromtimestamp(
                     position["time"], tz=UTC
                 )
-            node.position_precision_bits = position.get("precisionBits")
+            if position.get("precisionBits") is not None:
+                node.position_precision_bits = position.get("precisionBits")
             node.snr = snr
             node.rssi = rssi
             node.hops_away = hops_away

@@ -13,6 +13,10 @@ function formatDateTime(dateString: string | null): string {
   return date.toLocaleString()
 }
 
+function getSourceTimestamp(source: MessageSourceDetail): string | null {
+  return source.rx_time || source.received_at
+}
+
 function formatSnr(snr: number | null): string {
   if (snr === null) return '-'
   return `${snr.toFixed(1)} dB`
@@ -95,7 +99,7 @@ export default function MessageDetailModal({ packetId, onClose }: MessageDetailM
                       <td className={styles.numeric}>{formatSnr(source.rx_snr)}</td>
                       <td className={styles.numeric}>{formatRssi(source.rx_rssi)}</td>
                       <td className={styles.numeric}>{formatHops(source)}</td>
-                      <td className={styles.timestamp}>{formatDateTime(source.received_at)}</td>
+                      <td className={styles.timestamp}>{formatDateTime(getSourceTimestamp(source))}</td>
                     </tr>
                   ))}
                 </tbody>

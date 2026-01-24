@@ -189,6 +189,8 @@ class MqttCollector(BaseCollector):
         if isinstance(to_node, str) and to_node.startswith("!"):
             to_node = int(to_node[1:], 16)
 
+        rx_time = self._parse_rx_time(data.get("rxTime"))
+
         message = Message(
             source_id=self.source.id,
             packet_id=data.get("id"),
@@ -198,11 +200,28 @@ class MqttCollector(BaseCollector):
             text=data.get("text") or data.get("payload"),
             hop_limit=data.get("hopLimit"),
             hop_start=data.get("hopStart"),
+            rx_time=rx_time,
             rx_snr=data.get("rxSnr"),
             rx_rssi=data.get("rxRssi"),
         )
         db.add(message)
         logger.debug(f"Received text message from {from_node}")
+
+    @staticmethod
+    def _parse_rx_time(value) -> datetime | None:
+        if value is None:
+            return None
+        try:
+            if isinstance(value, (int, float)):
+                ts = float(value)
+                if ts > 2_000_000_000_000:
+                    ts = ts / 1000.0
+                return datetime.fromtimestamp(ts, UTC)
+            if isinstance(value, str):
+                return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except (TypeError, ValueError, OSError):
+            return None
+        return None
 
     async def _handle_position(self, db, data: dict) -> None:
         """Handle a position update."""

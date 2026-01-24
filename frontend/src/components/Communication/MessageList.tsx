@@ -27,6 +27,10 @@ function formatDate(dateString: string): string {
   }
 }
 
+function getMessageTimestamp(msg: MessageResponse): string {
+  return msg.rx_time || msg.received_at
+}
+
 function getNodeDisplayName(msg: MessageResponse): string {
   if (msg.from_short_name) return msg.from_short_name
   if (msg.from_long_name) return msg.from_long_name
@@ -90,7 +94,7 @@ export default function MessageList({ channelIndex, onMessageClick }: MessageLis
   // Group messages by date
   const messagesByDate: Map<string, MessageResponse[]> = new Map()
   allMessages.forEach((msg) => {
-    const dateKey = new Date(msg.received_at).toDateString()
+    const dateKey = new Date(getMessageTimestamp(msg)).toDateString()
     if (!messagesByDate.has(dateKey)) {
       messagesByDate.set(dateKey, [])
     }
@@ -196,7 +200,7 @@ export default function MessageList({ channelIndex, onMessageClick }: MessageLis
                 textTransform: 'uppercase',
               }}
             >
-              {formatDate(messages[0].received_at)}
+              {formatDate(getMessageTimestamp(messages[0]))}
             </span>
             <div
               style={{
@@ -273,7 +277,7 @@ export default function MessageList({ channelIndex, onMessageClick }: MessageLis
                       color: 'var(--color-text-muted)',
                     }}
                   >
-                    {formatTime(msg.received_at)}
+                    {formatTime(getMessageTimestamp(msg))}
                   </span>
                 </div>
               </div>

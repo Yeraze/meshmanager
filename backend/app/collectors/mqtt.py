@@ -9,7 +9,7 @@ import aiomqtt
 
 from app.collectors.base import BaseCollector
 from app.database import async_session_maker
-from app.models import Message, Node, Source, Telemetry
+from app.models import Channel, Message, Node, Source, Telemetry
 from app.schemas.source import SourceTestResult
 from app.services.protobuf import decode_meshtastic_packet
 
@@ -153,6 +153,7 @@ class MqttCollector(BaseCollector):
         msg_type = data.get("type", "").lower()
 
         async with async_session_maker() as db:
+            await self._ensure_channel(db, data)
             if msg_type == "text" or "text" in data:
                 await self._handle_text_message(db, data)
             elif msg_type == "position" or "position" in data:
@@ -163,6 +164,35 @@ class MqttCollector(BaseCollector):
                 await self._handle_nodeinfo(db, data)
 
             await db.commit()
+
+    async def _ensure_channel(self, db, data: dict) -> None:
+        """Ensure a channel record exists for MQTT messages."""
+        channel_index = data.get("channel")
+        if channel_index is None:
+            return
+        try:
+            channel_index = int(channel_index)
+        except (TypeError, ValueError):
+            return
+
+        from sqlalchemy import select
+
+        result = await db.execute(
+            select(Channel).where(
+                Channel.source_id == self.source.id,
+                Channel.channel_index == channel_index,
+            )
+        )
+        channel = result.scalar()
+        if channel:
+            return
+
+        channel = Channel(
+            source_id=self.source.id,
+            channel_index=channel_index,
+            name=data.get("channel_name") or data.get("channelName"),
+        )
+        db.add(channel)
 
     async def _process_protobuf_message(self, topic: str, payload: bytes) -> None:
         """Process a protobuf-encoded Meshtastic message."""

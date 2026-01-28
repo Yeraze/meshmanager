@@ -882,29 +882,55 @@ class MeshMonitorCollector(BaseCollector):
                 pass
         return None
 
-    async def _insert_traceroute(self, db, route_data: dict) -> None:
-        """Insert a traceroute."""
+    async def _insert_traceroute(self, db, route_data: dict) -> bool:
+        """Insert a traceroute using ON CONFLICT DO NOTHING for deduplication.
+
+        Returns:
+            True if record was inserted, False if skipped (duplicate)
+        """
+        from uuid import uuid4
+
         from_node = route_data.get("fromNodeNum") or route_data.get("from")
         to_node = route_data.get("toNodeNum") or route_data.get("to")
 
         if not from_node or not to_node:
-            return
+            return False
 
         route = self._parse_array_field(route_data.get("route"))
         route_back = self._parse_array_field(route_data.get("routeBack"))
         snr_towards = self._parse_array_field(route_data.get("snrTowards"))
         snr_back = self._parse_array_field(route_data.get("snrBack"))
 
-        traceroute = Traceroute(
-            source_id=self.source.id,
-            from_node_num=from_node,
-            to_node_num=to_node,
-            route=route or [],
-            route_back=route_back,
-            snr_towards=snr_towards,
-            snr_back=snr_back,
+        # Get timestamp from API response (milliseconds or seconds)
+        timestamp_val = route_data.get("timestamp") or route_data.get("createdAt")
+        if timestamp_val:
+            # Handle both milliseconds and seconds timestamps
+            if timestamp_val > 1e12:  # Likely milliseconds
+                received_at = datetime.fromtimestamp(timestamp_val / 1000, tz=UTC)
+            else:
+                received_at = datetime.fromtimestamp(timestamp_val, tz=UTC)
+        else:
+            received_at = datetime.now(UTC)
+
+        # Build values dict for the insert
+        values = {
+            "id": str(uuid4()),
+            "source_id": self.source.id,
+            "from_node_num": from_node,
+            "to_node_num": to_node,
+            "route": route or [],
+            "route_back": route_back,
+            "snr_towards": snr_towards,
+            "snr_back": snr_back,
+            "received_at": received_at,
+        }
+
+        # Use PostgreSQL INSERT ... ON CONFLICT DO NOTHING
+        stmt = pg_insert(Traceroute).values(**values).on_conflict_do_nothing(
+            index_elements=["source_id", "from_node_num", "to_node_num", "received_at"]
         )
-        db.add(traceroute)
+        result = await db.execute(stmt)
+        return result.rowcount > 0
 
     async def _collect_solar(self, client: httpx.AsyncClient, headers: dict) -> None:
         """Collect solar production data from the API."""

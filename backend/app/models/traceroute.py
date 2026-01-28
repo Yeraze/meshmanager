@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -14,6 +14,16 @@ class Traceroute(Base):
     """A traceroute between two nodes."""
 
     __tablename__ = "traceroutes"
+    __table_args__ = (
+        Index(
+            "idx_traceroutes_unique",
+            "source_id",
+            "from_node_num",
+            "to_node_num",
+            "received_at",
+            unique=True,
+        ),
+    )
 
     id: Mapped[str] = mapped_column(
         UUID(as_uuid=False),

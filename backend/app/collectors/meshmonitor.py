@@ -313,6 +313,29 @@ class MeshMonitorCollector(BaseCollector):
         rssi = node_data.get("rssi")
         hops_away = node_data.get("hopsAway")
 
+        # Extract position - v1 API uses flat fields, older API uses nested position object
+        # Try flat fields first (v1 API), then fall back to nested position object
+        new_lat = (
+            node_data.get("latitude")
+            or node_data.get("lat")
+            or position.get("latitude")
+            or position.get("lat")
+        )
+        new_lon = (
+            node_data.get("longitude")
+            or node_data.get("lon")
+            or position.get("longitude")
+            or position.get("lon")
+        )
+        new_alt = (
+            node_data.get("altitude")
+            or node_data.get("alt")
+            or position.get("altitude")
+            or position.get("alt")
+        )
+        position_time = position.get("time")
+        precision_bits = position.get("precisionBits")
+
         if node:
             # Update existing node
             node.node_id = node_id
@@ -321,21 +344,18 @@ class MeshMonitorCollector(BaseCollector):
             node.hw_model = hw_model
             node.role = role
             # Only update position if new data has it (don't overwrite with None)
-            new_lat = position.get("latitude") or position.get("lat")
-            new_lon = position.get("longitude") or position.get("lon")
-            new_alt = position.get("altitude") or position.get("alt")
             if new_lat is not None:
                 node.latitude = new_lat
             if new_lon is not None:
                 node.longitude = new_lon
             if new_alt is not None:
                 node.altitude = new_alt
-            if position.get("time"):
+            if position_time:
                 node.position_time = datetime.fromtimestamp(
-                    position["time"], tz=UTC
+                    position_time, tz=UTC
                 )
-            if position.get("precisionBits") is not None:
-                node.position_precision_bits = position.get("precisionBits")
+            if precision_bits is not None:
+                node.position_precision_bits = precision_bits
             node.snr = snr
             node.rssi = rssi
             node.hops_away = hops_away
@@ -355,18 +375,18 @@ class MeshMonitorCollector(BaseCollector):
                 long_name=long_name,
                 hw_model=hw_model,
                 role=role,
-                latitude=position.get("latitude") or position.get("lat"),
-                longitude=position.get("longitude") or position.get("lon"),
-                altitude=position.get("altitude") or position.get("alt"),
-                position_precision_bits=position.get("precisionBits"),
+                latitude=new_lat,
+                longitude=new_lon,
+                altitude=new_alt,
+                position_precision_bits=precision_bits,
                 snr=snr,
                 rssi=rssi,
                 hops_away=hops_away,
                 is_licensed=node_data.get("isLicensed", False),
             )
-            if position.get("time"):
+            if position_time:
                 node.position_time = datetime.fromtimestamp(
-                    position["time"], tz=UTC
+                    position_time, tz=UTC
                 )
             if node_data.get("lastHeard"):
                 node.last_heard = datetime.fromtimestamp(

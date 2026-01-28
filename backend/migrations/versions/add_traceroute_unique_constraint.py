@@ -19,9 +19,9 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # First, remove duplicates keeping only the most recent row per unique key
+    # First, remove duplicates keeping only one row per unique key
     # This uses a CTE to identify duplicates and delete them
-    # Order by received_at DESC to keep the most recent record
+    # Order by id to keep a deterministic record (first inserted)
     op.execute("""
         DELETE FROM traceroutes
         WHERE id IN (
@@ -29,7 +29,7 @@ def upgrade() -> None:
                 SELECT id,
                     ROW_NUMBER() OVER (
                         PARTITION BY source_id, from_node_num, to_node_num, received_at
-                        ORDER BY received_at DESC
+                        ORDER BY id
                     ) as row_num
                 FROM traceroutes
             ) t

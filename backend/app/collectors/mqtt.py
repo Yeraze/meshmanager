@@ -285,7 +285,15 @@ class MqttCollector(BaseCollector):
         if isinstance(from_node, str) and from_node.startswith("!"):
             from_node = int(from_node[1:], 16)
 
-        position = data.get("position", data)
+        # MQTT JSON nests position data in "payload"; MeshMonitor uses "position"
+        position = data.get("payload", data.get("position", data))
+
+        lat = self._extract_coordinate(position, "latitude", "lat", "latitude_i")
+        lon = self._extract_coordinate(position, "longitude", "lon", "longitude_i")
+        alt = position.get("altitude") or position.get("alt")
+
+        if lat is None and lon is None:
+            return
 
         # Update or create node
         from sqlalchemy import select
@@ -299,24 +307,37 @@ class MqttCollector(BaseCollector):
         node = result.scalar()
 
         if node:
-            node.latitude = position.get("latitude") or position.get("lat")
-            node.longitude = position.get("longitude") or position.get("lon")
-            node.altitude = position.get("altitude") or position.get("alt")
+            node.latitude = lat
+            node.longitude = lon
+            node.altitude = alt
             node.position_time = datetime.now(UTC)
             node.last_heard = datetime.now(UTC)
         else:
             node = Node(
                 source_id=self.source.id,
                 node_num=from_node,
-                latitude=position.get("latitude") or position.get("lat"),
-                longitude=position.get("longitude") or position.get("lon"),
-                altitude=position.get("altitude") or position.get("alt"),
+                latitude=lat,
+                longitude=lon,
+                altitude=alt,
                 position_time=datetime.now(UTC),
                 last_heard=datetime.now(UTC),
             )
             db.add(node)
 
         logger.debug(f"Received position from {from_node}")
+
+    @staticmethod
+    def _extract_coordinate(
+        data: dict, float_key: str, short_key: str, int_key: str
+    ) -> float | None:
+        """Extract a coordinate, handling both float and integer (1e-7) formats."""
+        val = data.get(float_key) or data.get(short_key)
+        if val is not None:
+            return float(val)
+        int_val = data.get(int_key)
+        if int_val is not None:
+            return int(int_val) / 1e7
+        return None
 
     async def _handle_telemetry(self, db, data: dict) -> None:
         """Handle telemetry data."""
@@ -329,22 +350,59 @@ class MqttCollector(BaseCollector):
         if isinstance(from_node, str) and from_node.startswith("!"):
             from_node = int(from_node[1:], 16)
 
+        # MQTT JSON nests metrics in "payload"; MeshMonitor uses "telemetry"
         telem = data.get("telemetry", data)
-        device_metrics = telem.get("deviceMetrics", {})
-        env_metrics = telem.get("environmentMetrics", {})
+        payload = data.get("payload", {}) if isinstance(data.get("payload"), dict) else {}
+
+        # Try camelCase nested (MeshMonitor/protobuf), then check payload for flat keys
+        device_metrics = (
+            telem.get("deviceMetrics")
+            or payload.get("deviceMetrics")
+            or payload.get("device_metrics")
+            or {}
+        )
+        env_metrics = (
+            telem.get("environmentMetrics")
+            or payload.get("environmentMetrics")
+            or payload.get("environment_metrics")
+            or {}
+        )
+
+        # MQTT JSON may put device metrics flat in payload
+        if not device_metrics and any(
+            k in payload for k in ("battery_level", "voltage", "channel_utilization", "air_util_tx")
+        ):
+            device_metrics = payload
+        if not env_metrics and any(
+            k in payload for k in ("temperature", "relative_humidity", "barometric_pressure")
+        ):
+            env_metrics = payload
 
         telemetry = Telemetry(
             source_id=self.source.id,
             node_num=from_node,
             telemetry_type=TelemetryType.DEVICE if device_metrics else TelemetryType.ENVIRONMENT,
-            battery_level=device_metrics.get("batteryLevel"),
+            battery_level=(
+                device_metrics.get("batteryLevel") or device_metrics.get("battery_level")
+            ),
             voltage=device_metrics.get("voltage"),
-            channel_utilization=device_metrics.get("channelUtilization"),
-            air_util_tx=device_metrics.get("airUtilTx"),
-            uptime_seconds=device_metrics.get("uptimeSeconds"),
+            channel_utilization=(
+                device_metrics.get("channelUtilization")
+                or device_metrics.get("channel_utilization")
+            ),
+            air_util_tx=(
+                device_metrics.get("airUtilTx") or device_metrics.get("air_util_tx")
+            ),
+            uptime_seconds=(
+                device_metrics.get("uptimeSeconds") or device_metrics.get("uptime_seconds")
+            ),
             temperature=env_metrics.get("temperature"),
-            relative_humidity=env_metrics.get("relativeHumidity"),
-            barometric_pressure=env_metrics.get("barometricPressure"),
+            relative_humidity=(
+                env_metrics.get("relativeHumidity") or env_metrics.get("relative_humidity")
+            ),
+            barometric_pressure=(
+                env_metrics.get("barometricPressure") or env_metrics.get("barometric_pressure")
+            ),
         )
         db.add(telemetry)
         logger.debug(f"Received telemetry from {from_node}")
@@ -358,8 +416,24 @@ class MqttCollector(BaseCollector):
         if isinstance(from_node, str) and from_node.startswith("!"):
             from_node = int(from_node[1:], 16)
 
+        # MQTT JSON: flat fields in "payload"; MeshMonitor: nested in "nodeinfo.user"
         nodeinfo = data.get("nodeinfo", data)
         user = nodeinfo.get("user", {})
+        payload = data.get("payload", {}) if isinstance(data.get("payload"), dict) else {}
+
+        # Try camelCase (MeshMonitor/protobuf) then lowercase (MQTT JSON)
+        node_id = user.get("id") or payload.get("id")
+        short_name = user.get("shortName") or payload.get("shortname")
+        long_name = user.get("longName") or payload.get("longname")
+        hw_model = user.get("hwModel") or payload.get("hardware")
+        role = user.get("role") or payload.get("role")
+        is_licensed = user.get("isLicensed") or payload.get("is_licensed") or False
+
+        # Convert integer hw_model/role to string if needed
+        if isinstance(hw_model, int):
+            hw_model = str(hw_model)
+        if isinstance(role, int):
+            role = str(role)
 
         from sqlalchemy import select
 
@@ -372,23 +446,23 @@ class MqttCollector(BaseCollector):
         node = result.scalar()
 
         if node:
-            node.node_id = user.get("id")
-            node.short_name = user.get("shortName")
-            node.long_name = user.get("longName")
-            node.hw_model = user.get("hwModel")
-            node.role = user.get("role")
-            node.is_licensed = user.get("isLicensed", False)
+            node.node_id = node_id
+            node.short_name = short_name
+            node.long_name = long_name
+            node.hw_model = hw_model
+            node.role = role
+            node.is_licensed = is_licensed
             node.last_heard = datetime.now(UTC)
         else:
             node = Node(
                 source_id=self.source.id,
                 node_num=from_node,
-                node_id=user.get("id"),
-                short_name=user.get("shortName"),
-                long_name=user.get("longName"),
-                hw_model=user.get("hwModel"),
-                role=user.get("role"),
-                is_licensed=user.get("isLicensed", False),
+                node_id=node_id,
+                short_name=short_name,
+                long_name=long_name,
+                hw_model=hw_model,
+                role=role,
+                is_licensed=is_licensed,
                 last_heard=datetime.now(UTC),
             )
             db.add(node)

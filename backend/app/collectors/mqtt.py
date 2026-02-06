@@ -173,9 +173,12 @@ class MqttCollector(BaseCollector):
                 elif msg_type == "nodeinfo" or "nodeinfo" in data:
                     await self._handle_nodeinfo(db, data)
                 await db.commit()
-        except IntegrityError:
-            # Duplicate message from overlapping MQTT topics — safe to ignore
-            pass
+        except IntegrityError as e:
+            if "idx_messages_source_packet" in str(e):
+                logger.debug("Duplicate message ignored (likely overlapping topics)")
+            else:
+                logger.error(f"Unexpected integrity error: {e}")
+                raise
 
     async def _ensure_channel(self, db, data: dict) -> None:
         """Ensure a channel record exists for MQTT messages."""
@@ -265,6 +268,17 @@ class MqttCollector(BaseCollector):
         return str(payload)
 
     @staticmethod
+    def _first_key(data: dict, *keys: str):
+        """Return the value for the first key present in data, or None.
+
+        Unlike chaining with `or`, this correctly handles falsy values like 0.
+        """
+        for key in keys:
+            if key in data:
+                return data[key]
+        return None
+
+    @staticmethod
     def _parse_rx_time(value) -> datetime | None:
         if value is None:
             return None
@@ -335,7 +349,9 @@ class MqttCollector(BaseCollector):
         data: dict, float_key: str, short_key: str, int_key: str
     ) -> float | None:
         """Extract a coordinate, handling both float and integer (1e-7) formats."""
-        val = data.get(float_key) or data.get(short_key)
+        val = data.get(float_key)
+        if val is None:
+            val = data.get(short_key)
         if val is not None:
             return float(val)
         int_val = data.get(int_key)
@@ -386,26 +402,19 @@ class MqttCollector(BaseCollector):
             source_id=self.source.id,
             node_num=from_node,
             telemetry_type=TelemetryType.DEVICE if device_metrics else TelemetryType.ENVIRONMENT,
-            battery_level=(
-                device_metrics.get("batteryLevel") or device_metrics.get("battery_level")
-            ),
+            battery_level=self._first_key(device_metrics, "batteryLevel", "battery_level"),
             voltage=device_metrics.get("voltage"),
-            channel_utilization=(
-                device_metrics.get("channelUtilization")
-                or device_metrics.get("channel_utilization")
+            channel_utilization=self._first_key(
+                device_metrics, "channelUtilization", "channel_utilization"
             ),
-            air_util_tx=(
-                device_metrics.get("airUtilTx") or device_metrics.get("air_util_tx")
-            ),
-            uptime_seconds=(
-                device_metrics.get("uptimeSeconds") or device_metrics.get("uptime_seconds")
-            ),
+            air_util_tx=self._first_key(device_metrics, "airUtilTx", "air_util_tx"),
+            uptime_seconds=self._first_key(device_metrics, "uptimeSeconds", "uptime_seconds"),
             temperature=env_metrics.get("temperature"),
-            relative_humidity=(
-                env_metrics.get("relativeHumidity") or env_metrics.get("relative_humidity")
+            relative_humidity=self._first_key(
+                env_metrics, "relativeHumidity", "relative_humidity"
             ),
-            barometric_pressure=(
-                env_metrics.get("barometricPressure") or env_metrics.get("barometric_pressure")
+            barometric_pressure=self._first_key(
+                env_metrics, "barometricPressure", "barometric_pressure"
             ),
         )
         db.add(telemetry)
@@ -426,12 +435,12 @@ class MqttCollector(BaseCollector):
         payload = data.get("payload", {}) if isinstance(data.get("payload"), dict) else {}
 
         # Try camelCase (MeshMonitor/protobuf) then lowercase (MQTT JSON)
-        node_id = user.get("id") or payload.get("id")
-        short_name = user.get("shortName") or payload.get("shortname")
-        long_name = user.get("longName") or payload.get("longname")
-        hw_model = user.get("hwModel") or payload.get("hardware")
-        role = user.get("role") or payload.get("role")
-        is_licensed = user.get("isLicensed") or payload.get("is_licensed") or False
+        node_id = self._first_key(user, "id") or payload.get("id")
+        short_name = self._first_key(user, "shortName") or payload.get("shortname")
+        long_name = self._first_key(user, "longName") or payload.get("longname")
+        hw_model = self._first_key(user, "hwModel") or payload.get("hardware")
+        role = self._first_key(user, "role") or payload.get("role")
+        is_licensed = self._first_key(user, "isLicensed") or payload.get("is_licensed") or False
 
         # Convert integer hw_model/role to string if needed
         if isinstance(hw_model, int):

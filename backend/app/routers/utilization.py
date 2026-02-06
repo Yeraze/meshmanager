@@ -2,7 +2,7 @@
 
 import math
 from datetime import UTC, datetime, timedelta
-from enum import Enum
+from enum import StrEnum
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -22,7 +22,7 @@ MILES_TO_KM = 1.60934
 UTILIZATION_CONFIG_KEY = "utilization_config"
 
 
-class AggregationType(str, Enum):
+class AggregationType(StrEnum):
     """Aggregation method for utilization values."""
 
     MIN = "min"

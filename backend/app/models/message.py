@@ -31,7 +31,8 @@ class Message(Base):
     )
 
     # Message identification
-    packet_id: Mapped[str | None] = mapped_column(String(64))  # MeshMonitor uses composite string IDs
+    packet_id: Mapped[str | None] = mapped_column(String(64))  # Source-specific ID (composite for MeshMonitor)
+    meshtastic_id: Mapped[int | None] = mapped_column(BigInteger, index=True)  # Raw Meshtastic packet ID
     from_node_num: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     to_node_num: Mapped[int | None] = mapped_column(BigInteger)
     channel: Mapped[int] = mapped_column(Integer, default=0)

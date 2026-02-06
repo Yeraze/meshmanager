@@ -233,9 +233,13 @@ class MqttCollector(BaseCollector):
 
         rx_time = self._parse_rx_time(data.get("rxTime"))
 
+        raw_id = data.get("id")
+        meshtastic_id = int(raw_id) if raw_id is not None else None
+
         message = Message(
             source_id=self.source.id,
-            packet_id=str(data["id"]) if data.get("id") is not None else None,
+            packet_id=str(raw_id) if raw_id is not None else None,
+            meshtastic_id=meshtastic_id,
             from_node_num=from_node,
             to_node_num=to_node,
             channel=data.get("channel", 0),

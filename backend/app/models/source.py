@@ -11,7 +11,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 
-class SourceType(str, enum.Enum):
+class SourceType(enum.StrEnum):
     """Type of data source."""
 
     MESHMONITOR = "meshmonitor"

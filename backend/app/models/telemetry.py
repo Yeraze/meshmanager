@@ -11,7 +11,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 
-class TelemetryType(str, enum.Enum):
+class TelemetryType(enum.StrEnum):
     """Type of telemetry data."""
 
     DEVICE = "device"

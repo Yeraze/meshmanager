@@ -99,12 +99,12 @@ async def list_channels(
             channel_display_names[row.channel_index] = row.name
 
     # Get channel stats from messages
-    # Count distinct packet_ids to get deduplicated message count
+    # Count distinct meshtastic_ids to get cross-source deduplicated message count
     # Filter out channel -1 (not a real channel)
     query = (
         select(
             Message.channel,
-            func.count(distinct(Message.packet_id)).label("message_count"),
+            func.count(distinct(Message.meshtastic_id)).label("message_count"),
             func.max(Message.received_at).label("last_message_at"),
         )
         .where(Message.text.isnot(None))
@@ -140,18 +140,18 @@ async def list_messages(
     Messages are returned oldest-first (ascending by received_at).
     Use 'before' cursor to load older messages (for infinite scroll up).
     """
-    # Build subquery to get distinct packet_ids with their earliest received_at
-    # and count how many sources received each message
+    # Build subquery to get distinct messages by meshtastic_id (cross-source dedup)
+    # and count how many source copies exist
     subquery = (
         select(
-            Message.packet_id,
+            Message.meshtastic_id,
             func.min(Message.received_at).label("first_received_at"),
             func.count(Message.id).label("source_count"),
         )
         .where(Message.channel == channel)
         .where(Message.text.isnot(None))
-        .where(Message.packet_id.isnot(None))
-        .group_by(Message.packet_id)
+        .where(Message.meshtastic_id.isnot(None))
+        .group_by(Message.meshtastic_id)
     )
 
     if before:
@@ -164,7 +164,7 @@ async def list_messages(
 
     subquery = subquery.subquery()
 
-    # Join back to get full message data for each packet_id
+    # Join back to get full message data for each deduplicated message
     # Use the row with best SNR as the representative
     query = (
         select(
@@ -183,12 +183,12 @@ async def list_messages(
             Node.long_name.label("from_long_name"),
             subquery.c.source_count,
         )
-        .join(subquery, Message.packet_id == subquery.c.packet_id)
+        .join(subquery, Message.meshtastic_id == subquery.c.meshtastic_id)
         .outerjoin(Node, Message.from_node_num == Node.node_num)
         .where(Message.channel == channel)
         .where(Message.text.isnot(None))
-        .distinct(Message.packet_id)
-        .order_by(Message.packet_id, Message.rx_snr.desc().nullslast())
+        .distinct(Message.meshtastic_id)
+        .order_by(Message.meshtastic_id, Message.rx_snr.desc().nullslast())
     )
 
     # Execute and get results
@@ -247,7 +247,24 @@ async def get_message_sources(
     packet_id: str,
     db: AsyncSession = Depends(get_db),
 ) -> list[MessageSourceDetail]:
-    """Get per-source reception details for a specific message."""
+    """Get per-source reception details for a specific message.
+
+    Finds all copies across sources by matching meshtastic_id,
+    falling back to exact packet_id match.
+    """
+    # First try to find by exact packet_id to get the meshtastic_id
+    lookup = await db.execute(
+        select(Message.meshtastic_id).where(Message.packet_id == packet_id).limit(1)
+    )
+    mesh_id = lookup.scalar()
+
+    if mesh_id is not None:
+        # Find all copies across sources with the same meshtastic_id
+        filter_clause = Message.meshtastic_id == mesh_id
+    else:
+        # Fallback to exact packet_id match
+        filter_clause = Message.packet_id == packet_id
+
     query = (
         select(
             Message.source_id,
@@ -260,7 +277,7 @@ async def get_message_sources(
             Message.received_at,
         )
         .join(Source, Message.source_id == Source.id)
-        .where(Message.packet_id == packet_id)
+        .where(filter_clause)
         .order_by(Message.rx_snr.desc().nullslast())
     )
 

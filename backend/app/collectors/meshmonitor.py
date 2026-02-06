@@ -549,11 +549,20 @@ class MeshMonitorCollector(BaseCollector):
         if to_node_num == 4294967295:
             to_node_num = None  # Store as NULL for broadcast messages
 
+        # Extract raw Meshtastic packet ID from composite format
+        meshtastic_id = None
+        raw_part = packet_id.rsplit("_", 1)[-1] if "_" in packet_id else packet_id
+        try:
+            meshtastic_id = int(raw_part)
+        except (ValueError, TypeError):
+            pass
+
         # Build values dict for the insert
         values = {
             "id": str(uuid4()),
             "source_id": self.source.id,
             "packet_id": packet_id,
+            "meshtastic_id": meshtastic_id,
             "from_node_num": msg_data.get("fromNodeNum") or msg_data.get("from"),
             "to_node_num": to_node_num,
             "channel": msg_data.get("channel", 0),

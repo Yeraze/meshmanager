@@ -3,8 +3,8 @@
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.auth import LoginRequest, RegisterRequest, ChangePasswordRequest
-from app.schemas.source import MeshMonitorSourceCreate, MqttSourceCreate
+from app.schemas.auth import ChangePasswordRequest, LoginRequest, RegisterRequest
+from app.schemas.source import MeshMonitorSourceCreate, MqttSourceCreate, MqttSourceUpdate
 
 
 class TestAuthSchemas:
@@ -227,3 +227,22 @@ class TestSourceSchemas:
                 mqtt_port=70000,  # Invalid - over 65535
                 mqtt_topic_pattern="msh/#",
             )
+
+    def test_mqtt_source_create_strips_host_whitespace(self):
+        """MqttSourceCreate should strip whitespace from mqtt_host."""
+        source = MqttSourceCreate(
+            name="Test MQTT",
+            mqtt_host="  mqtt.example.com  ",
+            mqtt_topic_pattern="msh/#",
+        )
+        assert source.mqtt_host == "mqtt.example.com"
+
+    def test_mqtt_source_update_strips_host_whitespace(self):
+        """MqttSourceUpdate should strip whitespace from mqtt_host."""
+        update = MqttSourceUpdate(mqtt_host="mqtt.example.com ")
+        assert update.mqtt_host == "mqtt.example.com"
+
+    def test_mqtt_source_update_none_host_unchanged(self):
+        """MqttSourceUpdate should allow None mqtt_host."""
+        update = MqttSourceUpdate()
+        assert update.mqtt_host is None

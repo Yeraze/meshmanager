@@ -6,6 +6,7 @@ import logging
 from datetime import UTC, datetime
 
 import aiomqtt
+from sqlalchemy.exc import IntegrityError
 
 from app.collectors.base import BaseCollector
 from app.database import async_session_maker
@@ -30,9 +31,10 @@ class MqttCollector(BaseCollector):
         if not self.source.mqtt_host:
             return SourceTestResult(success=False, message="No MQTT host configured")
 
+        hostname = self.source.mqtt_host.strip()
         try:
             async with aiomqtt.Client(
-                hostname=self.source.mqtt_host,
+                hostname=hostname,
                 port=self.source.mqtt_port or 1883,
                 username=self.source.mqtt_username,
                 password=self.source.mqtt_password,
@@ -47,9 +49,13 @@ class MqttCollector(BaseCollector):
                     message="Connection successful",
                 )
         except aiomqtt.MqttError as e:
-            return SourceTestResult(success=False, message=f"MQTT error: {e}")
+            return SourceTestResult(
+                success=False, message=f"MQTT error connecting to {hostname}: {e}"
+            )
         except Exception as e:
-            return SourceTestResult(success=False, message=f"Connection error: {e}")
+            return SourceTestResult(
+                success=False, message=f"Connection error for {hostname}: {e}"
+            )
 
     async def collect(self) -> None:
         """MQTT uses continuous streaming, not polling."""
@@ -68,8 +74,9 @@ class MqttCollector(BaseCollector):
         """Main MQTT subscription loop with reconnection."""
         while self._running:
             try:
+                hostname = (self.source.mqtt_host or "localhost").strip()
                 async with aiomqtt.Client(
-                    hostname=self.source.mqtt_host or "localhost",
+                    hostname=hostname,
                     port=self.source.mqtt_port or 1883,
                     username=self.source.mqtt_username,
                     password=self.source.mqtt_password,
@@ -94,12 +101,14 @@ class MqttCollector(BaseCollector):
                         await self._process_message(message)
 
             except aiomqtt.MqttError as e:
-                logger.error(f"MQTT error for {self.source.name}: {e}")
+                logger.error(f"MQTT error for {self.source.name} ({hostname}): {e}")
                 await self._update_source_status(str(e))
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Unexpected error in MQTT loop: {e}")
+                logger.error(
+                    f"Unexpected error in MQTT loop for {self.source.name} ({hostname}): {e}"
+                )
                 await self._update_source_status(str(e))
 
             if self._running:
@@ -152,18 +161,22 @@ class MqttCollector(BaseCollector):
         """Process a JSON-encoded Meshtastic message."""
         msg_type = data.get("type", "").lower()
 
-        async with async_session_maker() as db:
-            await self._ensure_channel(db, data)
-            if msg_type == "text" or "text" in data:
-                await self._handle_text_message(db, data)
-            elif msg_type == "position" or "position" in data:
-                await self._handle_position(db, data)
-            elif msg_type == "telemetry" or "telemetry" in data:
-                await self._handle_telemetry(db, data)
-            elif msg_type == "nodeinfo" or "nodeinfo" in data:
-                await self._handle_nodeinfo(db, data)
+        try:
+            async with async_session_maker() as db:
+                await self._ensure_channel(db, data)
+                if msg_type == "text" or "text" in data:
+                    await self._handle_text_message(db, data)
+                elif msg_type == "position" or "position" in data:
+                    await self._handle_position(db, data)
+                elif msg_type == "telemetry" or "telemetry" in data:
+                    await self._handle_telemetry(db, data)
+                elif msg_type == "nodeinfo" or "nodeinfo" in data:
+                    await self._handle_nodeinfo(db, data)
 
-            await db.commit()
+                await db.commit()
+        except IntegrityError:
+            # Duplicate message from overlapping MQTT topics — safe to ignore
+            pass
 
     async def _ensure_channel(self, db, data: dict) -> None:
         """Ensure a channel record exists for MQTT messages."""
@@ -223,11 +236,11 @@ class MqttCollector(BaseCollector):
 
         message = Message(
             source_id=self.source.id,
-            packet_id=data.get("id"),
+            packet_id=str(data["id"]) if data.get("id") is not None else None,
             from_node_num=from_node,
             to_node_num=to_node,
             channel=data.get("channel", 0),
-            text=data.get("text") or data.get("payload"),
+            text=data.get("text") or self._extract_text(data.get("payload")),
             hop_limit=data.get("hopLimit"),
             hop_start=data.get("hopStart"),
             rx_time=rx_time,
@@ -236,6 +249,17 @@ class MqttCollector(BaseCollector):
         )
         db.add(message)
         logger.debug(f"Received text message from {from_node}")
+
+    @staticmethod
+    def _extract_text(payload) -> str | None:
+        """Extract text from a payload that may be a string or dict."""
+        if payload is None:
+            return None
+        if isinstance(payload, str):
+            return payload
+        if isinstance(payload, dict):
+            return payload.get("text")
+        return str(payload)
 
     @staticmethod
     def _parse_rx_time(value) -> datetime | None:

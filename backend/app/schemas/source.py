@@ -52,6 +52,12 @@ class MqttSourceCreate(SourceBase):
     mqtt_topic_pattern: str = Field(..., min_length=1, max_length=500)
     mqtt_use_tls: bool = False
 
+    @field_validator("mqtt_host")
+    @classmethod
+    def strip_mqtt_host(cls, v: str) -> str:
+        """Strip whitespace from MQTT host to prevent DNS resolution failures."""
+        return v.strip()
+
 
 class MqttSourceUpdate(BaseModel):
     """Schema for updating an MQTT source."""
@@ -64,6 +70,12 @@ class MqttSourceUpdate(BaseModel):
     mqtt_topic_pattern: str | None = Field(default=None, min_length=1, max_length=500)
     mqtt_use_tls: bool | None = None
     enabled: bool | None = None
+
+    @field_validator("mqtt_host")
+    @classmethod
+    def strip_mqtt_host(cls, v: str | None) -> str | None:
+        """Strip whitespace from MQTT host to prevent DNS resolution failures."""
+        return v.strip() if v else v
 
 
 # Union types for generic operations

@@ -172,7 +172,6 @@ class MqttCollector(BaseCollector):
                     await self._handle_telemetry(db, data)
                 elif msg_type == "nodeinfo" or "nodeinfo" in data:
                     await self._handle_nodeinfo(db, data)
-
                 await db.commit()
         except IntegrityError:
             # Duplicate message from overlapping MQTT topics — safe to ignore

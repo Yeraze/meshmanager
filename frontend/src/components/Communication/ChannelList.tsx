@@ -2,8 +2,8 @@ import type { ChannelSummary } from '../../services/api'
 
 interface ChannelListProps {
   channels: ChannelSummary[]
-  selectedChannel: number | null
-  onChannelSelect: (channelIndex: number) => void
+  selectedChannel: string | null
+  onChannelSelect: (channelKey: string) => void
   isLoading: boolean
   error: Error | null
 }
@@ -84,18 +84,18 @@ export default function ChannelList({
     <div style={{ flex: 1, overflowY: 'auto' }}>
       {channels.map((channel) => (
         <button
-          key={channel.channel_index}
-          onClick={() => onChannelSelect(channel.channel_index)}
+          key={channel.channel_key}
+          onClick={() => onChannelSelect(channel.channel_key)}
           style={{
             width: '100%',
             padding: '0.75rem 1rem',
             border: 'none',
             background:
-              selectedChannel === channel.channel_index
+              selectedChannel === channel.channel_key
                 ? 'var(--color-primary-transparent, rgba(137, 180, 250, 0.15))'
                 : 'transparent',
             borderLeft:
-              selectedChannel === channel.channel_index
+              selectedChannel === channel.channel_key
                 ? '3px solid var(--color-primary)'
                 : '3px solid transparent',
             cursor: 'pointer',
@@ -106,12 +106,12 @@ export default function ChannelList({
             transition: 'background 0.15s ease',
           }}
           onMouseEnter={(e) => {
-            if (selectedChannel !== channel.channel_index) {
+            if (selectedChannel !== channel.channel_key) {
               e.currentTarget.style.background = 'var(--color-surface-hover, rgba(255,255,255,0.05))'
             }
           }}
           onMouseLeave={(e) => {
-            if (selectedChannel !== channel.channel_index) {
+            if (selectedChannel !== channel.channel_key) {
               e.currentTarget.style.background = 'transparent'
             }
           }}
@@ -125,7 +125,7 @@ export default function ChannelList({
           >
             <span
               style={{
-                fontWeight: selectedChannel === channel.channel_index ? 600 : 400,
+                fontWeight: selectedChannel === channel.channel_key ? 600 : 400,
                 color: 'var(--color-text)',
                 fontSize: '0.9rem',
               }}

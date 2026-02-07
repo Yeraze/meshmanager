@@ -554,7 +554,7 @@ export interface ChannelSourceName {
 }
 
 export interface ChannelSummary {
-  channel_index: number
+  channel_key: string
   display_name: string
   message_count: number
   last_message_at: string | null
@@ -565,7 +565,7 @@ export interface MessageResponse {
   packet_id: string
   from_node_num: number
   to_node_num: number | null
-  channel: number
+  channel_key: string
   text: string | null
   emoji: string | null
   reply_id: number | null
@@ -602,14 +602,18 @@ export async function fetchMessageChannels(): Promise<ChannelSummary[]> {
 }
 
 export async function fetchMessages(
-  channel: number,
+  channelKey: string,
   limit?: number,
-  before?: string
+  before?: string,
+  sourceNames?: string[]
 ): Promise<MessagesListResponse> {
   const params = new URLSearchParams()
-  params.append('channel', channel.toString())
+  params.append('channel_key', channelKey)
   if (limit) params.append('limit', limit.toString())
   if (before) params.append('before', before)
+  if (sourceNames) {
+    sourceNames.forEach((name) => params.append('source_names', name))
+  }
 
   const response = await api.get<MessagesListResponse>(`/api/messages?${params.toString()}`)
   return response.data

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchMessageChannels } from '../../services/api'
 import ChannelList from './ChannelList'
@@ -6,8 +6,9 @@ import MessageList from './MessageList'
 import MessageDetailModal from './MessageDetailModal'
 
 export default function CommunicationPage() {
-  const [selectedChannel, setSelectedChannel] = useState<number | null>(null)
+  const [selectedChannel, setSelectedChannel] = useState<string | null>(null)
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
+  const [disabledSources, setDisabledSources] = useState<Set<string>>(new Set())
 
   const {
     data: channels,
@@ -19,9 +20,22 @@ export default function CommunicationPage() {
     refetchInterval: 30000, // Refresh every 30 seconds
   })
 
-  const handleChannelSelect = (channelIndex: number) => {
-    setSelectedChannel(channelIndex)
+  const handleChannelSelect = (channelKey: string) => {
+    setSelectedChannel(channelKey)
+    setDisabledSources(new Set())
   }
+
+  const handleSourceToggle = useCallback((sourceName: string) => {
+    setDisabledSources((prev) => {
+      const next = new Set(prev)
+      if (next.has(sourceName)) {
+        next.delete(sourceName)
+      } else {
+        next.add(sourceName)
+      }
+      return next
+    })
+  }, [])
 
   const handleMessageClick = (packetId: string) => {
     setSelectedMessageId(packetId)
@@ -32,7 +46,7 @@ export default function CommunicationPage() {
   }
 
   // Get the selected channel info
-  const selectedChannelInfo = channels?.find((c) => c.channel_index === selectedChannel)
+  const selectedChannelInfo = channels?.find((c) => c.channel_key === selectedChannel)
 
   return (
     <div
@@ -99,7 +113,7 @@ export default function CommunicationPage() {
               >
                 {selectedChannelInfo?.message_count.toLocaleString()} messages
               </p>
-              {/* Show channel names from each source */}
+              {/* Source filter buttons */}
               {selectedChannelInfo?.source_names && selectedChannelInfo.source_names.length > 0 && (
                 <div
                   style={{
@@ -109,25 +123,56 @@ export default function CommunicationPage() {
                     gap: '0.5rem',
                   }}
                 >
-                  {selectedChannelInfo.source_names.map((sn, idx) => (
-                    <span
-                      key={idx}
-                      style={{
-                        fontSize: '0.7rem',
-                        padding: '0.25rem 0.5rem',
-                        background: 'var(--color-surface-elevated, rgba(255,255,255,0.05))',
-                        borderRadius: '4px',
-                        color: 'var(--color-text-muted)',
-                      }}
-                      title={`Channel name on ${sn.source_name}`}
-                    >
-                      <strong>{sn.source_name}:</strong> {sn.channel_name || '(unnamed)'}
-                    </span>
-                  ))}
+                  {selectedChannelInfo.source_names.map((sn, idx) => {
+                    const isActive = !disabledSources.has(sn.source_name)
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => handleSourceToggle(sn.source_name)}
+                        style={{
+                          fontSize: '0.7rem',
+                          padding: '0.25rem 0.5rem',
+                          background: isActive
+                            ? 'var(--color-primary, #89b4fa)'
+                            : 'var(--color-surface-elevated, rgba(255,255,255,0.05))',
+                          borderRadius: '4px',
+                          color: isActive
+                            ? 'var(--color-background, #1e1e2e)'
+                            : 'var(--color-text-muted)',
+                          border: '1px solid',
+                          borderColor: isActive
+                            ? 'var(--color-primary, #89b4fa)'
+                            : 'var(--color-border)',
+                          cursor: 'pointer',
+                          opacity: isActive ? 1 : 0.5,
+                          transition: 'all 0.15s ease',
+                          fontFamily: 'inherit',
+                        }}
+                        title={
+                          isActive
+                            ? `Click to hide messages from ${sn.source_name}`
+                            : `Click to show messages from ${sn.source_name}`
+                        }
+                      >
+                        <strong>{sn.source_name}:</strong> {sn.channel_name || '(unnamed)'}
+                      </button>
+                    )
+                  })}
                 </div>
               )}
             </div>
-            <MessageList channelIndex={selectedChannel} onMessageClick={handleMessageClick} />
+            <MessageList
+              channelKey={selectedChannel}
+              onMessageClick={handleMessageClick}
+              sourceNames={(() => {
+                if (!selectedChannelInfo?.source_names || disabledSources.size === 0)
+                  return undefined
+                const active = selectedChannelInfo.source_names
+                  .map((sn) => sn.source_name)
+                  .filter((name) => !disabledSources.has(name))
+                return active.length > 0 ? active : undefined
+              })()}
+            />
           </>
         ) : (
           <div

@@ -164,14 +164,14 @@ export default function CommunicationPage() {
             <MessageList
               channelKey={selectedChannel}
               onMessageClick={handleMessageClick}
-              sourceNames={
-                selectedChannelInfo?.source_names &&
-                disabledSources.size > 0
-                  ? selectedChannelInfo.source_names
-                      .map((sn) => sn.source_name)
-                      .filter((name) => !disabledSources.has(name))
-                  : undefined
-              }
+              sourceNames={(() => {
+                if (!selectedChannelInfo?.source_names || disabledSources.size === 0)
+                  return undefined
+                const active = selectedChannelInfo.source_names
+                  .map((sn) => sn.source_name)
+                  .filter((name) => !disabledSources.has(name))
+                return active.length > 0 ? active : undefined
+              })()}
             />
           </>
         ) : (

@@ -3,7 +3,7 @@ import { useInfiniteQuery } from '@tanstack/react-query'
 import { fetchMessages, type MessageResponse } from '../../services/api'
 
 interface MessageListProps {
-  channelIndex: number
+  channelKey: string
   onMessageClick: (packetId: string) => void
   sourceNames?: string[]
 }
@@ -38,10 +38,10 @@ function getNodeDisplayName(msg: MessageResponse): string {
   return `!${msg.from_node_num.toString(16).padStart(8, '0')}`
 }
 
-export default function MessageList({ channelIndex, onMessageClick, sourceNames }: MessageListProps) {
+export default function MessageList({ channelKey, onMessageClick, sourceNames }: MessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const previousChannelRef = useRef<number | null>(null)
+  const previousChannelRef = useRef<string | null>(null)
 
   const {
     data,
@@ -51,9 +51,9 @@ export default function MessageList({ channelIndex, onMessageClick, sourceNames 
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: ['channel-messages', channelIndex, sourceNames],
+    queryKey: ['channel-messages', channelKey, sourceNames],
     queryFn: ({ pageParam }) =>
-      fetchMessages(channelIndex, 50, pageParam as string | undefined, sourceNames),
+      fetchMessages(channelKey, 50, pageParam as string | undefined, sourceNames),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.next_cursor,
     refetchInterval: 10000, // Refresh every 10 seconds for new messages
@@ -61,14 +61,14 @@ export default function MessageList({ channelIndex, onMessageClick, sourceNames 
 
   // Scroll to bottom when channel changes or initial load
   useEffect(() => {
-    if (previousChannelRef.current !== channelIndex) {
-      previousChannelRef.current = channelIndex
+    if (previousChannelRef.current !== channelKey) {
+      previousChannelRef.current = channelKey
       // Wait for render then scroll to bottom
       setTimeout(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'auto' })
       }, 100)
     }
-  }, [channelIndex, data])
+  }, [channelKey, data])
 
   // Handle scroll for infinite loading older messages
   const handleScroll = useCallback(() => {

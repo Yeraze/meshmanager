@@ -6,7 +6,7 @@ import MessageList from './MessageList'
 import MessageDetailModal from './MessageDetailModal'
 
 export default function CommunicationPage() {
-  const [selectedChannel, setSelectedChannel] = useState<number | null>(null)
+  const [selectedChannel, setSelectedChannel] = useState<string | null>(null)
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
   const [disabledSources, setDisabledSources] = useState<Set<string>>(new Set())
 
@@ -20,8 +20,8 @@ export default function CommunicationPage() {
     refetchInterval: 30000, // Refresh every 30 seconds
   })
 
-  const handleChannelSelect = (channelIndex: number) => {
-    setSelectedChannel(channelIndex)
+  const handleChannelSelect = (channelKey: string) => {
+    setSelectedChannel(channelKey)
     setDisabledSources(new Set())
   }
 
@@ -46,7 +46,7 @@ export default function CommunicationPage() {
   }
 
   // Get the selected channel info
-  const selectedChannelInfo = channels?.find((c) => c.channel_index === selectedChannel)
+  const selectedChannelInfo = channels?.find((c) => c.channel_key === selectedChannel)
 
   return (
     <div
@@ -162,7 +162,7 @@ export default function CommunicationPage() {
               )}
             </div>
             <MessageList
-              channelIndex={selectedChannel}
+              channelKey={selectedChannel}
               onMessageClick={handleMessageClick}
               sourceNames={
                 selectedChannelInfo?.source_names &&

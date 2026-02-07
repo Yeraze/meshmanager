@@ -88,7 +88,17 @@ L.Icon.Default.mergeOptions({
 // Router roles: ROUTER(2), ROUTER_CLIENT(3), REPEATER(4), ROUTER_LATE(11)
 const ROUTER_ROLES = new Set(['2', '3', '4', '11'])
 
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+const iconCache = new Map<string, L.DivIcon>()
+
 function createNodeIcon(color: string, isRouter: boolean, isSelected: boolean, shortName: string) {
+  const cacheKey = `${color}|${isRouter}|${isSelected}|${shortName}`
+  const cached = iconCache.get(cacheKey)
+  if (cached) return cached
+
   const size = isSelected ? 44 : 36
   const half = size / 2
 
@@ -113,19 +123,23 @@ function createNodeIcon(color: string, isRouter: boolean, isSelected: boolean, s
     </svg>`
   }
 
-  const label = shortName
-    ? `<span class="node-marker-label">${shortName}</span>`
+  const safeShortName = escapeHtml(shortName)
+  const label = safeShortName
+    ? `<span class="node-marker-label">${safeShortName}</span>`
     : ''
 
   const iconHeight = isRouter ? size : Math.round(size * 1.4)
 
-  return L.divIcon({
+  const icon = L.divIcon({
     className: 'custom-node-icon',
     html: `<div class="node-marker-wrapper">${markerSvg}${label}</div>`,
     iconSize: [size, iconHeight],
     iconAnchor: [half, isRouter ? half : iconHeight],
     popupAnchor: [0, isRouter ? -half : -iconHeight],
   })
+
+  iconCache.set(cacheKey, icon)
+  return icon
 }
 
 function getNodeStatus(node: Node, onlineHours: number): 'online' | 'offline' | 'unknown' {
@@ -371,6 +385,22 @@ export default function MapContainer() {
     [deduplicatedNodes]
   )
 
+  // Pre-compute source names per node key for popup display
+  const nodeSourcesMap = useMemo(() => {
+    const map = new Map<string, string[]>()
+    for (const n of allNodes) {
+      if (!enabledSourceIds.has(n.source_id) || !n.source_name) continue
+      const key = n.node_id || `num_${n.node_num}`
+      const sources = map.get(key)
+      if (!sources) {
+        map.set(key, [n.source_name])
+      } else if (!sources.includes(n.source_name)) {
+        sources.push(n.source_name)
+      }
+    }
+    return map
+  }, [allNodes, enabledSourceIds])
+
   // Calculate initial map center - prefer stored value, then calculate from nodes
   const initialCenter = useMemo<[number, number]>(() => {
     // Use stored center if available
@@ -569,11 +599,7 @@ export default function MapContainer() {
         {showNodes && nodesWithPosition.map((node) => {
           const isSelected = selectedNode?.id === node.id
           const displayName = node.long_name || node.short_name || node.node_id || `Node ${node.node_num}`
-          const nodeKey = node.node_id || `num_${node.node_num}`
-          const nodeSources = allNodes
-            .filter(n => (n.node_id || `num_${n.node_num}`) === nodeKey && enabledSourceIds.has(n.source_id) && n.source_name)
-            .map(n => n.source_name!)
-            .filter((name, i, arr) => arr.indexOf(name) === i)
+          const nodeSources = nodeSourcesMap.get(node.node_id || `num_${node.node_num}`) ?? []
 
           return (
             <Marker

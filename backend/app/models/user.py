@@ -7,7 +7,7 @@ from sqlalchemy import Boolean, DateTime, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.database import Base
+from app.database import Base, utc_now
 
 
 class User(Base):
@@ -43,6 +43,6 @@ class User(Base):
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=datetime.utcnow,
+        default=utc_now,
     )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

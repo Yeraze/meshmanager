@@ -1,13 +1,13 @@
 """Solar production data model for storing hourly watt-hours data."""
 
-from datetime import UTC, datetime
+from datetime import datetime
 from uuid import uuid4
 
 from sqlalchemy import DateTime, Float, ForeignKey, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.database import Base
+from app.database import Base, utc_now
 
 
 class SolarProduction(Base):
@@ -52,7 +52,7 @@ class SolarProduction(Base):
     # When we received/stored this record
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(UTC),
+        default=utc_now,
         index=True,
     )
 

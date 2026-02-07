@@ -16,7 +16,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.database import Base
+from app.database import Base, utc_now
 
 
 class Node(Base):
@@ -66,17 +66,15 @@ class Node(Base):
     # Timestamps
     first_seen: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=datetime.utcnow,
+        default=utc_now,
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
     )
 
     # Relationships
     source: Mapped["Source"] = relationship("Source", back_populates="nodes")  # noqa: F821
 
-    __table_args__ = (
-        UniqueConstraint("source_id", "node_num", name="uq_nodes_source_node"),
-    )
+    __table_args__ = (UniqueConstraint("source_id", "node_num", name="uq_nodes_source_node"),)

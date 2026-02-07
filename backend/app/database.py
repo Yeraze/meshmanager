@@ -1,11 +1,17 @@
 """Database connection and session management."""
 
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
 from app.config import get_settings
+
+
+def utc_now() -> datetime:
+    """Return the current UTC time as a timezone-aware datetime."""
+    return datetime.now(UTC)
 
 
 class Base(DeclarativeBase):

@@ -8,7 +8,7 @@ from sqlalchemy import Boolean, DateTime, Enum, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.database import Base
+from app.database import Base, utc_now
 
 
 class SourceType(enum.StrEnum):
@@ -35,7 +35,9 @@ class Source(Base):
     url: Mapped[str | None] = mapped_column(String(500))
     api_token: Mapped[str | None] = mapped_column(String(500))
     poll_interval_seconds: Mapped[int] = mapped_column(Integer, default=300)
-    historical_days_back: Mapped[int] = mapped_column(Integer, default=1)  # Days of historical data to sync
+    historical_days_back: Mapped[int] = mapped_column(
+        Integer, default=1
+    )  # Days of historical data to sync
 
     # MQTT specific
     mqtt_host: Mapped[str | None] = mapped_column(String(255))
@@ -52,12 +54,12 @@ class Source(Base):
     remote_version: Mapped[str | None] = mapped_column(String(50))  # Version from remote source
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=datetime.utcnow,
+        default=utc_now,
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
     )
 
     # Relationships

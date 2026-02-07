@@ -8,7 +8,7 @@ from sqlalchemy import BigInteger, DateTime, Enum, Float, ForeignKey, Index, Int
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.database import Base
+from app.database import Base, utc_now
 
 
 class TelemetryType(enum.StrEnum):
@@ -89,7 +89,7 @@ class Telemetry(Base):
     # Timestamp
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=datetime.utcnow,
+        default=utc_now,
         index=True,
     )
 

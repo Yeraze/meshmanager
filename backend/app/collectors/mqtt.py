@@ -246,7 +246,7 @@ class MqttCollector(BaseCollector):
         emoji = None
         if raw_emoji is not None:
             if isinstance(raw_emoji, int):
-                emoji = chr(raw_emoji) if raw_emoji > 0 else None
+                emoji = chr(raw_emoji) if 0 < raw_emoji <= 0x10FFFF else None
             elif isinstance(raw_emoji, str) and raw_emoji:
                 emoji = raw_emoji
 

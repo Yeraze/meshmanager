@@ -38,6 +38,11 @@ function getNodeDisplayName(msg: MessageResponse): string {
   return `!${msg.from_node_num.toString(16).padStart(8, '0')}`
 }
 
+const REPLY_PREVIEW_MAX_LENGTH = 50
+
+const EMOJI_PRESENTATION_RE = /\p{Emoji_Presentation}/u
+const EXTENDED_PICTOGRAPHIC_RE = /\p{Extended_Pictographic}/u
+
 /** Returns true if a string consists entirely of emoji characters */
 function isEmojiOnly(str: string): boolean {
   // Remove zero-width joiners and variation selectors, then check remaining chars
@@ -45,7 +50,7 @@ function isEmojiOnly(str: string): boolean {
   if (stripped.length === 0) return false
   // Use spread to iterate codepoints (handles surrogate pairs correctly)
   return [...stripped].every(
-    (ch) => /\p{Emoji_Presentation}/u.test(ch) || /\p{Extended_Pictographic}/u.test(ch),
+    (ch) => EMOJI_PRESENTATION_RE.test(ch) || EXTENDED_PICTOGRAPHIC_RE.test(ch),
   )
 }
 
@@ -301,6 +306,12 @@ export default function MessageList({ channelKey, onMessageClick, sourceNames }:
                 {msg.reply_id != null && (
                   <div
                     data-testid="reply-indicator"
+                    role="note"
+                    aria-label={
+                      repliedTo
+                        ? `Reply to ${getNodeDisplayName(repliedTo)}`
+                        : 'Reply to unknown message'
+                    }
                     style={{
                       borderLeft: '3px solid var(--color-primary)',
                       paddingLeft: '0.5rem',
@@ -318,8 +329,8 @@ export default function MessageList({ channelKey, onMessageClick, sourceNames }:
                         </span>
                         {repliedTo.text && (
                           <span style={{ marginLeft: '0.25rem' }}>
-                            {repliedTo.text.length > 50
-                              ? repliedTo.text.slice(0, 50) + '...'
+                            {repliedTo.text.length > REPLY_PREVIEW_MAX_LENGTH
+                              ? repliedTo.text.slice(0, REPLY_PREVIEW_MAX_LENGTH) + '...'
                               : repliedTo.text}
                           </span>
                         )}
@@ -393,6 +404,8 @@ export default function MessageList({ channelKey, onMessageClick, sourceNames }:
                 {msgReactions && msgReactions.length > 0 && (
                   <div
                     data-testid="reaction-badges"
+                    role="group"
+                    aria-label="Reactions"
                     style={{
                       display: 'flex',
                       flexWrap: 'wrap',

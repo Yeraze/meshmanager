@@ -313,6 +313,17 @@ class TestResolveRouteNames:
         result = await collector._resolve_route_names(mock_db, ["A", 555, "B"])
         assert result == [100, 555, 200]
 
+    async def test_duplicate_names_resolved(self, collector, mock_db):
+        """Duplicate node names in route are each resolved correctly."""
+        mock_result = MagicMock()
+        mock_result.__iter__ = lambda self: iter([
+            MagicMock(long_name="Relay", node_num=500),
+        ])
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        result = await collector._resolve_route_names(mock_db, ["Relay", 111, "Relay"])
+        assert result == [500, 111, 500]
+
 
 class TestHandleTracerouteProtobuf:
     """Tests for protobuf traceroute handling."""

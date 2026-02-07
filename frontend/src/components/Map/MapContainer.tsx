@@ -12,6 +12,8 @@ import CoverageImageOverlay from './CoverageImageOverlay'
 import UtilizationImageOverlay from './UtilizationImageOverlay'
 import HeatmapLayer from './HeatmapLayer'
 import type { Node } from '../../types/api'
+import { getRoleName } from '../../utils/meshtastic'
+import { getHardwareModelName } from '../../utils/hardware'
 import 'leaflet/dist/leaflet.css'
 
 // LocalStorage keys
@@ -83,27 +85,62 @@ L.Icon.Default.mergeOptions({
   shadowUrl: markerShadow,
 })
 
-// Custom marker icons
-const createIcon = (color: string) =>
-  L.divIcon({
-    className: 'custom-marker',
-    html: `<div style="
-      width: 24px;
-      height: 24px;
-      background-color: ${color};
-      border: 3px solid white;
-      border-radius: 50%;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-    "></div>`,
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
-    popupAnchor: [0, -12],
+// Router roles: ROUTER(2), ROUTER_CLIENT(3), REPEATER(4), ROUTER_LATE(11)
+const ROUTER_ROLES = new Set(['2', '3', '4', '11'])
+
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+const iconCache = new Map<string, L.DivIcon>()
+
+function createNodeIcon(color: string, isRouter: boolean, isSelected: boolean, shortName: string) {
+  const cacheKey = `${color}|${isRouter}|${isSelected}|${shortName}`
+  const cached = iconCache.get(cacheKey)
+  if (cached) return cached
+
+  const size = isSelected ? 44 : 36
+  const half = size / 2
+
+  let markerSvg: string
+  if (isRouter) {
+    // Tower-in-circle SVG for router nodes
+    const r = half - 2
+    markerSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+      <circle cx="${half}" cy="${half}" r="${r}" fill="${color}" stroke="white" stroke-width="2"/>
+      <g transform="translate(${half},${half}) scale(${size / 56})" fill="white">
+        <rect x="-2" y="-10" width="4" height="14" rx="1"/>
+        <polygon points="-8,-4 -2,-8 -2,-2"/>
+        <polygon points="8,-4 2,-8 2,-2"/>
+        <rect x="-6" y="4" width="12" height="3" rx="1"/>
+      </g>
+    </svg>`
+  } else {
+    // Teardrop/pin SVG for non-router nodes
+    markerSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${Math.round(size * 1.4)}" viewBox="0 0 36 50">
+      <path d="M18 0C8.06 0 0 8.06 0 18c0 12.6 18 32 18 32s18-19.4 18-32C36 8.06 27.94 0 18 0z" fill="${color}" stroke="white" stroke-width="2"/>
+      <circle cx="18" cy="18" r="8" fill="white" opacity="0.4"/>
+    </svg>`
+  }
+
+  const safeShortName = escapeHtml(shortName)
+  const label = safeShortName
+    ? `<span class="node-marker-label">${safeShortName}</span>`
+    : ''
+
+  const iconHeight = isRouter ? size : Math.round(size * 1.4)
+
+  const icon = L.divIcon({
+    className: 'custom-node-icon',
+    html: `<div class="node-marker-wrapper">${markerSvg}${label}</div>`,
+    iconSize: [size, iconHeight],
+    iconAnchor: [half, isRouter ? half : iconHeight],
+    popupAnchor: [0, isRouter ? -half : -iconHeight],
   })
 
-const onlineIcon = createIcon('#a6e3a1')
-const offlineIcon = createIcon('#f38ba8')
-const unknownIcon = createIcon('#7f849c')
-const selectedIcon = createIcon('#89b4fa')
+  iconCache.set(cacheKey, icon)
+  return icon
+}
 
 function getNodeStatus(node: Node, onlineHours: number): 'online' | 'offline' | 'unknown' {
   if (!node.last_heard) return 'unknown'
@@ -112,12 +149,16 @@ function getNodeStatus(node: Node, onlineHours: number): 'online' | 'offline' | 
   return lastHeard > threshold ? 'online' : 'offline'
 }
 
+const STATUS_COLORS: Record<string, string> = {
+  online: '#a6e3a1',
+  offline: '#f38ba8',
+  unknown: '#7f849c',
+}
+
 function getIcon(node: Node, isSelected: boolean, onlineHours: number) {
-  if (isSelected) return selectedIcon
-  const status = getNodeStatus(node, onlineHours)
-  if (status === 'online') return onlineIcon
-  if (status === 'offline') return offlineIcon
-  return unknownIcon
+  const color = isSelected ? '#89b4fa' : STATUS_COLORS[getNodeStatus(node, onlineHours)]
+  const isRouter = ROUTER_ROLES.has(node.role ?? '')
+  return createNodeIcon(color, isRouter, isSelected, node.short_name ?? '')
 }
 
 // Component to handle map center changes when a node is selected
@@ -133,7 +174,7 @@ function MapCenterHandler({ node }: { node: Node | null }) {
   return null
 }
 
-// Component to persist map view (pan/zoom) to localStorage
+// Component to persist map view (pan/zoom) to localStorage and toggle label visibility
 function MapViewHandler() {
   const map = useMapEvents({
     moveend: () => {
@@ -142,8 +183,15 @@ function MapViewHandler() {
     },
     zoomend: () => {
       saveSetting(STORAGE_KEY_MAP_ZOOM, map.getZoom())
+      const container = map.getContainer()
+      container.classList.toggle('show-node-labels', map.getZoom() >= 11)
     },
   })
+
+  useEffect(() => {
+    const container = map.getContainer()
+    container.classList.toggle('show-node-labels', map.getZoom() >= 11)
+  }, [map])
 
   return null
 }
@@ -336,6 +384,22 @@ export default function MapContainer() {
     ),
     [deduplicatedNodes]
   )
+
+  // Pre-compute source names per node key for popup display
+  const nodeSourcesMap = useMemo(() => {
+    const map = new Map<string, string[]>()
+    for (const n of allNodes) {
+      if (!enabledSourceIds.has(n.source_id) || !n.source_name) continue
+      const key = n.node_id || `num_${n.node_num}`
+      const sources = map.get(key)
+      if (!sources) {
+        map.set(key, [n.source_name])
+      } else if (!sources.includes(n.source_name)) {
+        sources.push(n.source_name)
+      }
+    }
+    return map
+  }, [allNodes, enabledSourceIds])
 
   // Calculate initial map center - prefer stored value, then calculate from nodes
   const initialCenter = useMemo<[number, number]>(() => {
@@ -535,6 +599,7 @@ export default function MapContainer() {
         {showNodes && nodesWithPosition.map((node) => {
           const isSelected = selectedNode?.id === node.id
           const displayName = node.long_name || node.short_name || node.node_id || `Node ${node.node_num}`
+          const nodeSources = nodeSourcesMap.get(node.node_id || `num_${node.node_num}`) ?? []
 
           return (
             <Marker
@@ -546,34 +611,62 @@ export default function MapContainer() {
               }}
             >
               <Popup>
-                <div style={{ minWidth: '150px' }}>
-                  <strong style={{ fontSize: '1rem' }}>{displayName}</strong>
-                  {node.short_name && (
-                    <span style={{ marginLeft: '0.5rem', opacity: 0.7 }}>[{node.short_name}]</span>
-                  )}
-                  <div style={{ marginTop: '0.5rem', fontSize: '0.875rem', opacity: 0.8 }}>
-                    <div>Source: {node.source_name}</div>
-                    <div>Position: {node.latitude.toFixed(5)}, {node.longitude.toFixed(5)}</div>
-                    {node.last_heard && (
-                      <div>Last heard: {new Date(node.last_heard).toLocaleString()}</div>
+                <div className="node-popup">
+                  <div className="node-popup-header">
+                    <div className="node-popup-title">{displayName}</div>
+                    {node.short_name && (
+                      <div className="node-popup-subtitle">{node.short_name}</div>
                     )}
                   </div>
+                  <div className="node-popup-grid">
+                    {node.node_id && (
+                      <div className="node-popup-item">
+                        <span className="node-popup-icon">🆔</span>
+                        <span className="node-popup-value">{node.node_id}</span>
+                      </div>
+                    )}
+                    {node.role && (
+                      <div className="node-popup-item">
+                        <span className="node-popup-icon">👤</span>
+                        <span className="node-popup-value">{getRoleName(node.role)}</span>
+                      </div>
+                    )}
+                    {node.hw_model && (
+                      <div className="node-popup-item">
+                        <span className="node-popup-icon">🖥️</span>
+                        <span className="node-popup-value">{getHardwareModelName(node.hw_model)}</span>
+                      </div>
+                    )}
+                    {node.snr != null && (
+                      <div className="node-popup-item">
+                        <span className="node-popup-icon">📶</span>
+                        <span className="node-popup-value">{node.snr.toFixed(1)} dB</span>
+                      </div>
+                    )}
+                    {node.hops_away != null && (
+                      <div className="node-popup-item">
+                        <span className="node-popup-icon">🔗</span>
+                        <span className="node-popup-value">{node.hops_away} hop{node.hops_away !== 1 ? 's' : ''}</span>
+                      </div>
+                    )}
+                    {nodeSources.length > 0 && (
+                      <div className="node-popup-item node-popup-item-full">
+                        <span className="node-popup-icon">📡</span>
+                        <span className="node-popup-value">{nodeSources.join(', ')}</span>
+                      </div>
+                    )}
+                  </div>
+                  {node.last_heard && (
+                    <div className="node-popup-footer">
+                      <span className="node-popup-icon">🕐</span>
+                      {new Date(node.last_heard).toLocaleString()}
+                    </div>
+                  )}
                   <button
+                    className="node-popup-btn"
                     onClick={() => {
                       setSelectedNode(node)
                       navigateToPage('nodes')
-                    }}
-                    style={{
-                      marginTop: '0.75rem',
-                      padding: '0.375rem 0.75rem',
-                      backgroundColor: 'var(--ctp-blue)',
-                      color: 'var(--ctp-base)',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      fontSize: '0.875rem',
-                      fontWeight: 500,
-                      width: '100%',
                     }}
                   >
                     More Info

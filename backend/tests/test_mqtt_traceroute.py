@@ -67,8 +67,17 @@ class TestHandleTracerouteJSON:
         assert tr.snr_back == [15, 25]
         assert tr.source_id == "test-source-id"
 
-    async def test_string_route_entries_filtered(self, collector, mock_db):
-        """Route arrays with node names (strings) are filtered to empty."""
+    async def test_string_route_entries_resolved(self, collector, mock_db):
+        """Route arrays with node names (strings) are resolved via DB lookup."""
+        # Mock DB to return node_num mappings for the names
+        mock_result = MagicMock()
+        mock_result.__iter__ = lambda self: iter([
+            MagicMock(long_name="Node A", node_num=1001),
+            MagicMock(long_name="Node B", node_num=1002),
+            MagicMock(long_name="Node C", node_num=1003),
+        ])
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
         data = {
             "type": "traceroute",
             "from": 111,
@@ -84,11 +93,18 @@ class TestHandleTracerouteJSON:
         await collector._handle_traceroute(mock_db, data)
 
         tr = mock_db.add.call_args[0][0]
-        assert tr.route == []
-        assert tr.route_back is None
+        assert tr.route == [1001, 1002, 1003]
+        assert tr.route_back == [1003, 1001]
 
-    async def test_mixed_route_entries_keep_ints(self, collector, mock_db):
-        """Route arrays with mixed types keep only integer entries."""
+    async def test_mixed_route_entries_resolved(self, collector, mock_db):
+        """Route arrays with mixed types resolve names and keep ints."""
+        mock_result = MagicMock()
+        mock_result.__iter__ = lambda self: iter([
+            MagicMock(long_name="Node A", node_num=1001),
+            MagicMock(long_name="Node B", node_num=1002),
+        ])
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
         data = {
             "from": 111,
             "to": 222,
@@ -99,7 +115,7 @@ class TestHandleTracerouteJSON:
         await collector._handle_traceroute(mock_db, data)
 
         tr = mock_db.add.call_args[0][0]
-        assert tr.route == [333, 444]
+        assert tr.route == [1001, 333, 1002, 444]
 
     async def test_float_snr_converted_to_db4(self, collector, mock_db):
         """Float SNR values (actual dB) are converted to int (dB * 4)."""
@@ -239,6 +255,63 @@ class TestHandleTracerouteJSON:
         tr = mock_db.add.call_args[0][0]
         assert tr.snr_towards is None
         assert tr.snr_back is None
+
+
+    async def test_unresolvable_names_dropped(self, collector, mock_db):
+        """String route entries not found in DB are dropped."""
+        mock_result = MagicMock()
+        mock_result.__iter__ = lambda self: iter([
+            MagicMock(long_name="Known Node", node_num=999),
+        ])
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        data = {
+            "from": 111,
+            "to": 222,
+            "payload": {
+                "route": ["Known Node", "Unknown Node"],
+            },
+        }
+        await collector._handle_traceroute(mock_db, data)
+
+        tr = mock_db.add.call_args[0][0]
+        assert tr.route == [999]
+
+
+class TestResolveRouteNames:
+    """Tests for the _resolve_route_names helper."""
+
+    async def test_empty_list(self, collector, mock_db):
+        result = await collector._resolve_route_names(mock_db, [])
+        assert result == []
+
+    async def test_all_ints_no_db_query(self, collector, mock_db):
+        """All-integer routes skip the DB query entirely."""
+        result = await collector._resolve_route_names(mock_db, [111, 222, 333])
+        assert result == [111, 222, 333]
+        mock_db.execute.assert_not_called()
+
+    async def test_all_strings_resolved(self, collector, mock_db):
+        mock_result = MagicMock()
+        mock_result.__iter__ = lambda self: iter([
+            MagicMock(long_name="Alpha", node_num=100),
+            MagicMock(long_name="Beta", node_num=200),
+        ])
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        result = await collector._resolve_route_names(mock_db, ["Alpha", "Beta"])
+        assert result == [100, 200]
+
+    async def test_preserves_order(self, collector, mock_db):
+        mock_result = MagicMock()
+        mock_result.__iter__ = lambda self: iter([
+            MagicMock(long_name="B", node_num=200),
+            MagicMock(long_name="A", node_num=100),
+        ])
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        result = await collector._resolve_route_names(mock_db, ["A", 555, "B"])
+        assert result == [100, 555, 200]
 
 
 class TestHandleTracerouteProtobuf:

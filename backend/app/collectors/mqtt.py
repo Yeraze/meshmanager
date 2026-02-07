@@ -543,9 +543,9 @@ class MqttCollector(BaseCollector):
             snr_back = data.get("snrBack") or data.get("snr_back")
 
         # Some MQTT JSON decoders resolve node numbers to names (strings).
-        # Filter route arrays to only keep integer node numbers.
-        route = [n for n in (route or []) if isinstance(n, int)]
-        route_back = [n for n in (route_back or []) if isinstance(n, int)] or None
+        # Resolve string names back to node numbers via DB lookup.
+        route = await self._resolve_route_names(db, route or [])
+        route_back = await self._resolve_route_names(db, route_back or []) or None
 
         # SNR values: protobuf sends raw ints (already dB*4), but JSON decoders
         # may send floats (actual dB).  Convert floats to int (dB * 4) to match
@@ -572,6 +572,41 @@ class MqttCollector(BaseCollector):
         )
         db.add(traceroute)
         logger.debug(f"Received MQTT traceroute from {from_node} to {to_node}")
+
+    async def _resolve_route_names(self, db, route: list) -> list[int]:
+        """Resolve a route array that may contain string node names to node numbers.
+
+        MQTT JSON decoders often replace integer node numbers with display names.
+        This looks up each string entry in the nodes table (by long_name) and
+        replaces it with the corresponding node_num.  Unresolvable names are dropped.
+        """
+        if not route:
+            return []
+
+        # Separate ints from strings
+        names = [n for n in route if isinstance(n, str)]
+        if not names:
+            # All entries are already ints
+            return [n for n in route if isinstance(n, int)]
+
+        # Batch-lookup all string names in one query
+        from sqlalchemy import select
+
+        result = await db.execute(
+            select(Node.long_name, Node.node_num)
+            .where(Node.long_name.in_(names))
+        )
+        name_to_num = {row.long_name: row.node_num for row in result}
+
+        resolved = []
+        for entry in route:
+            if isinstance(entry, int):
+                resolved.append(entry)
+            elif isinstance(entry, str) and entry in name_to_num:
+                resolved.append(name_to_num[entry])
+            else:
+                logger.debug(f"Could not resolve route node name: {entry!r}")
+        return resolved
 
     @staticmethod
     def _coerce_snr_array(values: list | None) -> list[int] | None:

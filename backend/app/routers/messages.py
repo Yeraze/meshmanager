@@ -79,10 +79,9 @@ async def list_channels(
 ) -> list[ChannelSummary]:
     """List all channels with message counts, deduplicated by channel index."""
     # Get channel names from channels table with source names
-    channel_names_query = (
-        select(Channel.channel_index, Channel.name, Source.name.label("source_name"))
-        .join(Source, Channel.source_id == Source.id)
-    )
+    channel_names_query = select(
+        Channel.channel_index, Channel.name, Source.name.label("source_name")
+    ).join(Source, Channel.source_id == Source.id)
     channel_names_result = await db.execute(channel_names_query)
 
     # Build a dict of channel_index -> list of (source_name, channel_name)
@@ -132,13 +131,20 @@ async def list_channels(
 async def list_messages(
     channel: Annotated[int, Query(description="Channel index to filter by")],
     limit: Annotated[int, Query(ge=1, le=100, description="Number of messages to return")] = 50,
-    before: Annotated[str | None, Query(description="Cursor for pagination (ISO timestamp)")] = None,
+    before: Annotated[
+        str | None, Query(description="Cursor for pagination (ISO timestamp)")
+    ] = None,
+    source_names: Annotated[
+        list[str] | None,
+        Query(description="Filter to messages from these sources"),
+    ] = None,
     db: AsyncSession = Depends(get_db),
 ) -> MessagesListResponse:
     """List messages for a channel, deduplicated by packet_id.
 
     Messages are returned oldest-first (ascending by received_at).
     Use 'before' cursor to load older messages (for infinite scroll up).
+    Optionally filter by source names to show only messages from specific sources.
     """
     # Build subquery to get distinct messages by meshtastic_id (cross-source dedup)
     # and count how many source copies exist
@@ -151,8 +157,15 @@ async def list_messages(
         .where(Message.channel == channel)
         .where(Message.text.isnot(None))
         .where(Message.meshtastic_id.isnot(None))
-        .group_by(Message.meshtastic_id)
     )
+
+    # Filter by source names if provided
+    if source_names:
+        subquery = subquery.join(Source, Message.source_id == Source.id).where(
+            Source.name.in_(source_names)
+        )
+
+    subquery = subquery.group_by(Message.meshtastic_id)
 
     if before:
         # Parse ISO timestamp cursor

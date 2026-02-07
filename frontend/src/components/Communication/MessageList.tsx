@@ -5,6 +5,7 @@ import { fetchMessages, type MessageResponse } from '../../services/api'
 interface MessageListProps {
   channelIndex: number
   onMessageClick: (packetId: string) => void
+  sourceNames?: string[]
 }
 
 function formatTime(dateString: string): string {
@@ -37,7 +38,7 @@ function getNodeDisplayName(msg: MessageResponse): string {
   return `!${msg.from_node_num.toString(16).padStart(8, '0')}`
 }
 
-export default function MessageList({ channelIndex, onMessageClick }: MessageListProps) {
+export default function MessageList({ channelIndex, onMessageClick, sourceNames }: MessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const previousChannelRef = useRef<number | null>(null)
@@ -50,8 +51,9 @@ export default function MessageList({ channelIndex, onMessageClick }: MessageLis
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: ['channel-messages', channelIndex],
-    queryFn: ({ pageParam }) => fetchMessages(channelIndex, 50, pageParam as string | undefined),
+    queryKey: ['channel-messages', channelIndex, sourceNames],
+    queryFn: ({ pageParam }) =>
+      fetchMessages(channelIndex, 50, pageParam as string | undefined, sourceNames),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.next_cursor,
     refetchInterval: 10000, // Refresh every 10 seconds for new messages

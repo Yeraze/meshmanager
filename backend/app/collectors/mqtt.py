@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.collectors.base import BaseCollector
 from app.database import async_session_maker
-from app.models import Channel, Message, Node, Source, Telemetry
+from app.models import Channel, Message, Node, Source, Telemetry, Traceroute
 from app.schemas.source import SourceTestResult
 from app.services.protobuf import decode_meshtastic_packet
 
@@ -168,10 +168,15 @@ class MqttCollector(BaseCollector):
                     await self._handle_telemetry(db, data)
                 elif msg_type == "nodeinfo" or "nodeinfo" in data:
                     await self._handle_nodeinfo(db, data)
+                elif msg_type == "traceroute":
+                    await self._handle_traceroute(db, data)
                 await db.commit()
         except IntegrityError as e:
-            if "idx_messages_source_packet" in str(e):
+            err = str(e)
+            if "ix_messages_source_packet" in err:
                 logger.debug("Duplicate message ignored (likely overlapping topics)")
+            elif "idx_traceroutes_unique" in err:
+                logger.debug("Duplicate traceroute ignored")
             else:
                 logger.error(f"Unexpected integrity error: {e}")
                 raise
@@ -496,6 +501,95 @@ class MqttCollector(BaseCollector):
 
         logger.debug(f"Received nodeinfo from {from_node}")
 
+    async def _handle_traceroute(self, db, data: dict) -> None:
+        """Handle a traceroute response."""
+        from_node = data.get("from") or data.get("fromId")
+        to_node = data.get("to") or data.get("toId")
+        if not from_node or not to_node:
+            return
+
+        if isinstance(from_node, str) and from_node.startswith("!"):
+            from_node = int(from_node[1:], 16)
+        if isinstance(to_node, str) and to_node.startswith("!"):
+            to_node = int(to_node[1:], 16)
+
+        payload = data.get("payload", {})
+
+        # Protobuf: payload is raw bytes, decode via RouteDiscovery
+        if isinstance(payload, bytes):
+            try:
+                from meshtastic import mesh_pb2
+
+                route_discovery = mesh_pb2.RouteDiscovery()
+                route_discovery.ParseFromString(payload)
+                route = list(route_discovery.route) or []
+                snr_towards = list(route_discovery.snr_towards) or None
+                route_back = list(route_discovery.route_back) or None
+                snr_back = list(route_discovery.snr_back) or None
+            except Exception as e:
+                logger.debug(f"Failed to decode traceroute protobuf: {e}")
+                return
+        elif isinstance(payload, dict):
+            # JSON: fields already decoded
+            route = payload.get("route", [])
+            snr_towards = payload.get("snrTowards") or payload.get("snr_towards")
+            route_back = payload.get("routeBack") or payload.get("route_back")
+            snr_back = payload.get("snrBack") or payload.get("snr_back")
+        else:
+            # Top-level JSON fields (some MQTT bridges flatten them)
+            route = data.get("route", [])
+            snr_towards = data.get("snrTowards") or data.get("snr_towards")
+            route_back = data.get("routeBack") or data.get("route_back")
+            snr_back = data.get("snrBack") or data.get("snr_back")
+
+        # Some MQTT JSON decoders resolve node numbers to names (strings).
+        # Filter route arrays to only keep integer node numbers.
+        route = [n for n in (route or []) if isinstance(n, int)]
+        route_back = [n for n in (route_back or []) if isinstance(n, int)] or None
+
+        # SNR values: protobuf sends raw ints (already dB*4), but JSON decoders
+        # may send floats (actual dB).  Convert floats to int (dB * 4) to match
+        # MeshMonitor convention and the BIGINT column type.
+        snr_towards = self._coerce_snr_array(snr_towards)
+        snr_back = self._coerce_snr_array(snr_back)
+
+        # In TRACEROUTE_APP replies, 'from' is the responder and 'to' is the
+        # requester.  Swap so from_node_num = requester, to_node_num = responder
+        # (matches MeshMonitor convention).
+        from_node, to_node = to_node, from_node
+
+        rx_time = self._parse_rx_time(data.get("rxTime") or data.get("timestamp"))
+
+        traceroute = Traceroute(
+            source_id=self.source.id,
+            from_node_num=from_node,
+            to_node_num=to_node,
+            route=route or [],
+            route_back=route_back,
+            snr_towards=snr_towards,
+            snr_back=snr_back,
+            received_at=rx_time or datetime.now(UTC),
+        )
+        db.add(traceroute)
+        logger.debug(f"Received MQTT traceroute from {from_node} to {to_node}")
+
+    @staticmethod
+    def _coerce_snr_array(values: list | None) -> list[int] | None:
+        """Convert an SNR array to BIGINT-compatible ints.
+
+        Protobuf already provides dB*4 integers.  JSON decoders may provide
+        raw dB floats — multiply by 4 and round to match the convention.
+        """
+        if not values:
+            return None
+        result = []
+        for v in values:
+            if isinstance(v, float):
+                result.append(int(round(v * 4)))
+            elif isinstance(v, int):
+                result.append(v)
+        return result or None
+
     async def _handle_decoded_packet(self, db, decoded: dict) -> None:
         """Handle a decoded protobuf packet."""
         portnum = decoded.get("portnum", "")
@@ -508,6 +602,8 @@ class MqttCollector(BaseCollector):
             await self._handle_telemetry(db, decoded)
         elif portnum == "NODEINFO_APP":
             await self._handle_nodeinfo(db, decoded)
+        elif portnum == "TRACEROUTE_APP":
+            await self._handle_traceroute(db, decoded)
 
     async def stop(self) -> None:
         """Stop MQTT subscription."""

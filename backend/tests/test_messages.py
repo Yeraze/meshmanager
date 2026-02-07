@@ -68,6 +68,7 @@ class TestMessageResponseSchema:
         """MessageResponse should use channel_key as a string."""
         msg = MessageResponse(
             packet_id="abc123",
+            meshtastic_id=100,
             from_node_num=12345678,
             to_node_num=None,
             channel_key="gauntlet",
@@ -88,6 +89,7 @@ class TestMessageResponseSchema:
         """MessageResponse should accept stringified index as channel_key."""
         msg = MessageResponse(
             packet_id="def456",
+            meshtastic_id=None,
             from_node_num=12345678,
             to_node_num=None,
             channel_key="0",
@@ -109,6 +111,7 @@ class TestMessageResponseSchema:
         with pytest.raises(ValidationError):
             MessageResponse(
                 packet_id="abc",
+                meshtastic_id=None,
                 from_node_num=1,
                 to_node_num=None,
                 text="test",
@@ -133,6 +136,7 @@ class TestMessagesListResponseSchema:
             messages=[
                 MessageResponse(
                     packet_id="abc",
+                    meshtastic_id=200,
                     from_node_num=1,
                     to_node_num=None,
                     channel_key="gauntlet",

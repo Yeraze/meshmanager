@@ -563,6 +563,7 @@ export interface ChannelSummary {
 
 export interface MessageResponse {
   packet_id: string
+  meshtastic_id: number | null
   from_node_num: number
   to_node_num: number | null
   channel_key: string

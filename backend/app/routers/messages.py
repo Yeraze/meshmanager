@@ -5,7 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import String, case, distinct, func, select, text
+from sqlalchemy import String, case, distinct, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -14,14 +14,20 @@ from app.models import Channel, Message, Node, Source
 router = APIRouter(prefix="/api/messages", tags=["messages"])
 
 
+def _normalized_channel_name():
+    """Return NULLIF(Channel.name, '') so NULL and empty string are treated equally."""
+    return func.nullif(Channel.name, "")
+
+
 def _channel_key_expr():
     """Return a SQLAlchemy CASE expression that produces the channel key.
 
     If the channel has a non-empty name, use the name; otherwise fall back to
     the stringified channel index from the Message table.
     """
+    normed = _normalized_channel_name()
     return case(
-        ((Channel.name.isnot(None)) & (Channel.name != ""), Channel.name),
+        (normed.isnot(None), normed),
         else_=func.cast(Message.channel, String),
     )
 
@@ -48,6 +54,7 @@ class MessageResponse(BaseModel):
     """A deduplicated message response."""
 
     packet_id: str
+    meshtastic_id: int | None
     from_node_num: int
     to_node_num: int | None
     channel_key: str
@@ -93,8 +100,8 @@ async def list_channels(
     channel_key = _channel_key_expr().label("channel_key")
 
     # Join messages to channels to compute channel_key, then aggregate.
-    # PostgreSQL requires all non-aggregated columns referenced in the CASE
-    # (Channel.name and Message.channel) to appear in GROUP BY.
+    # Group by the channel_key label to correctly merge NULL and empty-string
+    # channel names that both resolve to the same key.
     query = (
         select(
             channel_key,
@@ -105,9 +112,9 @@ async def list_channels(
             Channel,
             (Message.source_id == Channel.source_id) & (Message.channel == Channel.channel_index),
         )
-        .where(Message.text.isnot(None))
+        .where(or_(Message.text.isnot(None), Message.emoji.isnot(None)))
         .where(Message.channel >= 0)
-        .group_by(Channel.name, Message.channel)
+        .group_by(channel_key)
         .order_by(text("last_message_at DESC NULLS LAST"))
     )
 
@@ -129,7 +136,7 @@ async def list_channels(
             Message,
             (Message.source_id == Channel.source_id) & (Message.channel == Channel.channel_index),
         )
-        .where(Message.text.isnot(None))
+        .where(or_(Message.text.isnot(None), Message.emoji.isnot(None)))
         .where(Message.channel >= 0)
     )
     source_result = await db.execute(source_names_query)
@@ -191,7 +198,7 @@ async def list_messages(
             (Message.source_id == Channel.source_id) & (Message.channel == Channel.channel_index),
         )
         .where(ck_expr == channel_key)
-        .where(Message.text.isnot(None))
+        .where(or_(Message.text.isnot(None), Message.emoji.isnot(None)))
         .where(Message.meshtastic_id.isnot(None))
     )
 
@@ -218,6 +225,7 @@ async def list_messages(
     query = (
         select(
             Message.packet_id,
+            Message.meshtastic_id,
             Message.from_node_num,
             Message.to_node_num,
             Message.channel,
@@ -239,7 +247,7 @@ async def list_messages(
             (Message.source_id == Channel.source_id) & (Message.channel == Channel.channel_index),
         )
         .where(ck_expr == channel_key)
-        .where(Message.text.isnot(None))
+        .where(or_(Message.text.isnot(None), Message.emoji.isnot(None)))
         .distinct(Message.meshtastic_id)
         .order_by(Message.meshtastic_id, Message.rx_snr.desc().nullslast())
     )
@@ -268,6 +276,7 @@ async def list_messages(
     messages = [
         MessageResponse(
             packet_id=row.packet_id,
+            meshtastic_id=row.meshtastic_id,
             from_node_num=row.from_node_num,
             to_node_num=row.to_node_num,
             channel_key=channel_key,

@@ -53,9 +53,7 @@ class MqttCollector(BaseCollector):
                 success=False, message=f"MQTT error connecting to {hostname}: {e}"
             )
         except Exception as e:
-            return SourceTestResult(
-                success=False, message=f"Connection error for {hostname}: {e}"
-            )
+            return SourceTestResult(success=False, message=f"Connection error for {hostname}: {e}")
 
     async def collect(self) -> None:
         """MQTT uses continuous streaming, not polling."""
@@ -122,9 +120,7 @@ class MqttCollector(BaseCollector):
             async with async_session_maker() as db:
                 from sqlalchemy import select
 
-                result = await db.execute(
-                    select(Source).where(Source.id == self.source.id)
-                )
+                result = await db.execute(select(Source).where(Source.id == self.source.id))
                 source = result.scalar()
                 if source:
                     source.last_poll_at = datetime.now(UTC)
@@ -239,6 +235,21 @@ class MqttCollector(BaseCollector):
         raw_id = data.get("id")
         meshtastic_id = int(raw_id) if raw_id is not None else None
 
+        # Extract reply_id (JSON: replyId or reply_id; protobuf: replyId)
+        reply_id = self._first_key(data, "replyId", "reply_id")
+        if reply_id is not None:
+            reply_id = int(reply_id)
+
+        # Extract emoji — protobuf sends a Unicode codepoint (int), JSON may
+        # send a codepoint or an actual emoji string.
+        raw_emoji = data.get("emoji")
+        emoji = None
+        if raw_emoji is not None:
+            if isinstance(raw_emoji, int):
+                emoji = chr(raw_emoji) if 0 < raw_emoji <= 0x10FFFF else None
+            elif isinstance(raw_emoji, str) and raw_emoji:
+                emoji = raw_emoji
+
         message = Message(
             source_id=self.source.id,
             packet_id=str(raw_id) if raw_id is not None else None,
@@ -247,6 +258,8 @@ class MqttCollector(BaseCollector):
             to_node_num=to_node,
             channel=data.get("channel", 0),
             text=data.get("text") or self._extract_text(data.get("payload")),
+            reply_id=reply_id,
+            emoji=emoji,
             hop_limit=data.get("hopLimit"),
             hop_start=data.get("hopStart"),
             rx_time=rx_time,
@@ -258,11 +271,14 @@ class MqttCollector(BaseCollector):
 
     @staticmethod
     def _extract_text(payload) -> str | None:
-        """Extract text from a payload that may be a string or dict."""
+        """Extract text from a payload that may be a string, bytes, or dict."""
         if payload is None:
             return None
+        if isinstance(payload, bytes):
+            text = payload.decode("utf-8", errors="replace")
+            return text if text else None
         if isinstance(payload, str):
-            return payload
+            return payload if payload else None
         if isinstance(payload, dict):
             return payload.get("text")
         return str(payload)
@@ -410,9 +426,7 @@ class MqttCollector(BaseCollector):
             air_util_tx=self._first_key(device_metrics, "airUtilTx", "air_util_tx"),
             uptime_seconds=self._first_key(device_metrics, "uptimeSeconds", "uptime_seconds"),
             temperature=env_metrics.get("temperature"),
-            relative_humidity=self._first_key(
-                env_metrics, "relativeHumidity", "relative_humidity"
-            ),
+            relative_humidity=self._first_key(env_metrics, "relativeHumidity", "relative_humidity"),
             barometric_pressure=self._first_key(
                 env_metrics, "barometricPressure", "barometric_pressure"
             ),

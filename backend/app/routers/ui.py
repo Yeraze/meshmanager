@@ -55,13 +55,13 @@ async def list_nodes(
 ) -> list[NodeSummary]:
     """List all nodes across all sources.
 
-    When no source_id filter is applied, returns deduplicated nodes by node_num,
-    showing only the record with the most recent last_heard timestamp.
+    Returns all node records from all sources so the frontend can filter
+    by enabled sources and then deduplicate, ensuring nodes visible from
+    multiple sources remain shown when any of their sources is enabled.
     """
     query = select(Node, Source.name.label("source_name")).join(Source)
 
     if source_id:
-        # When filtering by source, return all nodes from that source
         query = query.where(Node.source_id == source_id)
 
     if active_only:
@@ -72,14 +72,6 @@ async def list_nodes(
 
     result = await db.execute(query)
     rows = result.all()
-
-    # If no source filter, deduplicate by node_num keeping the one with newest last_heard
-    if not source_id:
-        seen_node_nums: dict[int, tuple] = {}
-        for node, source_name in rows:
-            if node.node_num not in seen_node_nums:
-                seen_node_nums[node.node_num] = (node, source_name)
-        rows = list(seen_node_nums.values())
 
     return [
         NodeSummary(

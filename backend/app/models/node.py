@@ -40,7 +40,7 @@ class Node(Base):
     node_num: Mapped[int] = mapped_column(BigInteger, nullable=False)
     node_id: Mapped[str | None] = mapped_column(String(20))  # e.g., "!abcd1234"
     short_name: Mapped[str | None] = mapped_column(String(10))
-    long_name: Mapped[str | None] = mapped_column(String(40))
+    long_name: Mapped[str | None] = mapped_column(String(40), index=True)
     hw_model: Mapped[str | None] = mapped_column(String(50))
     role: Mapped[str | None] = mapped_column(String(30))
 

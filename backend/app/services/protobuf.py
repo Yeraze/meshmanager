@@ -33,6 +33,10 @@ def decode_meshtastic_packet(payload: bytes) -> dict | None:
                 portnum = packet.decoded.portnum
                 decoded["portnum"] = portnums_pb2.PortNum.Name(portnum)
                 decoded["payload"] = packet.decoded.payload
+                if packet.decoded.reply_id:
+                    decoded["replyId"] = packet.decoded.reply_id
+                if packet.decoded.emoji:
+                    decoded["emoji"] = packet.decoded.emoji
 
             return decoded
 

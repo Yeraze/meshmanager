@@ -7,16 +7,14 @@ from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String,
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.database import Base
+from app.database import Base, utc_now
 
 
 class Message(Base):
     """A text message from the mesh network."""
 
     __tablename__ = "messages"
-    __table_args__ = (
-        Index("idx_messages_source_packet", "source_id", "packet_id", unique=True),
-    )
+    __table_args__ = (Index("idx_messages_source_packet", "source_id", "packet_id", unique=True),)
 
     id: Mapped[str] = mapped_column(
         UUID(as_uuid=False),
@@ -31,8 +29,12 @@ class Message(Base):
     )
 
     # Message identification
-    packet_id: Mapped[str | None] = mapped_column(String(64))  # Source-specific ID (composite for MeshMonitor)
-    meshtastic_id: Mapped[int | None] = mapped_column(BigInteger, index=True)  # Raw Meshtastic packet ID
+    packet_id: Mapped[str | None] = mapped_column(
+        String(64)
+    )  # Source-specific ID (composite for MeshMonitor)
+    meshtastic_id: Mapped[int | None] = mapped_column(
+        BigInteger, index=True
+    )  # Raw Meshtastic packet ID
     from_node_num: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     to_node_num: Mapped[int | None] = mapped_column(BigInteger)
     channel: Mapped[int] = mapped_column(Integer, default=0)
@@ -52,7 +54,7 @@ class Message(Base):
     # Timestamp
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=datetime.utcnow,
+        default=utc_now,
         index=True,
     )
 

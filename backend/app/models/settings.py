@@ -6,7 +6,7 @@ from sqlalchemy import JSON, DateTime, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.database import Base
+from app.database import Base, utc_now
 
 
 class SystemSetting(Base):
@@ -15,11 +15,9 @@ class SystemSetting(Base):
     __tablename__ = "settings"
 
     key: Mapped[str] = mapped_column(String(100), primary_key=True)
-    value: Mapped[dict] = mapped_column(
-        JSON().with_variant(JSONB, "postgresql"), nullable=False
-    )
+    value: Mapped[dict] = mapped_column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
     )

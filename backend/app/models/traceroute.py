@@ -1,13 +1,13 @@
 """Traceroute model for route information."""
 
-from datetime import UTC, datetime
+from datetime import datetime
 from uuid import uuid4
 
 from sqlalchemy import BigInteger, DateTime, ForeignKey, Index
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.database import Base
+from app.database import Base, utc_now
 
 
 class Traceroute(Base):
@@ -51,7 +51,7 @@ class Traceroute(Base):
     # Timestamp
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(UTC),
+        default=utc_now,
         index=True,
     )
 

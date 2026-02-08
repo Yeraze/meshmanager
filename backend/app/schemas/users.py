@@ -1,5 +1,7 @@
 """Schemas for user management."""
 
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -13,8 +15,8 @@ class UserListItem(BaseModel):
     role: str = "viewer"
     auth_provider: str = "local"
     is_active: bool = True
-    created_at: str | None = None
-    last_login_at: str | None = None
+    created_at: datetime | None = None
+    last_login_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 

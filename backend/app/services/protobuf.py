@@ -1,6 +1,7 @@
 """Protobuf decoding for Meshtastic packets."""
 
 import logging
+from typing import Any
 
 from google.protobuf.json_format import MessageToDict
 
@@ -31,8 +32,8 @@ def decode_meshtastic_packet(payload: bytes) -> dict | None:
                 "hopLimit": packet.hop_limit,
                 "hopStart": packet.hop_start,
                 "rxTime": packet.rx_time or None,
-                "rxSnr": packet.rx_snr or None,
-                "rxRssi": packet.rx_rssi or None,
+                "rxSnr": packet.rx_snr,
+                "rxRssi": packet.rx_rssi,
             }
 
             if packet.HasField("decoded"):
@@ -46,7 +47,7 @@ def decode_meshtastic_packet(payload: bytes) -> dict | None:
 
                 # Decode inner payload based on portnum
                 decoded["payload"] = _decode_inner_payload(
-                    portnum, raw_payload, mesh_pb2, telemetry_pb2
+                    portnum, raw_payload, mesh_pb2, portnums_pb2, telemetry_pb2
                 )
 
                 # For TEXT_MESSAGE_APP, also set top-level "text" key
@@ -67,16 +68,15 @@ def decode_meshtastic_packet(payload: bytes) -> dict | None:
 def _decode_inner_payload(
     portnum: int,
     raw_payload: bytes,
-    mesh_pb2,
-    telemetry_pb2,
+    mesh_pb2: Any,
+    portnums_pb2: Any,
+    telemetry_pb2: Any,
 ) -> dict | bytes:
     """Decode the inner payload bytes into a dict based on portnum.
 
     Returns the decoded dict on success, or the original raw bytes if decoding
     fails or the portnum is unrecognized.
     """
-    from meshtastic import portnums_pb2
-
     try:
         if portnum == portnums_pb2.PortNum.POSITION_APP:
             msg = mesh_pb2.Position()

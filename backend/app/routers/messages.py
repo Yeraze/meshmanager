@@ -214,7 +214,10 @@ async def list_messages(
         # Parse ISO timestamp cursor
         try:
             before_time = datetime.fromisoformat(before.replace("Z", "+00:00"))
-            subquery = subquery.having(func.min(Message.received_at) < before_time)
+            subquery = subquery.having(
+                func.coalesce(func.min(Message.rx_time), func.min(Message.received_at))
+                < before_time
+            )
         except ValueError:
             pass  # Invalid cursor, ignore
 
@@ -241,7 +244,10 @@ async def list_messages(
             subquery.c.source_count,
         )
         .join(subquery, Message.meshtastic_id == subquery.c.meshtastic_id)
-        .outerjoin(Node, Message.from_node_num == Node.node_num)
+        .outerjoin(
+            Node,
+            (Message.from_node_num == Node.node_num) & (Message.source_id == Node.source_id),
+        )
         .outerjoin(
             Channel,
             (Message.source_id == Channel.source_id) & (Message.channel == Channel.channel_index),
@@ -252,12 +258,20 @@ async def list_messages(
         .order_by(Message.meshtastic_id, Message.rx_snr.desc().nullslast())
     )
 
+    # Filter main query by source too, so DISTINCT ON picks from the correct pool
+    if source_names:
+        query = query.join(Source, Message.source_id == Source.id).where(
+            Source.name.in_(source_names)
+        )
+
     # Execute and get results
     result = await db.execute(query)
     rows = result.all()
 
-    # Sort by received_at ascending (oldest first) and limit
-    sorted_rows = sorted(rows, key=lambda r: r.received_at)
+    # Sort by display timestamp ascending (oldest first) and limit.
+    # Use rx_time (device time) when available, falling back to received_at,
+    # to match the frontend's getMessageTimestamp() display logic.
+    sorted_rows = sorted(rows, key=lambda r: r.rx_time or r.received_at)
 
     # For "before" pagination, we want the N most recent messages before the cursor
     # So take the last N items
@@ -294,10 +308,10 @@ async def list_messages(
         for row in sorted_rows
     ]
 
-    # Next cursor is the timestamp of the oldest message returned
+    # Next cursor is the display timestamp of the oldest message returned
     next_cursor = None
     if has_more and messages:
-        next_cursor = messages[0].received_at.isoformat()
+        next_cursor = (messages[0].rx_time or messages[0].received_at).isoformat()
 
     return MessagesListResponse(
         messages=messages,

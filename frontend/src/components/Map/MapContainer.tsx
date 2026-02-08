@@ -479,6 +479,9 @@ export default function MapContainer() {
     }
 
     for (const trace of traceroutes) {
+      // Skip traceroutes from disabled sources
+      if (!enabledSourceIds.has(trace.source_id)) continue
+
       // Skip incomplete traceroutes (no route_back means no response received)
       // These are failed traceroutes that shouldn't be rendered
       if (trace.route_back === null) continue
@@ -512,7 +515,7 @@ export default function MapContainer() {
         usage,
       }
     })
-  }, [traceroutes, nodePositionsByNum, showRoutes])
+  }, [traceroutes, nodePositionsByNum, showRoutes, enabledSourceIds])
 
   return (
     <div className="map-container">

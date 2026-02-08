@@ -18,8 +18,8 @@ export default function UserSettings() {
             <div className="user-name">{user?.display_name || user?.username || 'Unknown User'}</div>
             {user?.email && <div className="user-email">{user.email}</div>}
             <div className="user-role">
-              <span className={`badge ${user?.is_admin ? 'badge-success' : 'badge-warning'}`}>
-                {user?.is_admin ? 'Administrator' : 'User'}
+              <span className={`badge ${user?.role === 'admin' ? 'badge-success' : user?.role === 'editor' ? 'badge-info' : 'badge-warning'}`}>
+                {user?.role === 'admin' ? 'Administrator' : user?.role === 'editor' ? 'Editor' : 'Viewer'}
               </span>
               <span className="badge">{user?.auth_provider === 'local' ? 'Local Account' : 'OIDC'}</span>
             </div>

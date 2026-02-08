@@ -1,5 +1,8 @@
 import axios from 'axios'
 import type {
+  AdminUser,
+  AdminUserCreate,
+  AdminUserUpdate,
   AuthStatus,
   CollectionStatus,
   LoginRequest,
@@ -39,6 +42,26 @@ export async function register(data: RegisterRequest): Promise<{ user: UserInfo 
 
 export async function logout(): Promise<void> {
   await api.post('/auth/logout')
+}
+
+// Admin Users
+export async function fetchAdminUsers(): Promise<AdminUser[]> {
+  const response = await api.get<AdminUser[]>('/api/admin/users')
+  return response.data
+}
+
+export async function createAdminUser(data: AdminUserCreate): Promise<AdminUser> {
+  const response = await api.post<AdminUser>('/api/admin/users', data)
+  return response.data
+}
+
+export async function updateAdminUser(id: string, data: AdminUserUpdate): Promise<AdminUser> {
+  const response = await api.put<AdminUser>(`/api/admin/users/${id}`, data)
+  return response.data
+}
+
+export async function deleteAdminUser(id: string): Promise<void> {
+  await api.delete(`/api/admin/users/${id}`)
 }
 
 // Sources

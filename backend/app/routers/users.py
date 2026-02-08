@@ -1,0 +1,119 @@
+"""User management endpoints (admin only)."""
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.auth.middleware import get_current_user, require_admin
+from app.auth.password import hash_password
+from app.database import get_db
+from app.models import User
+from app.schemas.users import UserCreate, UserListItem, UserUpdate
+
+router = APIRouter(prefix="/api/admin/users", tags=["users"])
+
+
+@router.get("", response_model=list[UserListItem])
+async def list_users(
+    db: AsyncSession = Depends(get_db),
+    _admin: None = Depends(require_admin),
+) -> list[UserListItem]:
+    """List all users."""
+    result = await db.execute(select(User).order_by(User.created_at))
+    users = result.scalars().all()
+    return [UserListItem.model_validate(u) for u in users]
+
+
+@router.post("", response_model=UserListItem, status_code=status.HTTP_201_CREATED)
+async def create_user(
+    user_data: UserCreate,
+    db: AsyncSession = Depends(get_db),
+    _admin: None = Depends(require_admin),
+) -> UserListItem:
+    """Create a new user."""
+    # Check username uniqueness
+    result = await db.execute(select(User).where(User.username == user_data.username))
+    if result.scalar():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username already taken",
+        )
+
+    user = User(
+        auth_provider="local",
+        username=user_data.username,
+        password_hash=hash_password(user_data.password),
+        email=user_data.email,
+        display_name=user_data.display_name or user_data.username,
+        role=user_data.role,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return UserListItem.model_validate(user)
+
+
+@router.put("/{user_id}", response_model=UserListItem)
+async def update_user(
+    user_id: str,
+    user_data: UserUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _admin: None = Depends(require_admin),
+) -> UserListItem:
+    """Update a user."""
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Prevent self-demotion or self-deactivation
+    if user.id == current_user.id:
+        if user_data.role is not None and user_data.role != "admin":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot change your own role",
+            )
+        if user_data.is_active is not None and not user_data.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot deactivate your own account",
+            )
+
+    update_data = user_data.model_dump(exclude_unset=True)
+
+    # Hash password if provided
+    if "password" in update_data:
+        password = update_data.pop("password")
+        if password:
+            user.password_hash = hash_password(password)
+
+    for field, value in update_data.items():
+        setattr(user, field, value)
+
+    await db.commit()
+    await db.refresh(user)
+    return UserListItem.model_validate(user)
+
+
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _admin: None = Depends(require_admin),
+) -> None:
+    """Delete a user."""
+    if user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete your own account",
+        )
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    await db.delete(user)
+    await db.commit()

@@ -137,7 +137,7 @@ async def register(
         password_hash=hash_password(registration.password),
         email=registration.email,
         display_name=registration.display_name or registration.username,
-        is_admin=user_count == 0,  # First user is admin
+        role="admin" if user_count == 0 else "viewer",  # First user is admin
         last_login_at=datetime.now(UTC),
     )
     db.add(user)

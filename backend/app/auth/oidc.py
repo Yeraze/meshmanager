@@ -66,7 +66,7 @@ async def process_oidc_callback(token: dict) -> User:
                 oidc_issuer=settings.oidc_issuer or "",
                 email=email,
                 display_name=display_name,
-                is_admin=user_count == 0,  # First user is admin
+                role="admin" if user_count == 0 else "viewer",  # First user is admin
                 last_login_at=datetime.now(UTC),
             )
             db.add(user)

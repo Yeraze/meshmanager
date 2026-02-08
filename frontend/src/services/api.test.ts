@@ -50,7 +50,7 @@ describe('API Service', () => {
     it('fetchAuthStatus should call GET /auth/status', async () => {
       const mockStatus = {
         authenticated: true,
-        user: { id: '1', username: 'test', is_admin: false, auth_method: 'local' },
+        user: { id: '1', username: 'test', role: 'viewer', auth_provider: 'local' },
         oidc_enabled: false,
         setup_required: false,
       }
@@ -64,7 +64,7 @@ describe('API Service', () => {
 
     it('login should call POST /auth/login with credentials', async () => {
       const credentials = { username: 'test', password: 'password123' }
-      const mockResponse = { message: 'Success', user: { id: '1', username: 'test', is_admin: false, auth_method: 'local' } }
+      const mockResponse = { message: 'Success', user: { id: '1', username: 'test', role: 'viewer', auth_provider: 'local' } }
       mockAxiosInstance.post.mockResolvedValueOnce({ data: mockResponse })
 
       const result = await login(credentials)
@@ -75,7 +75,7 @@ describe('API Service', () => {
 
     it('register should call POST /auth/register with user data', async () => {
       const userData = { username: 'newuser', password: 'password123', password_confirm: 'password123' }
-      const mockResponse = { message: 'Success', user: { id: '1', username: 'newuser', is_admin: true, auth_method: 'local' } }
+      const mockResponse = { message: 'Success', user: { id: '1', username: 'newuser', role: 'admin', auth_provider: 'local' } }
       mockAxiosInstance.post.mockResolvedValueOnce({ data: mockResponse })
 
       const result = await register(userData)

@@ -37,8 +37,13 @@ class User(Base):
     display_name: Mapped[str | None] = mapped_column(String(255))
 
     # Permissions
-    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    role: Mapped[str] = mapped_column(String(20), default="viewer")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    @property
+    def is_admin(self) -> bool:
+        """Backward-compatible admin check."""
+        return self.role == "admin"
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(

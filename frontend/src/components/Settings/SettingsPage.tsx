@@ -3,9 +3,10 @@ import { useAuthContext } from '../../contexts/AuthContext'
 import ConfigExportImport from './ConfigExportImport'
 import DisplaySettings from './DisplaySettings'
 import SourcesSettings from './SourcesSettings'
+import UsersManagement from './UsersManagement'
 import UserSettings from './UserSettings'
 
-type SettingsTab = 'display' | 'sources' | 'user'
+type SettingsTab = 'display' | 'sources' | 'users' | 'user'
 
 export default function SettingsPage() {
   const { isAdmin } = useAuthContext()
@@ -32,6 +33,14 @@ export default function SettingsPage() {
             Sources
           </button>
         )}
+        {isAdmin && (
+          <button
+            className={`tab ${activeTab === 'users' ? 'active' : ''}`}
+            onClick={() => setActiveTab('users')}
+          >
+            Users
+          </button>
+        )}
         <button
           className={`tab ${activeTab === 'user' ? 'active' : ''}`}
           onClick={() => setActiveTab('user')}
@@ -48,6 +57,7 @@ export default function SettingsPage() {
           </>
         )}
         {activeTab === 'sources' && isAdmin && <SourcesSettings />}
+        {activeTab === 'users' && isAdmin && <UsersManagement />}
         {activeTab === 'user' && <UserSettings />}
       </div>
     </div>

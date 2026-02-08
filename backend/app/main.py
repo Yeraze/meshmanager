@@ -22,6 +22,7 @@ from app.routers import (
     metrics_router,
     sources_router,
     ui_router,
+    users_router,
     utilization_router,
 )
 from app.services.collector_manager import collector_manager
@@ -110,6 +111,7 @@ app.include_router(metrics_router)
 app.include_router(auth_router)
 app.include_router(sources_router)
 app.include_router(config_router)
+app.include_router(users_router)
 app.include_router(ui_router)
 app.include_router(coverage_router)
 app.include_router(utilization_router)

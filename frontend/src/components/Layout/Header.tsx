@@ -34,7 +34,8 @@ export default function Header() {
                 {displayName[0].toUpperCase()}
               </span>
               <span className="user-menu-name">{displayName}</span>
-              {user?.is_admin && <span className="badge badge-success">Admin</span>}
+              {user?.role === 'admin' && <span className="badge badge-success">Admin</span>}
+              {user?.role === 'editor' && <span className="badge badge-info">Editor</span>}
               <span className="user-menu-chevron">{showDropdown ? '▲' : '▼'}</span>
             </button>
 

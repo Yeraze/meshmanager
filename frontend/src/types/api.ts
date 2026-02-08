@@ -56,13 +56,43 @@ export interface AuthStatus {
   setup_required: boolean
 }
 
+export type UserRole = 'admin' | 'editor' | 'viewer'
+
 export interface UserInfo {
   id: string
   username: string | null
   email: string | null
   display_name: string | null
-  is_admin: boolean
+  role: UserRole
   auth_provider: string
+}
+
+export interface AdminUser {
+  id: string
+  username: string | null
+  email: string | null
+  display_name: string | null
+  role: UserRole
+  auth_provider: string
+  is_active: boolean
+  created_at: string | null
+  last_login_at: string | null
+}
+
+export interface AdminUserCreate {
+  username: string
+  password: string
+  email?: string
+  display_name?: string
+  role: UserRole
+}
+
+export interface AdminUserUpdate {
+  email?: string
+  display_name?: string
+  role?: UserRole
+  is_active?: boolean
+  password?: string
 }
 
 export interface LoginRequest {

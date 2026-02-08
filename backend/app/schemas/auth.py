@@ -10,7 +10,7 @@ class UserInfo(BaseModel):
     username: str | None = None
     email: str | None = None
     display_name: str | None = None
-    is_admin: bool = False
+    role: str = "viewer"
     auth_provider: str = "local"
 
     model_config = {"from_attributes": True}

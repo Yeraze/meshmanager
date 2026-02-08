@@ -47,3 +47,14 @@ async def require_admin(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required",
         )
+
+
+async def require_editor(
+    user: User = Depends(get_current_user),
+) -> None:
+    """Require the current user to be an admin or editor."""
+    if user.role not in ("admin", "editor"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Editor access required",
+        )

@@ -5,6 +5,7 @@ import type { LoginRequest, RegisterRequest, UserInfo } from '../types/api'
 interface AuthContextValue {
   isAuthenticated: boolean
   isAdmin: boolean
+  isEditor: boolean
   user: UserInfo | null
   oidcEnabled: boolean
   setupRequired: boolean
@@ -64,7 +65,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value: AuthContextValue = {
     isAuthenticated: authStatus?.authenticated ?? false,
-    isAdmin: authStatus?.user?.is_admin ?? false,
+    isAdmin: authStatus?.user?.role === 'admin',
+    isEditor: ['admin', 'editor'].includes(authStatus?.user?.role ?? ''),
     user: authStatus?.user ?? null,
     oidcEnabled: authStatus?.oidc_enabled ?? false,
     setupRequired: authStatus?.setup_required ?? false,

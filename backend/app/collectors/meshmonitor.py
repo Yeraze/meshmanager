@@ -457,6 +457,7 @@ class MeshMonitorCollector(BaseCollector):
             channel.uplink_enabled = channel_data.get("uplinkEnabled", False)
             channel.downlink_enabled = channel_data.get("downlinkEnabled", False)
             channel.position_precision = channel_data.get("positionPrecision")
+            channel.psk = channel_data.get("psk")
             channel.updated_at = datetime.now(UTC)
         else:
             # Create new channel
@@ -468,6 +469,7 @@ class MeshMonitorCollector(BaseCollector):
                 uplink_enabled=channel_data.get("uplinkEnabled", False),
                 downlink_enabled=channel_data.get("downlinkEnabled", False),
                 position_precision=channel_data.get("positionPrecision"),
+                psk=channel_data.get("psk"),
             )
             db.add(channel)
 

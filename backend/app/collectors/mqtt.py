@@ -3,16 +3,22 @@
 import asyncio
 import json
 import logging
+import time
 from datetime import UTC, datetime
 
 import aiomqtt
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.collectors.base import BaseCollector
 from app.database import async_session_maker
 from app.models import Channel, Message, Node, Source, Telemetry, Traceroute
 from app.schemas.source import SourceTestResult
-from app.services.protobuf import decode_meshtastic_packet
+from app.services.protobuf import (
+    MESHTASTIC_DEFAULT_KEY,
+    _expand_psk,
+    decode_meshtastic_packet,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +31,8 @@ class MqttCollector(BaseCollector):
         self._running = False
         self._task: asyncio.Task | None = None
         self._client: aiomqtt.Client | None = None
+        self._encryption_keys: list[bytes] = []
+        self._keys_fetched_at: float = 0
 
     async def test_connection(self) -> SourceTestResult:
         """Test connection to the MQTT broker."""
@@ -210,11 +218,39 @@ class MqttCollector(BaseCollector):
         )
         db.add(channel)
 
+    async def _get_encryption_keys(self) -> list[bytes]:
+        """Get cached encryption keys, refreshing every 5 minutes."""
+        now = time.monotonic()
+        if now - self._keys_fetched_at < 300 and self._encryption_keys:
+            return self._encryption_keys
+
+        keys: list[bytes] = []
+        seen: set[bytes] = set()
+        try:
+            async with async_session_maker() as db:
+                result = await db.execute(select(Channel.psk).where(Channel.psk.isnot(None)))
+                for (psk_b64,) in result:
+                    expanded = _expand_psk(psk_b64)
+                    if expanded and expanded not in seen:
+                        keys.append(expanded)
+                        seen.add(expanded)
+        except Exception as e:
+            logger.debug(f"Failed to load encryption keys: {e}")
+
+        # Always include the default key
+        if MESHTASTIC_DEFAULT_KEY not in seen:
+            keys.append(MESHTASTIC_DEFAULT_KEY)
+
+        self._encryption_keys = keys
+        self._keys_fetched_at = now
+        return keys
+
     async def _process_protobuf_message(self, topic: str, payload: bytes) -> None:
         """Process a protobuf-encoded Meshtastic message."""
         try:
-            decoded = decode_meshtastic_packet(payload)
-            if decoded:
+            keys = await self._get_encryption_keys()
+            decoded = decode_meshtastic_packet(payload, encryption_keys=keys)
+            if decoded and decoded.get("portnum"):
                 async with async_session_maker() as db:
                     await self._handle_decoded_packet(db, decoded)
                     await db.commit()
@@ -599,8 +635,7 @@ class MqttCollector(BaseCollector):
         from sqlalchemy import select
 
         result = await db.execute(
-            select(Node.long_name, Node.node_num)
-            .where(Node.long_name.in_(names))
+            select(Node.long_name, Node.node_num).where(Node.long_name.in_(names))
         )
         name_to_num = {row.long_name: row.node_num for row in result}
 

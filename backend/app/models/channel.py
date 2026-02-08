@@ -34,6 +34,7 @@ class Channel(Base):
     uplink_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     downlink_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     position_precision: Mapped[int | None] = mapped_column(Integer)
+    psk: Mapped[str | None] = mapped_column(String(48))  # base64-encoded AES key
 
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

@@ -376,6 +376,10 @@ class MqttCollector(BaseCollector):
         if val is not None:
             return float(val)
         int_val = data.get(int_key)
+        if int_val is None:
+            # camelCase from protobuf MessageToDict: "latitudeI" / "longitudeI"
+            camel_key = int_key.replace("_i", "I")
+            int_val = data.get(camel_key)
         if int_val is not None:
             return int(int_val) / 1e7
         return None

@@ -55,6 +55,7 @@ export interface AuthStatus {
   oidc_enabled: boolean
   setup_required: boolean
   totp_required: boolean
+  local_auth_disabled: boolean
 }
 
 export interface TabPermission {

@@ -9,6 +9,7 @@ interface AuthContextValue {
   user: UserInfo | null
   oidcEnabled: boolean
   setupRequired: boolean
+  localAuthDisabled: boolean
   isLoading: boolean
   showLoginModal: boolean
   setShowLoginModal: (show: boolean) => void
@@ -110,6 +111,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user: authStatus?.user ?? null,
     oidcEnabled: authStatus?.oidc_enabled ?? false,
     setupRequired: authStatus?.setup_required ?? false,
+    localAuthDisabled: authStatus?.local_auth_disabled ?? false,
     isLoading,
     showLoginModal,
     setShowLoginModal,

@@ -56,6 +56,7 @@ async def auth_status(
         oidc_enabled=settings.oidc_enabled,
         setup_required=user_count == 0,
         totp_required=bool(request.session.get("totp_pending")),
+        local_auth_disabled=settings.disable_local_auth,
     )
 
 
@@ -66,6 +67,12 @@ async def login(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Log in with username and password."""
+    if settings.disable_local_auth:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Local authentication is disabled",
+        )
+
     # Find user by username
     result = await db.execute(
         select(User).where(
@@ -263,6 +270,13 @@ async def register(
     After that, only admins can create new users.
     """
     user_count = await _get_user_count(db)
+
+    # Block registration when local auth is disabled (except first user setup)
+    if settings.disable_local_auth and user_count > 0:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Local authentication is disabled",
+        )
 
     # If users exist, require admin authentication
     if user_count > 0:

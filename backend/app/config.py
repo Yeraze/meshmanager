@@ -26,6 +26,17 @@ class Settings(BaseSettings):
     oidc_client_id: str | None = Field(default=None, description="OIDC client ID")
     oidc_client_secret: str | None = Field(default=None, description="OIDC client secret")
     oidc_redirect_uri: str | None = Field(default=None, description="OIDC redirect URI")
+    oidc_scopes: str = Field(
+        default="openid email profile", description="OIDC scopes to request"
+    )
+    oidc_auto_create_users: bool = Field(
+        default=True, description="Auto-create users on first OIDC login"
+    )
+
+    # Authentication
+    disable_local_auth: bool = Field(
+        default=False, description="Disable local username/password authentication"
+    )
 
     # Session
     session_secret: str = Field(

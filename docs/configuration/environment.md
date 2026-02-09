@@ -25,14 +25,19 @@ Change the default database credentials in production environments.
 
 ## Authentication
 
+Authentication is always enabled. The first user to register becomes an admin.
+
+For SSO configuration details, see the [SSO (OpenID Connect)](/configuration/sso) guide.
+
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AUTH_ENABLED` | `false` | Enable authentication |
-| `OIDC_ENABLED` | `false` | Enable OpenID Connect |
 | `OIDC_ISSUER` | | OIDC provider issuer URL |
 | `OIDC_CLIENT_ID` | | OIDC client ID |
 | `OIDC_CLIENT_SECRET` | | OIDC client secret |
-| `OIDC_REDIRECT_URI` | | OIDC callback URL |
+| `OIDC_REDIRECT_URI` | auto-detected | OIDC callback URL |
+| `OIDC_SCOPES` | `openid email profile` | Space-separated OIDC scopes to request |
+| `OIDC_AUTO_CREATE_USERS` | `true` | Auto-create users on first SSO login |
+| `DISABLE_LOCAL_AUTH` | `false` | Disable local username/password login |
 
 ## Data Collection
 
@@ -45,20 +50,21 @@ Change the default database credentials in production environments.
 
 ```bash
 # Database
-DATABASE_URL=postgresql://meshmanager:secure_password@postgres:5432/meshmanager
+DATABASE_URL=postgresql+asyncpg://meshmanager:secure_password@postgres/meshmanager
 POSTGRES_PASSWORD=secure_password
 
 # Application
 LOG_LEVEL=INFO
 SESSION_SECRET=your-secure-random-string-here
 
-# Authentication (optional)
-AUTH_ENABLED=true
-OIDC_ENABLED=true
-OIDC_ISSUER=https://auth.example.com
+# OIDC Authentication (optional)
+OIDC_ISSUER=https://auth.example.com/application/o/meshmanager
 OIDC_CLIENT_ID=meshmanager
 OIDC_CLIENT_SECRET=your-client-secret
-OIDC_REDIRECT_URI=https://meshmanager.example.com/api/auth/oidc/callback
+OIDC_REDIRECT_URI=https://meshmanager.example.com/auth/oidc/callback
+# OIDC_SCOPES=openid email profile
+# OIDC_AUTO_CREATE_USERS=true
+# DISABLE_LOCAL_AUTH=false
 ```
 
 ## Security Best Practices

@@ -40,6 +40,11 @@ Set up solar monitoring features:
 Configure automated alerts:
 - [Notifications](/configuration/notifications) - Apprise notification setup
 
+### Authentication & SSO
+
+Configure how users log in:
+- [SSO (OpenID Connect)](/configuration/sso) - OIDC setup with Authentik, Keycloak, Auth0, etc.
+
 ### Environment Variables
 
 System-level configuration:

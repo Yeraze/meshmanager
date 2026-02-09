@@ -30,6 +30,14 @@ class TestAuthStatus:
         assert "user" in data
         assert "oidc_enabled" in data
         assert "setup_required" in data
+        assert "local_auth_disabled" in data
+
+    async def test_auth_status_local_auth_disabled_field(self, client: AsyncClient):
+        """Auth status should reflect local_auth_disabled setting."""
+        response = await client.get("/auth/status")
+        data = response.json()
+        # Default is False
+        assert data["local_auth_disabled"] is False
 
 
 @pytest.mark.integration
@@ -182,3 +190,88 @@ class TestAuthLogout:
         # Verify logged out
         status_response = await client.get("/auth/status")
         assert status_response.json()["authenticated"] is False
+
+
+@pytest.mark.integration
+class TestDisableLocalAuth:
+    """Tests for DISABLE_LOCAL_AUTH functionality."""
+
+    async def test_login_blocked_when_local_auth_disabled(self, client: AsyncClient):
+        """Login should return 403 when local auth is disabled."""
+        from app.routers.auth import settings
+
+        original = settings.disable_local_auth
+        settings.disable_local_auth = True
+        try:
+            response = await client.post(
+                "/auth/login",
+                json={"username": "test", "password": "testpassword123"},
+            )
+            assert response.status_code == 403
+            assert response.json()["detail"] == "Local authentication is disabled"
+        finally:
+            settings.disable_local_auth = original
+
+    async def test_register_blocked_when_local_auth_disabled(self, client: AsyncClient):
+        """Register should return 403 when local auth is disabled and users exist."""
+        from app.routers.auth import settings
+
+        # First create a user so user_count > 0
+        await client.post(
+            "/auth/register",
+            json={
+                "username": "existinguser",
+                "password": "testpassword123",
+            },
+        )
+
+        original = settings.disable_local_auth
+        settings.disable_local_auth = True
+        try:
+            response = await client.post(
+                "/auth/register",
+                json={
+                    "username": "newuser",
+                    "password": "testpassword123",
+                },
+            )
+            assert response.status_code == 403
+            assert response.json()["detail"] == "Local authentication is disabled"
+        finally:
+            settings.disable_local_auth = original
+
+    async def test_register_first_user_allowed_when_local_auth_disabled(
+        self, client: AsyncClient
+    ):
+        """First user registration should still work even when local auth is disabled."""
+        from app.routers.auth import settings
+
+        original = settings.disable_local_auth
+        settings.disable_local_auth = True
+        try:
+            response = await client.post(
+                "/auth/register",
+                json={
+                    "username": "firstadmin",
+                    "password": "testpassword123",
+                },
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data["user"]["username"] == "firstadmin"
+            assert data["user"]["role"] == "admin"
+        finally:
+            settings.disable_local_auth = original
+
+    async def test_auth_status_reflects_local_auth_disabled(self, client: AsyncClient):
+        """Auth status should show local_auth_disabled=true when setting is enabled."""
+        from app.routers.auth import settings
+
+        original = settings.disable_local_auth
+        settings.disable_local_auth = True
+        try:
+            response = await client.get("/auth/status")
+            data = response.json()
+            assert data["local_auth_disabled"] is True
+        finally:
+            settings.disable_local_auth = original

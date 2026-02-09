@@ -26,7 +26,7 @@ def get_oauth_client() -> OAuth:
                 client_id=settings.oidc_client_id,
                 client_secret=settings.oidc_client_secret,
                 server_metadata_url=f"{settings.oidc_issuer}/.well-known/openid-configuration",
-                client_kwargs={"scope": "openid email profile"},
+                client_kwargs={"scope": settings.oidc_scopes},
             )
     return _oauth
 
@@ -56,6 +56,12 @@ async def process_oidc_callback(token: dict) -> User:
             user.display_name = display_name
             user.last_login_at = datetime.now(UTC)
         else:
+            if not settings.oidc_auto_create_users:
+                raise ValueError(
+                    "Auto-creation of OIDC users is disabled. "
+                    "Please contact your administrator to create an account."
+                )
+
             # Check if this is the first user (make them admin)
             count_result = await db.execute(select(func.count()).select_from(User))
             user_count = count_result.scalar() or 0

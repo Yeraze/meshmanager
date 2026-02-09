@@ -48,6 +48,7 @@ export default defineConfig({
             { text: 'Docker Deployment', link: '/configuration/docker' },
             { text: 'Environment Variables', link: '/configuration/environment' },
             { text: 'Data Sources', link: '/configuration/sources' },
+            { text: 'SSO (OpenID Connect)', link: '/configuration/sso' },
             { text: 'Solar Integration', link: '/configuration/solar' },
             { text: 'Notifications', link: '/configuration/notifications' },
           ]

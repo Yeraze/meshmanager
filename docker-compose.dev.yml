@@ -25,6 +25,13 @@ services:
       LOG_LEVEL: INFO
       CORS_ORIGINS: '["http://localhost:8080"]'
       TZ: America/New_York
+      # OIDC_ISSUER: https://your-oidc-provider.example.com
+      # OIDC_CLIENT_ID: your-client-id
+      # OIDC_CLIENT_SECRET: your-client-secret
+      # OIDC_REDIRECT_URI: https://your-domain.com/auth/oidc/callback
+      # OIDC_SCOPES: openid email profile
+      # OIDC_AUTO_CREATE_USERS: "true"
+      # DISABLE_LOCAL_AUTH: "false"
     depends_on:
       postgres:
         condition: service_healthy

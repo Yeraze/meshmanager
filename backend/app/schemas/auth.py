@@ -53,6 +53,7 @@ class AuthStatus(BaseModel):
     oidc_enabled: bool = False
     setup_required: bool = False
     totp_required: bool = False
+    local_auth_disabled: bool = False
 
 
 class LoginRequest(BaseModel):

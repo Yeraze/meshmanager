@@ -27,8 +27,16 @@ class Settings(BaseSettings):
     oidc_client_secret: str | None = Field(default=None, description="OIDC client secret")
     oidc_redirect_uri: str | None = Field(default=None, description="OIDC redirect URI")
     oidc_scopes: str = Field(
-        default="openid email profile", description="OIDC scopes to request"
+        default="openid email profile", description="OIDC scopes (space-separated)"
     )
+
+    @field_validator("oidc_scopes")
+    @classmethod
+    def validate_oidc_scopes(cls, v: str) -> str:
+        """Validate OIDC scopes are space-separated."""
+        if "," in v:
+            raise ValueError("OIDC scopes must be space-separated, not comma-separated")
+        return v.strip()
     oidc_auto_create_users: bool = Field(
         default=True, description="Auto-create users on first OIDC login"
     )

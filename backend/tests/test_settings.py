@@ -36,3 +36,21 @@ class TestSettingsDefaults:
             oidc_scopes="openid email",
         )
         assert s.oidc_scopes == "openid email"
+
+    def test_oidc_scopes_rejects_comma_separated(self):
+        """OIDC scopes should reject comma-separated values."""
+        import pytest
+
+        with pytest.raises(Exception, match="space-separated"):
+            Settings(
+                database_url="sqlite+aiosqlite:///test.db",
+                oidc_scopes="openid,email,profile",
+            )
+
+    def test_oidc_scopes_strips_whitespace(self):
+        """OIDC scopes should be trimmed."""
+        s = Settings(
+            database_url="sqlite+aiosqlite:///test.db",
+            oidc_scopes="  openid email profile  ",
+        )
+        assert s.oidc_scopes == "openid email profile"

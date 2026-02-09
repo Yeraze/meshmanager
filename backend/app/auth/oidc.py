@@ -57,7 +57,10 @@ async def process_oidc_callback(token: dict) -> User:
             user.last_login_at = datetime.now(UTC)
         else:
             if not settings.oidc_auto_create_users:
-                raise ValueError("Auto-creation of OIDC users is disabled")
+                raise ValueError(
+                    "Auto-creation of OIDC users is disabled. "
+                    "Please contact your administrator to create an account."
+                )
 
             # Check if this is the first user (make them admin)
             count_result = await db.execute(select(func.count()).select_from(User))

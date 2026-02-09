@@ -10,7 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.middleware import get_current_user, get_current_user_optional
 from app.auth.password import hash_password, verify_password
-from app.auth.totp import generate_qr_code_svg, generate_totp_secret, get_provisioning_uri, verify_totp_code
+from app.auth.totp import (
+    generate_qr_code_svg,
+    generate_totp_secret,
+    get_provisioning_uri,
+    verify_totp_code,
+)
 from app.config import get_settings
 from app.database import get_db
 from app.models import User

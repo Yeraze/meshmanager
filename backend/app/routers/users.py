@@ -8,10 +8,38 @@ from app.auth.middleware import get_current_user, require_admin
 from app.auth.password import hash_password
 from app.database import get_db
 from app.models import User
-from app.models.user import DEFAULT_PERMISSIONS
+from app.models.user import DEFAULT_PERMISSIONS, VALID_TABS
 from app.schemas.users import UserCreate, UserListItem, UserUpdate
 
 router = APIRouter(prefix="/api/admin/users", tags=["users"])
+
+VALID_ACTIONS = {"read", "write"}
+
+
+def _validate_permissions(permissions: dict) -> None:
+    """Validate that a permissions dict only contains valid tabs and actions."""
+    for key, value in permissions.items():
+        if key not in VALID_TABS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid permission tab: {key}",
+            )
+        if not isinstance(value, dict):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Permission for '{key}' must be an object",
+            )
+        for action, enabled in value.items():
+            if action not in VALID_ACTIONS:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid permission action: {action}",
+                )
+            if not isinstance(enabled, bool):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Permission value for '{key}.{action}' must be a boolean",
+                )
 
 
 @router.get("", response_model=list[UserListItem])
@@ -43,6 +71,7 @@ async def create_user(
     permissions = (
         user_data.permissions.model_dump() if user_data.permissions else dict(DEFAULT_PERMISSIONS)
     )
+    _validate_permissions(permissions)
 
     user = User(
         auth_provider="local",
@@ -110,6 +139,7 @@ async def update_user(
     if "permissions" in update_data:
         permissions = update_data.pop("permissions")
         if permissions is not None:
+            _validate_permissions(permissions)
             user.permissions = permissions
 
     # Handle TOTP reset

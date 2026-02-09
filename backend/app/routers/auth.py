@@ -1,5 +1,6 @@
 """Authentication endpoints."""
 
+import time
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -9,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.middleware import get_current_user, get_current_user_optional
 from app.auth.password import hash_password, verify_password
+from app.auth.totp import generate_qr_code_svg, generate_totp_secret, get_provisioning_uri, verify_totp_code
 from app.config import get_settings
 from app.database import get_db
 from app.models import User
@@ -116,6 +118,19 @@ async def verify_totp(
             detail="No TOTP verification pending",
         )
 
+    # Rate limit: max 5 attempts per 5 minutes
+    max_attempts = 5
+    window_seconds = 300
+    attempts = request.session.get("totp_attempts", [])
+    now = time.time()
+    # Keep only attempts within the window
+    attempts = [t for t in attempts if now - t < window_seconds]
+    if len(attempts) >= max_attempts:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many TOTP attempts. Please wait before trying again.",
+        )
+
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar()
     if not user or not user.totp_secret:
@@ -124,16 +139,17 @@ async def verify_totp(
             detail="TOTP not configured for this user",
         )
 
-    from app.auth.totp import verify_totp_code
-
     if not verify_totp_code(user.totp_secret, body.code):
+        attempts.append(now)
+        request.session["totp_attempts"] = attempts
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid TOTP code",
         )
 
-    # Clear pending state and complete login
+    # Clear pending state, attempts, and complete login
     request.session.pop("totp_pending", None)
+    request.session.pop("totp_attempts", None)
     user.last_login_at = datetime.now(UTC)
     await db.commit()
 
@@ -157,8 +173,6 @@ async def setup_totp(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="TOTP is already enabled",
         )
-
-    from app.auth.totp import generate_qr_code_svg, generate_totp_secret, get_provisioning_uri
 
     secret = generate_totp_secret()
     uri = get_provisioning_uri(secret, user.username or user.email or user.id)
@@ -189,8 +203,6 @@ async def enable_totp(
             detail="No TOTP setup in progress. Call /auth/totp/setup first.",
         )
 
-    from app.auth.totp import verify_totp_code
-
     if not verify_totp_code(secret, body.code):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -219,8 +231,6 @@ async def disable_totp(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="TOTP is not enabled",
         )
-
-    from app.auth.totp import verify_totp_code
 
     if not verify_totp_code(user.totp_secret, body.code):
         raise HTTPException(

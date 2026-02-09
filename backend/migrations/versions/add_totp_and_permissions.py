@@ -53,12 +53,14 @@ def upgrade() -> None:
 
     # Migrate editors: set all write=true, change role to 'user'
     op.execute(
-        f"UPDATE users SET role = 'user', permissions = '{ALL_WRITE_PERMISSIONS}' "
-        "WHERE role = 'editor'"
+        sa.text(
+            "UPDATE users SET role = 'user', permissions = CAST(:perms AS json) "
+            "WHERE role = 'editor'"
+        ).bindparams(perms=ALL_WRITE_PERMISSIONS)
     )
 
     # Migrate viewers: change role to 'user' (permissions default is read-only)
-    op.execute("UPDATE users SET role = 'user' WHERE role = 'viewer'")
+    op.execute(sa.text("UPDATE users SET role = 'user' WHERE role = 'viewer'"))
 
     # Add CHECK constraint to enforce valid role values
     op.create_check_constraint(
@@ -73,10 +75,12 @@ def downgrade() -> None:
 
     # Convert back based on settings write permission
     op.execute(
-        "UPDATE users SET role = 'editor' "
-        "WHERE role = 'user' AND permissions::text LIKE '%\"settings\":{\"read\":true,\"write\":true}%'"
+        sa.text(
+            "UPDATE users SET role = 'editor' "
+            "WHERE role = 'user' AND permissions::text LIKE :pattern"
+        ).bindparams(pattern='%"settings":{"read":true,"write":true}%')
     )
-    op.execute("UPDATE users SET role = 'viewer' WHERE role = 'user'")
+    op.execute(sa.text("UPDATE users SET role = 'viewer' WHERE role = 'user'"))
 
     op.drop_column("users", "permissions")
     op.drop_column("users", "totp_enabled")

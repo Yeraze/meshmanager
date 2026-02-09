@@ -1,13 +1,14 @@
 """User management endpoints (admin only)."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.middleware import get_current_user, require_admin
 from app.auth.password import hash_password
 from app.database import get_db
 from app.models import User
+from app.models.user import DEFAULT_PERMISSIONS
 from app.schemas.users import UserCreate, UserListItem, UserUpdate
 
 router = APIRouter(prefix="/api/admin/users", tags=["users"])
@@ -39,13 +40,18 @@ async def create_user(
             detail="Username already taken",
         )
 
+    permissions = (
+        user_data.permissions.model_dump() if user_data.permissions else dict(DEFAULT_PERMISSIONS)
+    )
+
     user = User(
         auth_provider="local",
         username=user_data.username,
         password_hash=hash_password(user_data.password),
         email=user_data.email,
         display_name=user_data.display_name or user_data.username,
-        role=user_data.role,
+        role="admin" if user_data.is_admin else "user",
+        permissions=permissions,
     )
     db.add(user)
     await db.commit()
@@ -65,14 +71,16 @@ async def update_user(
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
 
     # Prevent self-demotion or self-deactivation
     if user.id == current_user.id:
-        if user_data.role is not None and user_data.role != "admin":
+        if user_data.is_admin is not None and not user_data.is_admin:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot change your own role",
+                detail="Cannot remove your own admin status",
             )
         if user_data.is_active is not None and not user_data.is_active:
             raise HTTPException(
@@ -81,6 +89,35 @@ async def update_user(
             )
 
     update_data = user_data.model_dump(exclude_unset=True)
+
+    # Handle is_admin -> role mapping
+    if "is_admin" in update_data:
+        is_admin = update_data.pop("is_admin")
+        if is_admin is not None:
+            if not is_admin and user.role == "admin":
+                # Prevent demoting the last admin
+                admin_count = await db.scalar(
+                    select(func.count()).select_from(User).where(User.role == "admin")
+                )
+                if admin_count <= 1:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Cannot remove the last admin",
+                    )
+            user.role = "admin" if is_admin else "user"
+
+    # Handle permissions
+    if "permissions" in update_data:
+        permissions = update_data.pop("permissions")
+        if permissions is not None:
+            user.permissions = permissions
+
+    # Handle TOTP reset
+    if "reset_totp" in update_data:
+        reset_totp = update_data.pop("reset_totp")
+        if reset_totp:
+            user.totp_secret = None
+            user.totp_enabled = False
 
     # Hash password if provided
     if "password" in update_data:
@@ -113,7 +150,20 @@ async def delete_user(
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    # Prevent deleting the last admin
+    if user.role == "admin":
+        admin_count = await db.scalar(
+            select(func.count()).select_from(User).where(User.role == "admin")
+        )
+        if admin_count <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot delete the last admin",
+            )
 
     await db.delete(user)
     await db.commit()

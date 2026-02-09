@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.middleware import require_editor
+from app.auth.middleware import require_permission
 from app.database import get_db
 from app.models import Source
 from app.models.source import SourceType
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/api/admin/sources", tags=["sources"])
 @router.get("", response_model=list[SourceResponse])
 async def list_sources(
     db: AsyncSession = Depends(get_db),
-    _admin: None = Depends(require_editor),
+    _admin: None = Depends(require_permission("settings", "write")),
 ) -> list[SourceResponse]:
     """List all configured sources."""
     result = await db.execute(select(Source).order_by(Source.name))
@@ -36,7 +36,7 @@ async def list_sources(
 async def create_meshmonitor_source(
     source_data: MeshMonitorSourceCreate,
     db: AsyncSession = Depends(get_db),
-    _admin: None = Depends(require_editor),
+    _admin: None = Depends(require_permission("settings", "write")),
 ) -> SourceResponse:
     """Create a new MeshMonitor source."""
     source = Source(
@@ -62,7 +62,7 @@ async def create_meshmonitor_source(
 async def create_mqtt_source(
     source_data: MqttSourceCreate,
     db: AsyncSession = Depends(get_db),
-    _admin: None = Depends(require_editor),
+    _admin: None = Depends(require_permission("settings", "write")),
 ) -> SourceResponse:
     """Create a new MQTT source."""
     source = Source(
@@ -90,7 +90,7 @@ async def create_mqtt_source(
 async def get_source(
     source_id: str,
     db: AsyncSession = Depends(get_db),
-    _admin: None = Depends(require_editor),
+    _admin: None = Depends(require_permission("settings", "write")),
 ) -> SourceResponse:
     """Get a specific source."""
     result = await db.execute(select(Source).where(Source.id == source_id))
@@ -105,7 +105,7 @@ async def update_meshmonitor_source(
     source_id: str,
     source_data: MeshMonitorSourceUpdate,
     db: AsyncSession = Depends(get_db),
-    _admin: None = Depends(require_editor),
+    _admin: None = Depends(require_permission("settings", "write")),
 ) -> SourceResponse:
     """Update a MeshMonitor source."""
     result = await db.execute(select(Source).where(Source.id == source_id))
@@ -133,7 +133,7 @@ async def update_mqtt_source(
     source_id: str,
     source_data: MqttSourceUpdate,
     db: AsyncSession = Depends(get_db),
-    _admin: None = Depends(require_editor),
+    _admin: None = Depends(require_permission("settings", "write")),
 ) -> SourceResponse:
     """Update an MQTT source."""
     result = await db.execute(select(Source).where(Source.id == source_id))
@@ -160,7 +160,7 @@ async def update_mqtt_source(
 async def delete_source(
     source_id: str,
     db: AsyncSession = Depends(get_db),
-    _admin: None = Depends(require_editor),
+    _admin: None = Depends(require_permission("settings", "write")),
 ) -> None:
     """Delete a source and all its data."""
     result = await db.execute(select(Source).where(Source.id == source_id))
@@ -178,7 +178,7 @@ async def delete_source(
 async def test_source(
     source_id: str,
     db: AsyncSession = Depends(get_db),
-    _admin: None = Depends(require_editor),
+    _admin: None = Depends(require_permission("settings", "write")),
 ) -> SourceTestResult:
     """Test a source connection."""
     result = await db.execute(select(Source).where(Source.id == source_id))
@@ -202,7 +202,7 @@ async def test_source(
 async def sync_source_data(
     source_id: str,
     db: AsyncSession = Depends(get_db),
-    _admin: None = Depends(require_editor),
+    _admin: None = Depends(require_permission("settings", "write")),
 ) -> dict:
     """Trigger full data sync for a source, skipping duplicates."""
     result = await db.execute(select(Source).where(Source.id == source_id))
@@ -224,7 +224,7 @@ async def sync_source_data(
 async def collect_historical_data(
     source_id: str,
     db: AsyncSession = Depends(get_db),
-    _admin: None = Depends(require_editor),
+    _admin: None = Depends(require_permission("settings", "write")),
 ) -> dict:
     """Trigger historical data collection for a source."""
     result = await db.execute(select(Source).where(Source.id == source_id))
@@ -244,7 +244,7 @@ async def collect_historical_data(
 
 @router.post("/collect-history-all")
 async def collect_historical_data_all(
-    _admin: None = Depends(require_editor),
+    _admin: None = Depends(require_permission("settings", "write")),
 ) -> dict:
     """Trigger historical data collection for all MeshMonitor sources."""
     count = await collector_manager.trigger_historical_collection_all()
@@ -256,7 +256,7 @@ async def collect_per_node_historical_data(
     source_id: str,
     days_back: int = 7,
     db: AsyncSession = Depends(get_db),
-    _admin: None = Depends(require_editor),
+    _admin: None = Depends(require_permission("settings", "write")),
 ) -> dict:
     """Trigger per-node historical telemetry collection for a source.
 
@@ -295,7 +295,7 @@ async def collect_per_node_historical_data(
 @router.post("/collect-node-history-all")
 async def collect_per_node_historical_data_all(
     days_back: int = 7,
-    _admin: None = Depends(require_editor),
+    _admin: None = Depends(require_permission("settings", "write")),
 ) -> dict:
     """Trigger per-node historical telemetry collection for all MeshMonitor sources.
 

@@ -54,9 +54,24 @@ export interface AuthStatus {
   user: UserInfo | null
   oidc_enabled: boolean
   setup_required: boolean
+  totp_required: boolean
 }
 
-export type UserRole = 'admin' | 'editor' | 'viewer'
+export interface TabPermission {
+  read: boolean
+  write: boolean
+}
+
+export interface UserPermissions {
+  map: TabPermission
+  nodes: TabPermission
+  graphs: TabPermission
+  analysis: TabPermission
+  communication: TabPermission
+  settings: TabPermission
+}
+
+export type UserRole = 'admin' | 'user'
 
 export interface UserInfo {
   id: string
@@ -64,7 +79,10 @@ export interface UserInfo {
   email: string | null
   display_name: string | null
   role: UserRole
+  is_admin: boolean
   auth_provider: string
+  permissions: UserPermissions
+  totp_enabled: boolean
 }
 
 export interface AdminUser {
@@ -73,8 +91,11 @@ export interface AdminUser {
   email: string | null
   display_name: string | null
   role: UserRole
+  is_admin: boolean
   auth_provider: string
   is_active: boolean
+  permissions: UserPermissions
+  totp_enabled: boolean
   created_at: string | null
   last_login_at: string | null
 }
@@ -84,15 +105,30 @@ export interface AdminUserCreate {
   password: string
   email?: string
   display_name?: string
-  role: UserRole
+  is_admin: boolean
+  permissions?: UserPermissions
 }
 
 export interface AdminUserUpdate {
   email?: string
   display_name?: string
-  role?: UserRole
+  is_admin?: boolean
   is_active?: boolean
   password?: string
+  permissions?: UserPermissions
+  reset_totp?: boolean
+}
+
+export interface TotpSetupResponse {
+  secret: string
+  qr_code_svg: string
+  provisioning_uri: string
+}
+
+export interface LoginResponse {
+  message: string
+  user?: UserInfo
+  totp_required?: boolean
 }
 
 export interface LoginRequest {

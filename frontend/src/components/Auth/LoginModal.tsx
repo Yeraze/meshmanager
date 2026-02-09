@@ -13,9 +13,11 @@ export function LoginModal() {
     oidcEnabled,
     setupRequired,
     isAdmin,
+    totpRequired,
+    verifyTotp,
   } = useAuthContext()
 
-  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [mode, setMode] = useState<'login' | 'register' | 'totp'>('login')
 
   // Update mode when setupRequired changes (e.g., after auth status loads)
   useEffect(() => {
@@ -23,11 +25,20 @@ export function LoginModal() {
       setMode('register')
     }
   }, [setupRequired])
+
+  // Switch to TOTP mode when required
+  useEffect(() => {
+    if (totpRequired) {
+      setMode('totp')
+    }
+  }, [totpRequired])
+
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [email, setEmail] = useState('')
   const [displayName, setDisplayName] = useState('')
+  const [totpCode, setTotpCode] = useState('')
   const [localError, setLocalError] = useState<string | null>(null)
 
   if (!showLoginModal) return null
@@ -36,7 +47,14 @@ export function LoginModal() {
     e.preventDefault()
     setLocalError(null)
 
-    if (mode === 'register') {
+    if (mode === 'totp') {
+      try {
+        await verifyTotp(totpCode)
+        setTotpCode('')
+      } catch {
+        // Error is handled by AuthContext
+      }
+    } else if (mode === 'register') {
       if (password !== confirmPassword) {
         setLocalError('Passwords do not match')
         return
@@ -65,7 +83,7 @@ export function LoginModal() {
   }
 
   const handleClose = () => {
-    if (!setupRequired) {
+    if (!setupRequired && !totpRequired) {
       setShowLoginModal(false)
       setLocalError(null)
       setUsername('')
@@ -73,6 +91,8 @@ export function LoginModal() {
       setConfirmPassword('')
       setEmail('')
       setDisplayName('')
+      setTotpCode('')
+      setMode('login')
     }
   }
 
@@ -93,99 +113,134 @@ export function LoginModal() {
       <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
         <div className={styles.header}>
           <h2>
-            {setupRequired
-              ? 'Create Admin Account'
-              : mode === 'login'
-                ? 'Sign In'
-                : 'Create User'}
+            {mode === 'totp'
+              ? 'Two-Factor Authentication'
+              : setupRequired
+                ? 'Create Admin Account'
+                : mode === 'login'
+                  ? 'Sign In'
+                  : 'Create User'}
           </h2>
-          {!setupRequired && (
+          {!setupRequired && !totpRequired && (
             <button className={styles.closeButton} onClick={handleClose}>
               ×
             </button>
           )}
         </div>
 
-        {setupRequired && (
+        {setupRequired && mode !== 'totp' && (
           <p className={styles.setupMessage}>
             Welcome! Create the first admin account to get started.
+          </p>
+        )}
+
+        {mode === 'totp' && (
+          <p className={styles.setupMessage}>
+            Enter the 6-digit code from your authenticator app.
           </p>
         )}
 
         {error && <div className={styles.error}>{error}</div>}
 
         <form onSubmit={handleSubmit} className={styles.form}>
-          <div className={styles.field}>
-            <label htmlFor="username">Username</label>
-            <input
-              id="username"
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              required
-              minLength={3}
-              autoComplete="username"
-              autoFocus
-            />
-          </div>
-
-          <div className={styles.field}>
-            <label htmlFor="password">Password</label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              minLength={mode === 'register' ? 8 : 1}
-              autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
-            />
-          </div>
-
-          {mode === 'register' && (
+          {mode === 'totp' ? (
+            <div className={styles.field}>
+              <label htmlFor="totpCode">Verification Code</label>
+              <input
+                id="totpCode"
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                value={totpCode}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, '').slice(0, 6)
+                  setTotpCode(val)
+                }}
+                required
+                minLength={6}
+                maxLength={6}
+                placeholder="000000"
+                autoFocus
+                style={{ textAlign: 'center', fontSize: '1.5rem', letterSpacing: '0.5em' }}
+              />
+            </div>
+          ) : (
             <>
               <div className={styles.field}>
-                <label htmlFor="confirmPassword">Confirm Password</label>
+                <label htmlFor="username">Username</label>
                 <input
-                  id="confirmPassword"
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  required
-                  autoComplete="new-password"
-                />
-              </div>
-
-              <div className={styles.field}>
-                <label htmlFor="email">Email (optional)</label>
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  autoComplete="email"
-                />
-              </div>
-
-              <div className={styles.field}>
-                <label htmlFor="displayName">Display Name (optional)</label>
-                <input
-                  id="displayName"
+                  id="username"
                   type="text"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                  autoComplete="name"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  required
+                  minLength={3}
+                  autoComplete="username"
+                  autoFocus
                 />
               </div>
+
+              <div className={styles.field}>
+                <label htmlFor="password">Password</label>
+                <input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  minLength={mode === 'register' ? 8 : 1}
+                  autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
+                />
+              </div>
+
+              {mode === 'register' && (
+                <>
+                  <div className={styles.field}>
+                    <label htmlFor="confirmPassword">Confirm Password</label>
+                    <input
+                      id="confirmPassword"
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      required
+                      autoComplete="new-password"
+                    />
+                  </div>
+
+                  <div className={styles.field}>
+                    <label htmlFor="email">Email (optional)</label>
+                    <input
+                      id="email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      autoComplete="email"
+                    />
+                  </div>
+
+                  <div className={styles.field}>
+                    <label htmlFor="displayName">Display Name (optional)</label>
+                    <input
+                      id="displayName"
+                      type="text"
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      autoComplete="name"
+                    />
+                  </div>
+                </>
+              )}
             </>
           )}
 
           <button type="submit" className={styles.submitButton} disabled={isLoggingIn}>
             {isLoggingIn
               ? 'Please wait...'
-              : mode === 'register'
-                ? 'Create Account'
-                : 'Sign In'}
+              : mode === 'totp'
+                ? 'Verify'
+                : mode === 'register'
+                  ? 'Create Account'
+                  : 'Sign In'}
           </button>
         </form>
 
@@ -200,7 +255,7 @@ export function LoginModal() {
           </>
         )}
 
-        {showRegisterOption && !setupRequired && (
+        {showRegisterOption && !setupRequired && mode !== 'totp' && (
           <div className={styles.switchMode}>
             {mode === 'login' ? (
               <button onClick={switchMode}>Create a new user</button>

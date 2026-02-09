@@ -1,5 +1,14 @@
 import { vi } from 'vitest'
-import type { Node, Source, Telemetry, AuthStatus } from '../types/api'
+import type { Node, Source, Telemetry, AuthStatus, UserPermissions } from '../types/api'
+
+const defaultPermissions: UserPermissions = {
+  map: { read: true, write: false },
+  nodes: { read: true, write: false },
+  graphs: { read: true, write: false },
+  analysis: { read: true, write: false },
+  communication: { read: true, write: false },
+  settings: { read: true, write: false },
+}
 
 // Mock node data
 export const mockNode: Node = {
@@ -87,11 +96,15 @@ export const mockAuthStatus: AuthStatus = {
     username: 'testuser',
     email: null,
     display_name: null,
-    role: 'viewer',
+    role: 'user',
+    is_admin: false,
     auth_provider: 'local',
+    permissions: defaultPermissions,
+    totp_enabled: false,
   },
   oidc_enabled: false,
   setup_required: false,
+  totp_required: false,
 }
 
 export const mockUnauthenticatedStatus: AuthStatus = {
@@ -99,6 +112,7 @@ export const mockUnauthenticatedStatus: AuthStatus = {
   user: null,
   oidc_enabled: false,
   setup_required: false,
+  totp_required: false,
 }
 
 export const mockAdminAuthStatus: AuthStatus = {
@@ -109,10 +123,14 @@ export const mockAdminAuthStatus: AuthStatus = {
     email: null,
     display_name: null,
     role: 'admin',
+    is_admin: true,
     auth_provider: 'local',
+    permissions: defaultPermissions,
+    totp_enabled: false,
   },
   oidc_enabled: false,
   setup_required: false,
+  totp_required: false,
 }
 
 // Mock traceroute data

@@ -17,6 +17,10 @@ from app.schemas.auth import (
     ChangePasswordRequest,
     LoginRequest,
     RegisterRequest,
+    TotpDisableRequest,
+    TotpEnableRequest,
+    TotpSetupResponse,
+    TotpVerifyRequest,
     UserInfo,
 )
 
@@ -32,6 +36,7 @@ async def _get_user_count(db: AsyncSession) -> int:
 
 @router.get("/status")
 async def auth_status(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ) -> AuthStatus:
@@ -43,6 +48,7 @@ async def auth_status(
         user=UserInfo.model_validate(user) if user else None,
         oidc_enabled=settings.oidc_enabled,
         setup_required=user_count == 0,
+        totp_required=bool(request.session.get("totp_pending")),
     )
 
 
@@ -80,6 +86,12 @@ async def login(
             detail="Account is disabled",
         )
 
+    # If TOTP is enabled, set pending state
+    if user.totp_enabled:
+        request.session["user_id"] = user.id
+        request.session["totp_pending"] = True
+        return {"message": "TOTP verification required", "totp_required": True}
+
     # Update last login
     user.last_login_at = datetime.now(UTC)
     await db.commit()
@@ -88,6 +100,139 @@ async def login(
     request.session["user_id"] = user.id
 
     return {"message": "Login successful", "user": UserInfo.model_validate(user)}
+
+
+@router.post("/totp/verify")
+async def verify_totp(
+    request: Request,
+    body: TotpVerifyRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Verify TOTP code during login (second factor)."""
+    user_id = request.session.get("user_id")
+    if not user_id or not request.session.get("totp_pending"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No TOTP verification pending",
+        )
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar()
+    if not user or not user.totp_secret:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="TOTP not configured for this user",
+        )
+
+    from app.auth.totp import verify_totp_code
+
+    if not verify_totp_code(user.totp_secret, body.code):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid TOTP code",
+        )
+
+    # Clear pending state and complete login
+    request.session.pop("totp_pending", None)
+    user.last_login_at = datetime.now(UTC)
+    await db.commit()
+
+    return {"message": "Login successful", "user": UserInfo.model_validate(user)}
+
+
+@router.post("/totp/setup", response_model=TotpSetupResponse)
+async def setup_totp(
+    request: Request,
+    user: User = Depends(get_current_user),
+) -> TotpSetupResponse:
+    """Generate TOTP secret and QR code for setup."""
+    if user.auth_provider != "local":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="TOTP is not available for OIDC users",
+        )
+
+    if user.totp_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="TOTP is already enabled",
+        )
+
+    from app.auth.totp import generate_qr_code_svg, generate_totp_secret, get_provisioning_uri
+
+    secret = generate_totp_secret()
+    uri = get_provisioning_uri(secret, user.username or user.email or user.id)
+    qr_svg = generate_qr_code_svg(uri)
+
+    # Store secret in session until confirmed
+    request.session["totp_setup_secret"] = secret
+
+    return TotpSetupResponse(
+        secret=secret,
+        qr_code_svg=qr_svg,
+        provisioning_uri=uri,
+    )
+
+
+@router.post("/totp/enable")
+async def enable_totp(
+    request: Request,
+    body: TotpEnableRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Enable TOTP after verifying the setup code."""
+    secret = request.session.get("totp_setup_secret")
+    if not secret:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No TOTP setup in progress. Call /auth/totp/setup first.",
+        )
+
+    from app.auth.totp import verify_totp_code
+
+    if not verify_totp_code(secret, body.code):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid TOTP code. Please try again.",
+        )
+
+    user.totp_secret = secret
+    user.totp_enabled = True
+    await db.commit()
+
+    request.session.pop("totp_setup_secret", None)
+
+    return {"message": "TOTP enabled successfully"}
+
+
+@router.post("/totp/disable")
+async def disable_totp(
+    request: Request,
+    body: TotpDisableRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Disable TOTP by verifying current code."""
+    if not user.totp_enabled or not user.totp_secret:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="TOTP is not enabled",
+        )
+
+    from app.auth.totp import verify_totp_code
+
+    if not verify_totp_code(user.totp_secret, body.code):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid TOTP code",
+        )
+
+    user.totp_secret = None
+    user.totp_enabled = False
+    await db.commit()
+
+    return {"message": "TOTP disabled successfully"}
 
 
 @router.post("/register")
@@ -137,7 +282,7 @@ async def register(
         password_hash=hash_password(registration.password),
         email=registration.email,
         display_name=registration.display_name or registration.username,
-        role="admin" if user_count == 0 else "viewer",  # First user is admin
+        role="admin" if user_count == 0 else "user",
         last_login_at=datetime.now(UTC),
     )
     db.add(user)

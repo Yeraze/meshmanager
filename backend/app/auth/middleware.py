@@ -1,5 +1,7 @@
 """Authentication middleware."""
 
+from collections.abc import Callable
+
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +17,10 @@ async def get_current_user_optional(
     """Get the current user from session, or None if not authenticated."""
     user_id = request.session.get("user_id")
     if not user_id:
+        return None
+
+    # Block access if TOTP verification is still pending
+    if request.session.get("totp_pending"):
         return None
 
     result = await db.execute(select(User).where(User.id == user_id))
@@ -49,12 +55,16 @@ async def require_admin(
         )
 
 
-async def require_editor(
-    user: User = Depends(get_current_user),
-) -> None:
-    """Require the current user to be an admin or editor."""
-    if user.role not in ("admin", "editor"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Editor access required",
-        )
+def require_permission(tab: str, action: str = "read") -> Callable:
+    """Factory that returns a dependency requiring a specific permission."""
+
+    async def _check_permission(
+        user: User = Depends(get_current_user),
+    ) -> None:
+        if not user.has_permission(tab, action):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Permission denied: {tab} {action}",
+            )
+
+    return _check_permission

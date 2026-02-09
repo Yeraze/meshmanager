@@ -3,13 +3,15 @@ import { useAuthContext } from '../../contexts/AuthContext'
 import ConfigExportImport from './ConfigExportImport'
 import DisplaySettings from './DisplaySettings'
 import SourcesSettings from './SourcesSettings'
+import UsersManagement from './UsersManagement'
 import UserSettings from './UserSettings'
 
-type SettingsTab = 'display' | 'sources' | 'user'
+type SettingsTab = 'display' | 'sources' | 'users' | 'user'
 
 export default function SettingsPage() {
-  const { isAdmin } = useAuthContext()
+  const { isAdmin, hasPermission } = useAuthContext()
   const [activeTab, setActiveTab] = useState<SettingsTab>('display')
+  const canWriteSettings = hasPermission('settings', 'write')
 
   return (
     <div className="settings-page">
@@ -24,12 +26,20 @@ export default function SettingsPage() {
         >
           Display
         </button>
-        {isAdmin && (
+        {canWriteSettings && (
           <button
             className={`tab ${activeTab === 'sources' ? 'active' : ''}`}
             onClick={() => setActiveTab('sources')}
           >
             Sources
+          </button>
+        )}
+        {isAdmin && (
+          <button
+            className={`tab ${activeTab === 'users' ? 'active' : ''}`}
+            onClick={() => setActiveTab('users')}
+          >
+            Users
           </button>
         )}
         <button
@@ -44,10 +54,11 @@ export default function SettingsPage() {
         {activeTab === 'display' && (
           <>
             <DisplaySettings />
-            {isAdmin && <ConfigExportImport />}
+            {canWriteSettings && <ConfigExportImport />}
           </>
         )}
-        {activeTab === 'sources' && isAdmin && <SourcesSettings />}
+        {activeTab === 'sources' && canWriteSettings && <SourcesSettings />}
+        {activeTab === 'users' && isAdmin && <UsersManagement />}
         {activeTab === 'user' && <UserSettings />}
       </div>
     </div>

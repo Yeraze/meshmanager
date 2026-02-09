@@ -1,5 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchAuthStatus, login, register, logout } from '../services/api'
+import {
+  fetchAuthStatus,
+  login,
+  register,
+  logout,
+  verifyTotp,
+  setupTotp,
+  enableTotp,
+  disableTotp,
+} from '../services/api'
 import type { LoginRequest, RegisterRequest } from '../types/api'
 
 export function useAuth() {
@@ -15,8 +24,11 @@ export function useLogin() {
 
   return useMutation({
     mutationFn: (credentials: LoginRequest) => login(credentials),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['auth'] })
+    onSuccess: (data) => {
+      // Only invalidate auth if login was fully successful (no TOTP pending)
+      if (!data.totp_required) {
+        queryClient.invalidateQueries({ queryKey: ['auth'] })
+      }
     },
   })
 }
@@ -37,6 +49,45 @@ export function useLogout() {
 
   return useMutation({
     mutationFn: logout,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['auth'] })
+    },
+  })
+}
+
+export function useVerifyTotp() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (code: string) => verifyTotp(code),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['auth'] })
+    },
+  })
+}
+
+export function useSetupTotp() {
+  return useMutation({
+    mutationFn: () => setupTotp(),
+  })
+}
+
+export function useEnableTotp() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (code: string) => enableTotp(code),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['auth'] })
+    },
+  })
+}
+
+export function useDisableTotp() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (code: string) => disableTotp(code),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['auth'] })
     },

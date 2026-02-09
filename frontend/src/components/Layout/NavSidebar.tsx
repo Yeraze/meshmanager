@@ -9,23 +9,29 @@ interface NavSidebarProps {
 
 export default function NavSidebar({ currentPage, onPageChange }: NavSidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false)
-  const { isAuthenticated } = useAuthContext()
+  const { isAuthenticated, hasPermission } = useAuthContext()
 
   const navItems = useMemo(() => {
-    const items: { id: Page; label: string; icon: string }[] = [
-      { id: 'map', label: 'Map', icon: '🗺️' },
-      { id: 'nodes', label: 'Node Details', icon: '📡' },
-      { id: 'graphs', label: 'Graphs', icon: '📊' },
-      { id: 'analysis', label: 'Analysis', icon: '🔬' },
-      { id: 'communication', label: 'Communication', icon: '💬' },
+    const allItems: { id: Page; label: string; icon: string }[] = [
+      { id: 'map', label: 'Map', icon: '\u{1F5FA}\uFE0F' },
+      { id: 'nodes', label: 'Node Details', icon: '\u{1F4E1}' },
+      { id: 'graphs', label: 'Graphs', icon: '\u{1F4CA}' },
+      { id: 'analysis', label: 'Analysis', icon: '\u{1F52C}' },
+      { id: 'communication', label: 'Communication', icon: '\u{1F4AC}' },
     ]
 
-    if (isAuthenticated) {
-      items.push({ id: 'settings', label: 'Settings', icon: '⚙️' })
+    // Filter by read permission for authenticated users
+    const items = isAuthenticated
+      ? allItems.filter((item) => hasPermission(item.id, 'read'))
+      : allItems
+
+    // Settings tab: only show when authenticated and has settings read permission
+    if (isAuthenticated && hasPermission('settings', 'read')) {
+      items.push({ id: 'settings', label: 'Settings', icon: '\u2699\uFE0F' })
     }
 
     return items
-  }, [isAuthenticated])
+  }, [isAuthenticated, hasPermission])
 
   return (
     <nav className={`nav-sidebar ${isCollapsed ? 'collapsed' : ''}`}>
@@ -37,7 +43,7 @@ export default function NavSidebar({ currentPage, onPageChange }: NavSidebarProp
           onClick={() => setIsCollapsed(!isCollapsed)}
           title={isCollapsed ? 'Expand' : 'Collapse'}
         >
-          {isCollapsed ? '▶' : '◀'}
+          {isCollapsed ? '\u25B6' : '\u25C0'}
         </button>
       </div>
 

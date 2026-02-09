@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import Response
 
-from app.auth.middleware import require_admin
+from app.auth.middleware import require_permission
 from app.database import get_db
 from app.models import Source
 from app.models.settings import SystemSetting
@@ -48,7 +48,7 @@ SOLAR_SCHEDULE_KEY = "solar_analysis.schedule"
 @router.get("/export")
 async def export_config(
     db: AsyncSession = Depends(get_db),
-    _admin: None = Depends(require_admin),
+    _admin: None = Depends(require_permission("settings", "write")),
     include_credentials: bool = False,
 ) -> Response:
     """Export all configuration to a downloadable JSON file.
@@ -175,7 +175,7 @@ async def export_config(
 async def import_config(
     config: ConfigImport,
     db: AsyncSession = Depends(get_db),
-    _admin: None = Depends(require_admin),
+    _admin: None = Depends(require_permission("settings", "write")),
     merge_sources: bool = False,
 ) -> ImportResult:
     """Import configuration from JSON.

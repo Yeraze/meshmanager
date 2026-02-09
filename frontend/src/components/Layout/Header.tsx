@@ -35,7 +35,7 @@ export default function Header() {
               </span>
               <span className="user-menu-name">{displayName}</span>
               {user?.is_admin && <span className="badge badge-success">Admin</span>}
-              <span className="user-menu-chevron">{showDropdown ? '▲' : '▼'}</span>
+              <span className="user-menu-chevron">{showDropdown ? '\u25B2' : '\u25BC'}</span>
             </button>
 
             {showDropdown && (

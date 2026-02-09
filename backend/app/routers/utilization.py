@@ -243,7 +243,6 @@ async def generate_utilization(db: AsyncSession = Depends(get_db)) -> GenerateRe
     util_query = (
         select(Telemetry)
         .where(Telemetry.received_at >= cutoff)
-        .where(Telemetry.metric_name == "channelUtilization")
         .where(Telemetry.channel_utilization.isnot(None))
     )
     util_result = await db.execute(util_query)

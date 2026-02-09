@@ -217,41 +217,21 @@ async def generate_coverage(db: AsyncSession = Depends(get_db)) -> GenerateRespo
     # Fetch position data
     cutoff = datetime.now(UTC) - timedelta(days=lookback_days)
 
-    # Get latitude records
-    lat_query = (
+    # Get position records (rows with both lat and lon populated)
+    # Works for both MeshMonitor (separate metric rows) and MQTT (combined rows)
+    pos_query = (
         select(Telemetry)
         .where(Telemetry.received_at >= cutoff)
-        .where(Telemetry.metric_name.in_(["latitude", "estimated_latitude"]))
         .where(Telemetry.latitude.isnot(None))
-    )
-    lat_result = await db.execute(lat_query)
-    lat_records = lat_result.scalars().all()
-
-    # Get longitude records
-    lng_query = (
-        select(Telemetry)
-        .where(Telemetry.received_at >= cutoff)
-        .where(Telemetry.metric_name.in_(["longitude", "estimated_longitude"]))
         .where(Telemetry.longitude.isnot(None))
     )
-    lng_result = await db.execute(lng_query)
-    lng_records = lng_result.scalars().all()
+    pos_result = await db.execute(pos_query)
+    pos_records = pos_result.scalars().all()
 
-    # Match lat/lng by timestamp
-    lng_lookup = {}
-    for lng in lng_records:
-        ts_key = lng.received_at.replace(second=0, microsecond=0)
-        key = (str(lng.source_id), lng.node_num, ts_key)
-        if key not in lng_lookup:
-            lng_lookup[key] = lng.longitude
-
-    positions = []
-    for lat in lat_records:
-        ts_key = lat.received_at.replace(second=0, microsecond=0)
-        key = (str(lat.source_id), lat.node_num, ts_key)
-        lng_value = lng_lookup.get(key)
-        if lng_value is not None:
-            positions.append({"latitude": lat.latitude, "longitude": lng_value})
+    positions = [
+        {"latitude": r.latitude, "longitude": r.longitude}
+        for r in pos_records
+    ]
 
     if not positions:
         return GenerateResponse(
@@ -396,41 +376,21 @@ async def get_position_history(
     """Get raw position points for heatmap rendering."""
     cutoff = datetime.now(UTC) - timedelta(days=lookback_days)
 
-    # Get latitude records
-    lat_query = (
+    # Get position records (rows with both lat and lon populated)
+    # Works for both MeshMonitor (separate metric rows) and MQTT (combined rows)
+    pos_query = (
         select(Telemetry)
         .where(Telemetry.received_at >= cutoff)
-        .where(Telemetry.metric_name.in_(["latitude", "estimated_latitude"]))
         .where(Telemetry.latitude.isnot(None))
-    )
-    lat_result = await db.execute(lat_query)
-    lat_records = lat_result.scalars().all()
-
-    # Get longitude records
-    lng_query = (
-        select(Telemetry)
-        .where(Telemetry.received_at >= cutoff)
-        .where(Telemetry.metric_name.in_(["longitude", "estimated_longitude"]))
         .where(Telemetry.longitude.isnot(None))
     )
-    lng_result = await db.execute(lng_query)
-    lng_records = lng_result.scalars().all()
+    pos_result = await db.execute(pos_query)
+    pos_records = pos_result.scalars().all()
 
-    # Match lat/lng by timestamp
-    lng_lookup = {}
-    for lng in lng_records:
-        ts_key = lng.received_at.replace(second=0, microsecond=0)
-        key = (str(lng.source_id), lng.node_num, ts_key)
-        if key not in lng_lookup:
-            lng_lookup[key] = lng.longitude
-
-    positions = []
-    for lat in lat_records:
-        ts_key = lat.received_at.replace(second=0, microsecond=0)
-        key = (str(lat.source_id), lat.node_num, ts_key)
-        lng_value = lng_lookup.get(key)
-        if lng_value is not None:
-            positions.append(PositionPoint(lat=lat.latitude, lng=lng_value))
+    positions = [
+        PositionPoint(lat=r.latitude, lng=r.longitude)
+        for r in pos_records
+    ]
 
     # Filter by bounds if specified
     if all([bounds_south, bounds_west, bounds_north, bounds_east]):
@@ -538,46 +498,26 @@ async def _get_position_points(
     """Get position points for export (internal helper)."""
     cutoff = datetime.now(UTC) - timedelta(days=lookback_days)
 
-    # Get latitude records
-    lat_query = (
+    # Get position records (rows with both lat and lon populated)
+    # Works for both MeshMonitor (separate metric rows) and MQTT (combined rows)
+    pos_query = (
         select(Telemetry)
         .where(Telemetry.received_at >= cutoff)
-        .where(Telemetry.metric_name.in_(["latitude", "estimated_latitude"]))
         .where(Telemetry.latitude.isnot(None))
-    )
-    lat_result = await db.execute(lat_query)
-    lat_records = lat_result.scalars().all()
-
-    # Get longitude records
-    lng_query = (
-        select(Telemetry)
-        .where(Telemetry.received_at >= cutoff)
-        .where(Telemetry.metric_name.in_(["longitude", "estimated_longitude"]))
         .where(Telemetry.longitude.isnot(None))
     )
-    lng_result = await db.execute(lng_query)
-    lng_records = lng_result.scalars().all()
+    pos_result = await db.execute(pos_query)
+    pos_records = pos_result.scalars().all()
 
-    # Match lat/lng by timestamp
-    lng_lookup = {}
-    for lng in lng_records:
-        ts_key = lng.received_at.replace(second=0, microsecond=0)
-        key = (str(lng.source_id), lng.node_num, ts_key)
-        if key not in lng_lookup:
-            lng_lookup[key] = (lng.longitude, lng.received_at)
-
-    positions = []
-    for lat in lat_records:
-        ts_key = lat.received_at.replace(second=0, microsecond=0)
-        key = (str(lat.source_id), lat.node_num, ts_key)
-        lng_data = lng_lookup.get(key)
-        if lng_data is not None:
-            positions.append({
-                "lat": lat.latitude,
-                "lng": lng_data[0],
-                "node_num": lat.node_num,
-                "timestamp": lat.received_at.isoformat(),
-            })
+    positions = [
+        {
+            "lat": r.latitude,
+            "lng": r.longitude,
+            "node_num": r.node_num,
+            "timestamp": r.received_at.isoformat(),
+        }
+        for r in pos_records
+    ]
 
     # Filter by bounds if specified
     if all([bounds_south, bounds_west, bounds_north, bounds_east]):

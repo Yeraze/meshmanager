@@ -292,50 +292,26 @@ async def get_position_history(
     """
     cutoff = datetime.now(UTC) - timedelta(days=days)
 
+    # Get position records (rows with both lat and lon populated)
+    # Works for both MeshMonitor (separate metric rows) and MQTT (combined rows)
     result = await db.execute(
         select(Telemetry)
         .where(Telemetry.received_at >= cutoff)
-        .where(Telemetry.metric_name.in_(["latitude", "estimated_latitude"]))
         .where(Telemetry.latitude.isnot(None))
-        .order_by(Telemetry.received_at.desc())
-    )
-    lat_records = result.scalars().all()
-
-    # Also get longitude records to pair them
-    result = await db.execute(
-        select(Telemetry)
-        .where(Telemetry.received_at >= cutoff)
-        .where(Telemetry.metric_name.in_(["longitude", "estimated_longitude"]))
         .where(Telemetry.longitude.isnot(None))
         .order_by(Telemetry.received_at.desc())
     )
-    lng_records = result.scalars().all()
+    records = result.scalars().all()
 
-    # Create a lookup for longitude by (source_id, node_num, received_at)
-    # We need to match latitude and longitude records that came at similar times
-    lng_lookup = {}
-    for lng in lng_records:
-        # Round timestamp to nearest minute for matching
-        ts_key = lng.received_at.replace(second=0, microsecond=0)
-        # Use str() for source_id to ensure consistent dict keys
-        key = (str(lng.source_id), lng.node_num, ts_key)
-        if key not in lng_lookup:
-            lng_lookup[key] = lng.longitude
-
-    positions = []
-    for lat in lat_records:
-        ts_key = lat.received_at.replace(second=0, microsecond=0)
-        key = (str(lat.source_id), lat.node_num, ts_key)
-        lng_value = lng_lookup.get(key)
-        if lng_value is not None:
-            positions.append({
-                "node_num": lat.node_num,
-                "latitude": lat.latitude,
-                "longitude": lng_value,
-                "timestamp": lat.received_at.isoformat(),
-            })
-
-    return positions
+    return [
+        {
+            "node_num": r.node_num,
+            "latitude": r.latitude,
+            "longitude": r.longitude,
+            "timestamp": r.received_at.isoformat(),
+        }
+        for r in records
+    ]
 
 
 @router.get("/traceroutes")

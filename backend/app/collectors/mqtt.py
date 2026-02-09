@@ -353,6 +353,8 @@ class MqttCollector(BaseCollector):
 
     async def _handle_position(self, db, data: dict) -> None:
         """Handle a position update."""
+        from app.models.telemetry import TelemetryType
+
         from_node = data.get("from") or data.get("fromId")
         if not from_node:
             return
@@ -398,6 +400,19 @@ class MqttCollector(BaseCollector):
                 last_heard=datetime.now(UTC),
             )
             db.add(node)
+
+        # Also create a Telemetry row for position history / coverage maps
+        rx_time = self._parse_rx_time(data.get("rxTime") or data.get("timestamp"))
+        telemetry = Telemetry(
+            source_id=self.source.id,
+            node_num=from_node,
+            telemetry_type=TelemetryType.POSITION,
+            latitude=lat,
+            longitude=lon,
+            altitude=int(alt) if alt is not None else None,
+            received_at=rx_time or datetime.now(UTC),
+        )
+        db.add(telemetry)
 
         logger.debug(f"Received position from {from_node}")
 

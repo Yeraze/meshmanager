@@ -19,8 +19,19 @@ def upgrade() -> None:
     op.execute(
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) NOT NULL DEFAULT 'viewer'"
     )
-    op.execute("UPDATE users SET role = 'admin' WHERE is_admin = true")
-    op.execute("ALTER TABLE users DROP COLUMN IF EXISTS is_admin")
+    # Only migrate data if is_admin still exists (skip on re-run after partial apply)
+    op.execute("""
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'users' AND column_name = 'is_admin'
+            ) THEN
+                UPDATE users SET role = 'admin' WHERE is_admin = true;
+                ALTER TABLE users DROP COLUMN is_admin;
+            END IF;
+        END $$;
+    """)
 
 
 def downgrade() -> None:

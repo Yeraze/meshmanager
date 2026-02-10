@@ -308,7 +308,7 @@ class MqttCollector(BaseCollector):
             rx_time=rx_time,
             rx_snr=data.get("rxSnr"),
             rx_rssi=data.get("rxRssi"),
-            relay_node=data.get("relayNode"),
+            relay_node=data.get("relayNode") or None,
         )
         db.add(message)
         logger.debug(f"Received text message from {from_node}")

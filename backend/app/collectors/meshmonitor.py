@@ -337,12 +337,17 @@ class MeshMonitorCollector(BaseCollector):
         precision_bits = position.get("precisionBits")
 
         if node:
-            # Update existing node
-            node.node_id = node_id
-            node.short_name = short_name
-            node.long_name = long_name
-            node.hw_model = hw_model
-            node.role = role
+            # Update existing node - only update fields with values (don't overwrite with None)
+            if node_id is not None:
+                node.node_id = node_id
+            if short_name is not None:
+                node.short_name = short_name
+            if long_name is not None:
+                node.long_name = long_name
+            if hw_model is not None:
+                node.hw_model = hw_model
+            if role is not None:
+                node.role = role
             # Only update position if new data has it (don't overwrite with None)
             if new_lat is not None:
                 node.latitude = new_lat

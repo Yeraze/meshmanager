@@ -216,6 +216,19 @@ export interface TelemetryHistory {
   data: TelemetryHistoryPoint[]
 }
 
+export interface AvailableMetric {
+  name: string
+  label: string
+  unit: string
+  count: number
+}
+
+export interface AvailableMetrics {
+  node_num: number
+  hours: number
+  metrics: Record<string, AvailableMetric[]>
+}
+
 export interface CollectionStatus {
   status: 'idle' | 'collecting' | 'complete' | 'error' | 'cancelled'
   current_batch: number

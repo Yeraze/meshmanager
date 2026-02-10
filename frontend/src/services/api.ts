@@ -4,6 +4,7 @@ import type {
   AdminUserCreate,
   AdminUserUpdate,
   AuthStatus,
+  AvailableMetrics,
   CollectionStatus,
   LoginRequest,
   LoginResponse,
@@ -167,6 +168,15 @@ export async function fetchTelemetryHistory(nodeNum: number, metric: string, hou
   if (hours) params.append('hours', hours.toString())
 
   const response = await api.get<TelemetryHistory>(`/api/telemetry/${nodeNum}/history/${metric}?${params.toString()}`)
+  return response.data
+}
+
+// Available Metrics (dynamic discovery)
+export async function fetchAvailableMetrics(nodeNum: number, hours?: number): Promise<AvailableMetrics> {
+  const params = new URLSearchParams()
+  if (hours) params.append('hours', hours.toString())
+
+  const response = await api.get<AvailableMetrics>(`/api/telemetry/${nodeNum}/metrics?${params.toString()}`)
   return response.data
 }
 

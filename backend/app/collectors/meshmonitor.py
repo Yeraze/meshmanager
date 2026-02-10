@@ -13,6 +13,7 @@ from app.collectors.base import BaseCollector
 from app.database import async_session_maker
 from app.models import Channel, Message, Node, SolarProduction, Source, Telemetry, Traceroute
 from app.schemas.source import SourceTestResult
+from app.telemetry_registry import CAMEL_TO_METRIC, METRIC_REGISTRY, SUBMESSAGE_TYPE_MAP
 
 logger = logging.getLogger(__name__)
 
@@ -749,59 +750,32 @@ class MeshMonitorCollector(BaseCollector):
         telem_type_field = telem_data.get("telemetryType", "")
         value = telem_data.get("value")
 
-        # Determine telemetry type based on the field
-        if telem_type_field in ("batteryLevel", "voltage", "channelUtilization", "airUtilTx", "uptimeSeconds"):
-            telem_type = TelemetryType.DEVICE
-        elif telem_type_field in ("temperature", "relativeHumidity", "barometricPressure", "humidity", "pressure"):
-            telem_type = TelemetryType.ENVIRONMENT
-        elif telem_type_field in ("snr_local", "snr_remote", "rssi"):
-            telem_type = TelemetryType.DEVICE  # Signal metrics go with device
-        elif telem_type_field in ("latitude", "longitude", "altitude", "estimated_latitude", "estimated_longitude"):
-            telem_type = TelemetryType.POSITION
-        else:
-            # Check old nested format
-            telem_type_str = telem_data.get("type", "device").lower()
-            try:
-                telem_type = TelemetryType(telem_type_str)
-            except ValueError:
-                telem_type = TelemetryType.DEVICE
-
         # Handle MeshMonitor flat format
         if telem_type_field and value is not None:
+            # Resolve type via registry
+            metric_name_resolved = CAMEL_TO_METRIC.get(telem_type_field, telem_type_field)
+            metric_def = METRIC_REGISTRY.get(metric_name_resolved)
+            telem_type = metric_def.telemetry_type if metric_def else TelemetryType.DEVICE
+
             # Get timestamp from MeshMonitor data
             timestamp_ms = telem_data.get("timestamp") or telem_data.get("createdAt")
             received_at = datetime.now(UTC)
             if timestamp_ms:
                 received_at = datetime.fromtimestamp(timestamp_ms / 1000, tz=UTC)
 
-            # Use metric_name for deduplication (the telemetryType field)
-            metric_name = telem_type_field
-
             # Build values dict for the insert
             values = {
                 "id": str(uuid4()),
                 "source_id": self.source.id,
                 "node_num": node_num,
-                "metric_name": metric_name,
+                "metric_name": metric_name_resolved,
                 "telemetry_type": telem_type,
                 "received_at": received_at,
-                "battery_level": int(value) if telem_type_field == "batteryLevel" else None,
-                "voltage": float(value) if telem_type_field == "voltage" else None,
-                "channel_utilization": float(value) if telem_type_field == "channelUtilization" else None,
-                "air_util_tx": float(value) if telem_type_field == "airUtilTx" else None,
-                "uptime_seconds": int(value) if telem_type_field == "uptimeSeconds" else None,
-                "temperature": float(value) if telem_type_field == "temperature" else None,
-                "relative_humidity": float(value) if telem_type_field in ("relativeHumidity", "humidity") else None,
-                "barometric_pressure": float(value) if telem_type_field in ("barometricPressure", "pressure") else None,
-                "snr_local": float(value) if telem_type_field == "snr_local" else None,
-                "snr_remote": float(value) if telem_type_field == "snr_remote" else None,
-                "rssi": float(value) if telem_type_field == "rssi" else None,
-                "latitude": float(value) if telem_type_field in ("latitude", "estimated_latitude") else None,
-                "longitude": float(value) if telem_type_field in ("longitude", "estimated_longitude") else None,
-                "altitude": int(value) if telem_type_field == "altitude" else None,
-                # Always store the raw value for any metric type
                 "raw_value": float(value) if value is not None else None,
             }
+            # Populate dedicated column if metric has one
+            if metric_def and metric_def.dedicated_column:
+                values[metric_def.dedicated_column] = value
 
             # Use PostgreSQL INSERT ... ON CONFLICT DO NOTHING
             stmt = pg_insert(Telemetry).values(**values).on_conflict_do_nothing(
@@ -810,40 +784,31 @@ class MeshMonitorCollector(BaseCollector):
             result = await db.execute(stmt)
             return result.rowcount > 0
         else:
-            # Handle old nested format (deviceMetrics, environmentMetrics)
-            # For this format, insert each metric as a separate record
-            device_metrics = telem_data.get("deviceMetrics", {}) or {}
-            env_metrics = telem_data.get("environmentMetrics", {}) or {}
-
-            if not device_metrics and not env_metrics:
-                return False
-
+            # Handle nested format (deviceMetrics, environmentMetrics, etc.)
+            # Dynamically iterate all known sub-message types from the registry
             inserted = False
             received_at = datetime.now(UTC)
 
-            # Insert device metrics one by one
-            metric_mapping = [
-                ("batteryLevel", "battery_level", device_metrics.get("batteryLevel")),
-                ("voltage", "voltage", device_metrics.get("voltage")),
-                ("channelUtilization", "channel_utilization", device_metrics.get("channelUtilization")),
-                ("airUtilTx", "air_util_tx", device_metrics.get("airUtilTx")),
-                ("uptimeSeconds", "uptime_seconds", device_metrics.get("uptimeSeconds")),
-                ("temperature", "temperature", env_metrics.get("temperature")),
-                ("relativeHumidity", "relative_humidity", env_metrics.get("relativeHumidity")),
-                ("barometricPressure", "barometric_pressure", env_metrics.get("barometricPressure")),
-            ]
-
-            for metric_name, column_name, metric_value in metric_mapping:
-                if metric_value is not None:
+            for submsg_key, sub_type in SUBMESSAGE_TYPE_MAP.items():
+                sub_metrics = telem_data.get(submsg_key, {}) or {}
+                if not isinstance(sub_metrics, dict):
+                    continue
+                for camel_key, metric_value in sub_metrics.items():
+                    if metric_value is None or not isinstance(metric_value, (int, float)):
+                        continue
+                    resolved_name = CAMEL_TO_METRIC.get(camel_key, camel_key)
+                    metric_def = METRIC_REGISTRY.get(resolved_name)
                     values = {
                         "id": str(uuid4()),
                         "source_id": self.source.id,
                         "node_num": node_num,
-                        "metric_name": metric_name,
-                        "telemetry_type": telem_type,
+                        "metric_name": resolved_name,
+                        "telemetry_type": sub_type,
                         "received_at": received_at,
-                        column_name: metric_value,
+                        "raw_value": float(metric_value),
                     }
+                    if metric_def and metric_def.dedicated_column:
+                        values[metric_def.dedicated_column] = metric_value
                     stmt = pg_insert(Telemetry).values(**values).on_conflict_do_nothing(
                         index_elements=["source_id", "node_num", "received_at", "metric_name"]
                     )

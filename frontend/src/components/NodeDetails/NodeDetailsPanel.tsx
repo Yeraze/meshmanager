@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { Node } from '../../types/api'
-import { useSolarData, useTelemetryHistory } from '../../hooks/useTelemetry'
+import { useAvailableMetrics, useSolarData, useTelemetryHistory } from '../../hooks/useTelemetry'
 import { useNodesByNodeNum } from '../../hooks/useNodes'
 import { useDataContext } from '../../contexts/DataContext'
 import { getRoleName, getHardwareInfo } from '../../utils/meshtastic'
@@ -11,18 +11,16 @@ interface NodeDetailsPanelProps {
   node: Node
 }
 
-const TELEMETRY_METRICS = [
-  { key: 'battery_level', label: 'Battery Level' },
-  { key: 'voltage', label: 'Voltage' },
-  { key: 'channel_utilization', label: 'Channel Utilization' },
-  { key: 'air_util_tx', label: 'Air Util TX' },
-  { key: 'snr_local', label: 'SNR (Local)' },
-  { key: 'snr_remote', label: 'SNR (Remote)' },
-  { key: 'rssi', label: 'RSSI' },
-  { key: 'temperature', label: 'Temperature' },
-  { key: 'relative_humidity', label: 'Humidity' },
-  { key: 'barometric_pressure', label: 'Pressure' },
-]
+const TYPE_ORDER = ['device', 'environment', 'power', 'air_quality', 'local_stats', 'health', 'host'] as const
+const TYPE_LABELS: Record<string, string> = {
+  device: 'Device',
+  environment: 'Environment',
+  power: 'Power',
+  air_quality: 'Air Quality',
+  local_stats: 'Local Stats',
+  health: 'Health',
+  host: 'Host',
+}
 
 const STORAGE_KEY_HISTORY_HOURS = 'meshmanager_node_details_history_hours'
 
@@ -37,6 +35,9 @@ export default function NodeDetailsPanel({ node }: NodeDetailsPanelProps) {
     localStorage.setItem(STORAGE_KEY_HISTORY_HOURS, String(hours))
     setHistoryHoursState(hours)
   }
+
+  // Fetch available metrics for this node
+  const { data: availableMetrics } = useAvailableMetrics(node.node_num, historyHours)
 
   // Fetch solar data for background on charts
   const { solarMap } = useSolarData(historyHours)
@@ -233,18 +234,33 @@ export default function NodeDetailsPanel({ node }: NodeDetailsPanelProps) {
           </select>
         </div>
 
-        <div className="telemetry-charts-grid">
-          {TELEMETRY_METRICS.map((metric) => (
-            <TelemetryChartWrapper
-              key={metric.key}
-              nodeNum={node.node_num}
-              metricKey={metric.key}
-              metricLabel={metric.label}
-              hours={historyHours}
-              solarData={solarMap}
-            />
-          ))}
-        </div>
+        {availableMetrics ? (
+          TYPE_ORDER.map(typeKey => {
+            const metrics = availableMetrics.metrics[typeKey]
+            if (!metrics?.length) return null
+            return (
+              <div key={typeKey} className="telemetry-type-group">
+                <h3 className="telemetry-type-heading">{TYPE_LABELS[typeKey]}</h3>
+                <div className="telemetry-charts-grid">
+                  {metrics.map(m => (
+                    <TelemetryChartWrapper
+                      key={m.name}
+                      nodeNum={node.node_num}
+                      metricKey={m.name}
+                      metricLabel={m.label}
+                      hours={historyHours}
+                      solarData={solarMap}
+                    />
+                  ))}
+                </div>
+              </div>
+            )
+          })
+        ) : (
+          <div className="telemetry-charts-grid">
+            <div className="telemetry-chart-loading">Loading metrics...</div>
+          </div>
+        )}
       </div>
     </div>
   )

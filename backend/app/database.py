@@ -52,42 +52,8 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def init_db() -> None:
-    """Initialize database — run Alembic migrations to head."""
-    import asyncio
-    from pathlib import Path
-
-    from alembic import command
-    from alembic.config import Config
-    from sqlalchemy import inspect
-
-    alembic_ini = Path(__file__).parent.parent / "alembic.ini"
-    if not alembic_ini.exists():
-        raise FileNotFoundError(f"Alembic config not found: {alembic_ini}")
-    alembic_cfg = Config(str(alembic_ini))
-
-    # Check if this is a pre-Alembic database (app tables exist but no alembic_version)
-    async with engine.connect() as conn:
-
-        def check_tables(sync_conn):
-            inspector = inspect(sync_conn)
-            tables = inspector.get_table_names()
-            return "alembic_version" in tables, "nodes" in tables
-
-        has_alembic, has_app_tables = await conn.run_sync(check_tables)
-
-    try:
-        if not has_alembic and has_app_tables:
-            # v0.5.2 or earlier: tables created by create_all, no migration tracking.
-            # Stamp at the last revision that was part of v0.5.2, then upgrade.
-            logger.info("Detected pre-migration database, stamping at v0.5.2 baseline...")
-            await asyncio.to_thread(command.stamp, alembic_cfg, "d1e2f3g4h5i6")
-
-        logger.info("Running database migrations...")
-        await asyncio.to_thread(command.upgrade, alembic_cfg, "head")
-        logger.info("Database migrations completed successfully.")
-    except Exception:
-        logger.exception("Failed to run database migrations")
-        raise
+    """Verify database is ready (migrations are run by entrypoint.sh before server start)."""
+    logger.info("Database initialized (migrations handled by entrypoint)")
 
 
 async def close_db() -> None:

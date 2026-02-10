@@ -570,7 +570,7 @@ class MeshMonitorCollector(BaseCollector):
             "channel": msg_data.get("channel", 0),
             "text": msg_data.get("text"),
             "reply_id": msg_data.get("replyId"),
-            "emoji": msg_data.get("emoji"),
+            "emoji": self._decode_emoji(msg_data.get("emoji")),
             "hop_limit": msg_data.get("hopLimit"),
             "hop_start": msg_data.get("hopStart"),
             "rx_snr": msg_data.get("rxSnr"),
@@ -874,6 +874,22 @@ class MeshMonitorCollector(BaseCollector):
             logger.debug(f"Collected {len(routes_data)} traceroutes")
         except Exception as e:
             logger.error(f"Error collecting traceroutes: {e}")
+
+    def _decode_emoji(self, value) -> str | None:
+        """Decode an emoji value that may be an int codepoint or string."""
+        if value is None:
+            return None
+        if isinstance(value, int):
+            return chr(value) if 0 < value <= 0x10FFFF else None
+        if isinstance(value, str) and value:
+            # If it's a numeric string (e.g. "128077"), convert to emoji
+            try:
+                codepoint = int(value)
+                return chr(codepoint) if 0 < codepoint <= 0x10FFFF else None
+            except (ValueError, OverflowError):
+                pass
+            return value
+        return None
 
     def _parse_array_field(self, value) -> list[int] | None:
         """Parse an array field that may be a string, list, or None."""

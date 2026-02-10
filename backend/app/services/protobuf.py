@@ -145,7 +145,11 @@ def decode_meshtastic_packet(
                 if data_msg.reply_id:
                     decoded["replyId"] = data_msg.reply_id
                 if data_msg.emoji:
-                    decoded["emoji"] = data_msg.emoji
+                    # Protobuf emoji field is a fixed32 Unicode codepoint
+                    try:
+                        decoded["emoji"] = chr(data_msg.emoji)
+                    except (ValueError, OverflowError):
+                        decoded["emoji"] = data_msg.emoji
 
                 # Decode inner payload based on portnum
                 decoded["payload"] = _decode_inner_payload(

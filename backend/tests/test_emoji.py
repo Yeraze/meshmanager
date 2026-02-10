@@ -46,3 +46,16 @@ class TestDecodeEmoji:
     def test_empty_string_returns_none(self):
         c = self._make_collector()
         assert c._decode_emoji("") is None
+
+    def test_control_char_0x01_returns_none(self):
+        """Meshtastic sends 0x01 as a 'reaction present' flag, not a real emoji."""
+        c = self._make_collector()
+        assert c._decode_emoji(1) is None
+
+    def test_control_char_string_0x01_returns_none(self):
+        c = self._make_collector()
+        assert c._decode_emoji("1") is None
+
+    def test_numeric_string_below_0x20_returns_none(self):
+        c = self._make_collector()
+        assert c._decode_emoji("15") is None

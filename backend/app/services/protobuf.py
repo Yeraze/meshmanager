@@ -145,11 +145,13 @@ def decode_meshtastic_packet(
                 if data_msg.reply_id:
                     decoded["replyId"] = data_msg.reply_id
                 if data_msg.emoji:
-                    # Protobuf emoji field is a fixed32 Unicode codepoint
-                    try:
-                        decoded["emoji"] = chr(data_msg.emoji)
-                    except (ValueError, OverflowError):
-                        decoded["emoji"] = data_msg.emoji
+                    # Protobuf emoji field is a fixed32 Unicode codepoint.
+                    # Values < 0x20 are control chars (e.g. 0x01 = "reaction present" flag)
+                    if data_msg.emoji >= 0x20:
+                        try:
+                            decoded["emoji"] = chr(data_msg.emoji)
+                        except (ValueError, OverflowError):
+                            pass
 
                 # Decode inner payload based on portnum
                 decoded["payload"] = _decode_inner_payload(

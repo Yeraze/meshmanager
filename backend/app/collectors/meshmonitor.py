@@ -880,12 +880,14 @@ class MeshMonitorCollector(BaseCollector):
         if value is None:
             return None
         if isinstance(value, int):
-            return chr(value) if 0 < value <= 0x10FFFF else None
+            # Filter control characters (< 0x20) — e.g. Meshtastic sends 0x01 as a
+            # "reaction present" flag, not a real emoji codepoint
+            return chr(value) if 0x20 <= value <= 0x10FFFF else None
         if isinstance(value, str) and value:
             # If it's a numeric string (e.g. "128077"), convert to emoji
             try:
                 codepoint = int(value)
-                return chr(codepoint) if 0 < codepoint <= 0x10FFFF else None
+                return chr(codepoint) if 0x20 <= codepoint <= 0x10FFFF else None
             except (ValueError, OverflowError):
                 pass
             return value

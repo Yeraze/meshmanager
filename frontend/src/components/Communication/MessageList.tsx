@@ -45,9 +45,11 @@ const EXTENDED_PICTOGRAPHIC_RE = /\p{Extended_Pictographic}/u
 
 /** Returns true if a string consists entirely of emoji characters */
 function isEmojiOnly(str: string): boolean {
-  // Remove zero-width joiners and variation selectors, then check remaining chars
-  const stripped = str.replace(/\u200d|\ufe0f|\u20e3/g, '')
-  if (stripped.length === 0) return false
+  // Strip keycap sequences as whole units (e.g. "4️⃣" = digit + VS16? + keycap combiner)
+  let stripped = str.replace(/[0-9#*]\ufe0f?\u20e3/g, '')
+  // Remove zero-width joiners and variation selectors
+  stripped = stripped.replace(/\u200d|\ufe0f/g, '')
+  if (stripped.length === 0) return str.length > 0
   // Use spread to iterate codepoints (handles surrogate pairs correctly)
   return [...stripped].every(
     (ch) => EMOJI_PRESENTATION_RE.test(ch) || EXTENDED_PICTOGRAPHIC_RE.test(ch),
@@ -59,8 +61,8 @@ function isReaction(msg: MessageResponse): boolean {
   if (msg.reply_id == null) return false
   // Has emoji and no text -> reaction
   if (msg.emoji != null && (msg.text == null || msg.text.trim() === '')) return true
-  // Text is pure emoji and has reply_id -> reaction
-  if (msg.text != null && isEmojiOnly(msg.text.trim()) && msg.emoji == null) return true
+  // Text is pure emoji and has reply_id -> reaction (regardless of emoji field)
+  if (msg.text != null && isEmojiOnly(msg.text.trim())) return true
   return false
 }
 

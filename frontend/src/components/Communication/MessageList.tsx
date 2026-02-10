@@ -4,7 +4,7 @@ import { fetchMessages, type MessageResponse } from '../../services/api'
 
 interface MessageListProps {
   channelKey: string
-  onMessageClick: (packetId: string) => void
+  onMessageClick: (info: { packetId: string; senderName: string; text: string | null; timestamp: string }) => void
   sourceNames?: string[]
 }
 
@@ -283,7 +283,12 @@ export default function MessageList({ channelKey, onMessageClick, sourceNames }:
             return (
               <button
                 key={msg.packet_id}
-                onClick={() => onMessageClick(msg.packet_id)}
+                onClick={() => onMessageClick({
+                  packetId: msg.packet_id,
+                  senderName: getNodeDisplayName(msg),
+                  text: msg.text,
+                  timestamp: getMessageTimestamp(msg),
+                })}
                 style={{
                   width: '100%',
                   padding: '0.75rem',

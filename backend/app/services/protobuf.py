@@ -124,6 +124,7 @@ def decode_meshtastic_packet(
                 "rxTime": packet.rx_time or None,
                 "rxSnr": packet.rx_snr,
                 "rxRssi": packet.rx_rssi,
+                "relayNode": packet.relay_node,
             }
 
             data_msg = None

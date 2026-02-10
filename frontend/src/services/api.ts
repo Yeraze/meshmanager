@@ -649,6 +649,8 @@ export interface MessageSourceDetail {
   hop_limit: number | null
   hop_start: number | null
   hop_count: number | null
+  relay_node: number | null
+  relay_node_name: string | null
   rx_time: string | null
   received_at: string
 }

@@ -7,7 +7,12 @@ import MessageDetailModal from './MessageDetailModal'
 
 export default function CommunicationPage() {
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null)
-  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
+  const [selectedMessage, setSelectedMessage] = useState<{
+    packetId: string
+    senderName: string
+    text: string | null
+    timestamp: string
+  } | null>(null)
   const [disabledSources, setDisabledSources] = useState<Set<string>>(new Set())
 
   const {
@@ -37,12 +42,12 @@ export default function CommunicationPage() {
     })
   }, [])
 
-  const handleMessageClick = (packetId: string) => {
-    setSelectedMessageId(packetId)
+  const handleMessageClick = (info: { packetId: string; senderName: string; text: string | null; timestamp: string }) => {
+    setSelectedMessage(info)
   }
 
   const handleCloseModal = () => {
-    setSelectedMessageId(null)
+    setSelectedMessage(null)
   }
 
   // Get the selected channel info
@@ -193,8 +198,14 @@ export default function CommunicationPage() {
       </div>
 
       {/* Message Detail Modal */}
-      {selectedMessageId && (
-        <MessageDetailModal packetId={selectedMessageId} onClose={handleCloseModal} />
+      {selectedMessage && (
+        <MessageDetailModal
+          packetId={selectedMessage.packetId}
+          senderName={selectedMessage.senderName}
+          messageText={selectedMessage.text}
+          timestamp={selectedMessage.timestamp}
+          onClose={handleCloseModal}
+        />
       )}
     </div>
   )

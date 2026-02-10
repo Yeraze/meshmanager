@@ -50,6 +50,7 @@ class Message(Base):
     rx_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     rx_snr: Mapped[float | None] = mapped_column(Integer)  # Stored as int, represents dB * 4
     rx_rssi: Mapped[int | None] = mapped_column(Integer)
+    relay_node: Mapped[int | None] = mapped_column(BigInteger)
 
     # Timestamp
     received_at: Mapped[datetime] = mapped_column(

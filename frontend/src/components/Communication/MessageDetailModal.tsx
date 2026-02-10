@@ -5,6 +5,9 @@ import styles from './MessageDetailModal.module.css'
 interface MessageDetailModalProps {
   packetId: string
   onClose: () => void
+  senderName?: string
+  messageText?: string | null
+  timestamp?: string
 }
 
 function formatDateTime(dateString: string | null): string {
@@ -37,7 +40,13 @@ function formatHops(detail: MessageSourceDetail): string {
   return '-'
 }
 
-export default function MessageDetailModal({ packetId, onClose }: MessageDetailModalProps) {
+function formatRelay(detail: MessageSourceDetail): string {
+  if (detail.relay_node_name) return detail.relay_node_name
+  if (detail.relay_node) return `!${detail.relay_node.toString(16).padStart(8, '0')}`
+  return '-'
+}
+
+export default function MessageDetailModal({ packetId, onClose, senderName, messageText, timestamp }: MessageDetailModalProps) {
   const { data: sources, isLoading, error } = useQuery({
     queryKey: ['message-sources', packetId],
     queryFn: () => fetchMessageSources(packetId),
@@ -59,6 +68,19 @@ export default function MessageDetailModal({ packetId, onClose }: MessageDetailM
             &times;
           </button>
         </div>
+
+        {/* Message summary */}
+        {(senderName || messageText !== undefined || timestamp) && (
+          <div className={styles.messageSummary}>
+            <div className={styles.messageMeta}>
+              {senderName && <span className={styles.messageSender}>{senderName}</span>}
+              {timestamp && <span className={styles.messageTimestamp}>{formatDateTime(timestamp)}</span>}
+            </div>
+            <div className={styles.messageText}>
+              {messageText || <em>(empty message)</em>}
+            </div>
+          </div>
+        )}
 
         {/* Content */}
         <div className={styles.content}>
@@ -89,6 +111,7 @@ export default function MessageDetailModal({ packetId, onClose }: MessageDetailM
                     <th>SNR</th>
                     <th>RSSI</th>
                     <th>Hops</th>
+                    <th>Relay</th>
                     <th>Received At</th>
                   </tr>
                 </thead>
@@ -99,6 +122,7 @@ export default function MessageDetailModal({ packetId, onClose }: MessageDetailM
                       <td className={styles.numeric}>{formatSnr(source.rx_snr)}</td>
                       <td className={styles.numeric}>{formatRssi(source.rx_rssi)}</td>
                       <td className={styles.numeric}>{formatHops(source)}</td>
+                      <td>{formatRelay(source)}</td>
                       <td className={styles.timestamp}>{formatDateTime(getSourceTimestamp(source))}</td>
                     </tr>
                   ))}
@@ -110,6 +134,7 @@ export default function MessageDetailModal({ packetId, onClose }: MessageDetailM
                 <p><strong>SNR</strong> (Signal-to-Noise Ratio): Higher is better. Good: &gt;0 dB, Excellent: &gt;10 dB</p>
                 <p><strong>RSSI</strong> (Signal Strength): Higher (closer to 0) is better. Good: &gt;-100 dBm</p>
                 <p><strong>Hops</strong>: Number of nodes the message passed through to reach this source</p>
+                <p><strong>Relay</strong>: The node that relayed/forwarded this packet</p>
               </div>
             </>
           )}

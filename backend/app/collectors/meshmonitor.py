@@ -371,7 +371,9 @@ class MeshMonitorCollector(BaseCollector):
                 node.last_heard = datetime.fromtimestamp(
                     node_data["lastHeard"], tz=UTC
                 )
-            node.is_licensed = node_data.get("isLicensed", False)
+            is_licensed = node_data.get("isLicensed")
+            if is_licensed is not None:
+                node.is_licensed = is_licensed
             node.updated_at = datetime.now(UTC)
         else:
             # Create new node

@@ -586,6 +586,7 @@ class MeshMonitorCollector(BaseCollector):
             "hop_start": msg_data.get("hopStart"),
             "rx_snr": msg_data.get("rxSnr"),
             "rx_rssi": msg_data.get("rxRssi"),
+            "relay_node": msg_data.get("relayNode"),
             "rx_time": rx_time,
             "received_at": received_at,
         }

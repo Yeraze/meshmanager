@@ -54,6 +54,37 @@
   color: var(--color-text, #cdd6f4);
 }
 
+.messageSummary {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--color-border, #313244);
+  background: var(--color-surface-elevated, rgba(255, 255, 255, 0.03));
+}
+
+.messageMeta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.messageSender {
+  font-weight: 600;
+  color: var(--color-primary, #89b4fa);
+  font-size: 0.9rem;
+}
+
+.messageTimestamp {
+  font-size: 0.8rem;
+  color: var(--color-text-muted, #a6adc8);
+}
+
+.messageText {
+  font-size: 0.9rem;
+  color: var(--color-text, #cdd6f4);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
 .content {
   padding: 1.5rem;
   overflow-y: auto;

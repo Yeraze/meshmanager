@@ -88,6 +88,8 @@ class MessageSourceDetail(BaseModel):
     hop_limit: int | None
     hop_start: int | None
     hop_count: int | None
+    relay_node: int | None
+    relay_node_name: str | None
     rx_time: datetime | None
     received_at: datetime
 
@@ -343,6 +345,9 @@ async def get_message_sources(
         # Fallback to exact packet_id match
         filter_clause = Message.packet_id == packet_id
 
+    # Alias for the relay node lookup
+    relay_node_tbl = Node.__table__.alias("relay_node_tbl")
+
     query = (
         select(
             Message.source_id,
@@ -351,10 +356,19 @@ async def get_message_sources(
             Message.rx_rssi,
             Message.hop_limit,
             Message.hop_start,
+            Message.relay_node,
             Message.rx_time,
             Message.received_at,
+            func.coalesce(
+                relay_node_tbl.c.long_name, relay_node_tbl.c.short_name
+            ).label("relay_node_name"),
         )
         .join(Source, Message.source_id == Source.id)
+        .outerjoin(
+            relay_node_tbl,
+            (Message.relay_node == relay_node_tbl.c.node_num)
+            & (Message.source_id == relay_node_tbl.c.source_id),
+        )
         .where(filter_clause)
         .order_by(Message.rx_snr.desc().nullslast())
     )
@@ -375,6 +389,8 @@ async def get_message_sources(
             hop_count=(row.hop_start - row.hop_limit)
             if row.hop_start is not None and row.hop_limit is not None
             else None,
+            relay_node=row.relay_node,
+            relay_node_name=row.relay_node_name,
             rx_time=row.rx_time,
             received_at=row.received_at,
         )

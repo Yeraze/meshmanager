@@ -37,7 +37,7 @@ def upgrade() -> None:
     op.execute(
         sa.text("""
             CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_source_packet_gateway
-            ON messages (source_id, packet_id, gateway_node_num)
+            ON messages (source_id, packet_id, COALESCE(gateway_node_num, 0))
         """)
     )
 

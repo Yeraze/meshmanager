@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -14,15 +14,6 @@ class Message(Base):
     """A text message from the mesh network."""
 
     __tablename__ = "messages"
-    __table_args__ = (
-        Index(
-            "idx_messages_source_packet_gateway",
-            "source_id",
-            "packet_id",
-            "gateway_node_num",
-            unique=True,
-        ),
-    )
 
     id: Mapped[str] = mapped_column(
         UUID(as_uuid=False),
@@ -70,3 +61,13 @@ class Message(Base):
 
     # Relationships
     source: Mapped["Source"] = relationship("Source", back_populates="messages")  # noqa: F821
+
+    __table_args__ = (
+        Index(
+            "idx_messages_source_packet_gateway",
+            "source_id",
+            "packet_id",
+            func.coalesce(gateway_node_num, 0),
+            unique=True,
+        ),
+    )

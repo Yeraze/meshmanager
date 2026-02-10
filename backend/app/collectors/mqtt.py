@@ -183,7 +183,7 @@ class MqttCollector(BaseCollector):
                 await db.commit()
         except IntegrityError as e:
             err = str(e)
-            if "idx_messages_source_packet" in err:
+            if "idx_messages_source_packet" in err or "idx_messages_source_packet_gateway" in err:
                 logger.debug("Duplicate message ignored (likely overlapping topics)")
             elif "idx_traceroutes_unique" in err:
                 logger.debug("Duplicate traceroute ignored")
@@ -216,7 +216,7 @@ class MqttCollector(BaseCollector):
         channel = Channel(
             source_id=self.source.id,
             channel_index=channel_index,
-            name=data.get("channel_name") or data.get("channelName"),
+            name=data.get("channel_name") or data.get("channelName") or data.get("channelId"),
         )
         db.add(channel)
 
@@ -293,6 +293,9 @@ class MqttCollector(BaseCollector):
             elif isinstance(raw_emoji, str) and raw_emoji:
                 emoji = raw_emoji
 
+        # gateway_node_num: set by protobuf decoder; JSON messages may not have it
+        gateway_node_num = data.get("gatewayNodeNum")
+
         message = Message(
             source_id=self.source.id,
             packet_id=str(raw_id) if raw_id is not None else None,
@@ -309,6 +312,7 @@ class MqttCollector(BaseCollector):
             rx_snr=data.get("rxSnr"),
             rx_rssi=data.get("rxRssi"),
             relay_node=data.get("relayNode") or None,
+            gateway_node_num=gateway_node_num,
         )
         db.add(message)
         logger.debug(f"Received text message from {from_node}")

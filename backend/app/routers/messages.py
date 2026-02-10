@@ -102,6 +102,8 @@ class MessageSourceDetail(BaseModel):
     hop_count: int | None
     relay_node: int | None
     relay_node_name: str | None
+    gateway_node_num: int | None
+    gateway_node_name: str | None
     rx_time: datetime | None
     received_at: datetime
 
@@ -335,7 +337,11 @@ async def list_messages(
 
 
 async def _resolve_relay_node_name(
-    db: AsyncSession, source_id: str, relay_node_byte: int, message_rssi: int | None
+    db: AsyncSession,
+    source_id: str,
+    relay_node_byte: int,
+    message_rssi: int | None,
+    gateway_node_num: int | None = None,
 ) -> str | None:
     """Resolve a relay_node byte to the best-guess node name.
 
@@ -344,6 +350,10 @@ async def _resolve_relay_node_name(
     exclude non-relaying roles, require the node to be a direct neighbor
     (hops_away <= 1), and pick the best candidate using relay-capable role
     preference and RSSI proximity.
+
+    For MQTT messages with a known gateway, we additionally exclude the gateway
+    itself (it can't relay to itself) and prefer candidates geographically
+    closer to the gateway.
     """
     rssi_ref = message_rssi if message_rssi is not None else -999
 
@@ -358,16 +368,20 @@ async def _resolve_relay_node_name(
         .where(Node.role.notin_(_MUTE_ROLES) | Node.role.is_(None))
         # A relay node must be a direct neighbor of the receiver
         .where(or_(Node.hops_away <= 1, Node.hops_away.is_(None)))
-        .order_by(
-            Node.hops_away.asc().nullslast(),
-            case(
-                (Node.role.in_(_RELAY_ROLES), 0),
-                else_=1,
-            ),
-            func.abs(func.coalesce(Node.rssi, -999) - rssi_ref).asc(),
-        )
-        .limit(1)
     )
+
+    # If we know the gateway, exclude it from candidates (can't relay to itself)
+    if gateway_node_num is not None:
+        query = query.where(Node.node_num != gateway_node_num)
+
+    query = query.order_by(
+        Node.hops_away.asc().nullslast(),
+        case(
+            (Node.role.in_(_RELAY_ROLES), 0),
+            else_=1,
+        ),
+        func.abs(func.coalesce(Node.rssi, -999) - rssi_ref).asc(),
+    ).limit(1)
 
     result = await db.execute(query)
     return result.scalar()
@@ -405,6 +419,7 @@ async def get_message_sources(
             Message.hop_limit,
             Message.hop_start,
             Message.relay_node,
+            Message.gateway_node_num,
             Message.rx_time,
             Message.received_at,
         )
@@ -421,8 +436,22 @@ async def get_message_sources(
         relay_node_name = None
         if row.relay_node is not None:
             relay_node_name = await _resolve_relay_node_name(
-                db, str(row.source_id), row.relay_node, row.rx_rssi
+                db,
+                str(row.source_id),
+                row.relay_node,
+                row.rx_rssi,
+                gateway_node_num=row.gateway_node_num,
             )
+
+        # Resolve gateway node name if present
+        gateway_node_name = None
+        if row.gateway_node_num is not None:
+            gw_result = await db.execute(
+                select(func.coalesce(Node.long_name, Node.short_name))
+                .where(Node.source_id == row.source_id, Node.node_num == row.gateway_node_num)
+                .limit(1)
+            )
+            gateway_node_name = gw_result.scalar()
 
         sources.append(
             MessageSourceDetail(
@@ -439,6 +468,8 @@ async def get_message_sources(
                 else None,
                 relay_node=row.relay_node,
                 relay_node_name=relay_node_name,
+                gateway_node_num=row.gateway_node_num,
+                gateway_node_name=gateway_node_name,
                 rx_time=row.rx_time,
                 received_at=row.received_at,
             )

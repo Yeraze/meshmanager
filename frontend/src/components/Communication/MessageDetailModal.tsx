@@ -46,6 +46,12 @@ function formatRelay(detail: MessageSourceDetail): string {
   return '-'
 }
 
+function formatGateway(detail: MessageSourceDetail): string {
+  if (detail.gateway_node_name) return detail.gateway_node_name
+  if (detail.gateway_node_num) return `!${detail.gateway_node_num.toString(16).padStart(8, '0')}`
+  return '-'
+}
+
 export default function MessageDetailModal({ packetId, onClose, senderName, messageText, timestamp }: MessageDetailModalProps) {
   const { data: sources, isLoading, error } = useQuery({
     queryKey: ['message-sources', packetId],
@@ -108,6 +114,7 @@ export default function MessageDetailModal({ packetId, onClose, senderName, mess
                 <thead>
                   <tr>
                     <th>Source</th>
+                    <th>Gateway</th>
                     <th>SNR</th>
                     <th>RSSI</th>
                     <th>Hops</th>
@@ -119,6 +126,7 @@ export default function MessageDetailModal({ packetId, onClose, senderName, mess
                   {sources.map((source, index) => (
                     <tr key={`${source.source_id}-${index}`}>
                       <td className={styles.sourceName}>{source.source_name}</td>
+                      <td>{formatGateway(source)}</td>
                       <td className={styles.numeric}>{formatSnr(source.rx_snr)}</td>
                       <td className={styles.numeric}>{formatRssi(source.rx_rssi)}</td>
                       <td className={styles.numeric}>{formatHops(source)}</td>
@@ -135,6 +143,7 @@ export default function MessageDetailModal({ packetId, onClose, senderName, mess
                 <p><strong>RSSI</strong> (Signal Strength): Higher (closer to 0) is better. Good: &gt;-100 dBm</p>
                 <p><strong>Hops</strong>: Number of nodes the message passed through to reach this source</p>
                 <p><strong>Relay</strong>: The node that relayed/forwarded this packet</p>
+                <p><strong>Gateway</strong>: The node that uploaded this packet to MQTT</p>
               </div>
             </>
           )}

@@ -14,7 +14,8 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.create_index(op.f("ix_nodes_long_name"), "nodes", ["long_name"], unique=False)
+    # IF NOT EXISTS for crash-recovery idempotency
+    op.execute("CREATE INDEX IF NOT EXISTS ix_nodes_long_name ON nodes (long_name)")
 
 
 def downgrade() -> None:

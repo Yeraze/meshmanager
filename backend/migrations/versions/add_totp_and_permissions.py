@@ -33,22 +33,16 @@ ALL_WRITE_PERMISSIONS = (
 
 
 def upgrade() -> None:
-    # Add TOTP columns
-    op.add_column("users", sa.Column("totp_secret", sa.String(255), nullable=True))
-    op.add_column(
-        "users",
-        sa.Column("totp_enabled", sa.Boolean(), nullable=False, server_default="false"),
+    # Add TOTP columns (IF NOT EXISTS for crash-recovery idempotency)
+    op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(255)")
+    op.execute(
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN NOT NULL DEFAULT false"
     )
 
     # Add permissions JSON column
-    op.add_column(
-        "users",
-        sa.Column(
-            "permissions",
-            sa.JSON(),
-            nullable=False,
-            server_default=DEFAULT_PERMISSIONS,
-        ),
+    op.execute(
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS permissions JSON NOT NULL DEFAULT "
+        f"'{DEFAULT_PERMISSIONS}'"
     )
 
     # Migrate editors: set all write=true, change role to 'user'
@@ -62,12 +56,17 @@ def upgrade() -> None:
     # Migrate viewers: change role to 'user' (permissions default is read-only)
     op.execute(sa.text("UPDATE users SET role = 'user' WHERE role = 'viewer'"))
 
-    # Add CHECK constraint to enforce valid role values
-    op.create_check_constraint(
-        "ck_users_role_valid",
-        "users",
-        "role IN ('admin', 'user')",
-    )
+    # Add CHECK constraint to enforce valid role values (skip if already exists)
+    op.execute("""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint WHERE conname = 'ck_users_role_valid'
+            ) THEN
+                ALTER TABLE users ADD CONSTRAINT ck_users_role_valid CHECK (role IN ('admin', 'user'));
+            END IF;
+        END $$;
+    """)
 
 
 def downgrade() -> None:

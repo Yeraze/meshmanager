@@ -361,9 +361,12 @@ class MeshMonitorCollector(BaseCollector):
                 )
             if precision_bits is not None:
                 node.position_precision_bits = precision_bits
-            node.snr = snr
-            node.rssi = rssi
-            node.hops_away = hops_away
+            if snr is not None:
+                node.snr = snr
+            if rssi is not None:
+                node.rssi = rssi
+            if hops_away is not None:
+                node.hops_away = hops_away
             if node_data.get("lastHeard"):
                 node.last_heard = datetime.fromtimestamp(
                     node_data["lastHeard"], tz=UTC

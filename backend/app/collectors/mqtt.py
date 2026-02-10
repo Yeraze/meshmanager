@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 
 import aiomqtt
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
 from app.collectors.base import BaseCollector
@@ -19,6 +20,7 @@ from app.services.protobuf import (
     _expand_psk,
     decode_meshtastic_packet,
 )
+from app.telemetry_registry import CAMEL_TO_METRIC, METRIC_REGISTRY, SUBMESSAGE_TYPE_MAP
 
 logger = logging.getLogger(__name__)
 
@@ -439,7 +441,7 @@ class MqttCollector(BaseCollector):
 
     async def _handle_telemetry(self, db, data: dict) -> None:
         """Handle telemetry data."""
-        from app.models.telemetry import TelemetryType
+        from uuid import uuid4
 
         from_node = data.get("from") or data.get("fromId")
         if not from_node:
@@ -448,53 +450,84 @@ class MqttCollector(BaseCollector):
         if isinstance(from_node, str) and from_node.startswith("!"):
             from_node = int(from_node[1:], 16)
 
-        # MQTT JSON nests metrics in "payload"; MeshMonitor uses "telemetry"
         telem = data.get("telemetry", data)
         payload = data.get("payload", {}) if isinstance(data.get("payload"), dict) else {}
 
-        # Try camelCase nested (MeshMonitor/protobuf), then check payload for flat keys
-        device_metrics = (
-            telem.get("deviceMetrics")
-            or payload.get("deviceMetrics")
-            or payload.get("device_metrics")
-            or {}
-        )
-        env_metrics = (
-            telem.get("environmentMetrics")
-            or payload.get("environmentMetrics")
-            or payload.get("environment_metrics")
-            or {}
-        )
+        rx_time = self._parse_rx_time(data.get("rxTime") or data.get("timestamp"))
+        received_at = rx_time or datetime.now(UTC)
+        inserted_any = False
 
-        # MQTT JSON may put device metrics flat in payload
-        if not device_metrics and any(
-            k in payload for k in ("battery_level", "voltage", "channel_utilization", "air_util_tx")
-        ):
-            device_metrics = payload
-        if not env_metrics and any(
-            k in payload for k in ("temperature", "relative_humidity", "barometric_pressure")
-        ):
-            env_metrics = payload
+        for submsg_key, telem_type in SUBMESSAGE_TYPE_MAP.items():
+            metrics_dict = telem.get(submsg_key) or payload.get(submsg_key)
+            if not isinstance(metrics_dict, dict):
+                continue
+            for camel_key, value in metrics_dict.items():
+                if value is None or not isinstance(value, (int, float)):
+                    continue
+                metric_name = CAMEL_TO_METRIC.get(camel_key, camel_key)
+                metric_def = METRIC_REGISTRY.get(metric_name)
 
-        telemetry = Telemetry(
-            source_id=self.source.id,
-            node_num=from_node,
-            telemetry_type=TelemetryType.DEVICE if device_metrics else TelemetryType.ENVIRONMENT,
-            battery_level=self._first_key(device_metrics, "batteryLevel", "battery_level"),
-            voltage=device_metrics.get("voltage"),
-            channel_utilization=self._first_key(
-                device_metrics, "channelUtilization", "channel_utilization"
-            ),
-            air_util_tx=self._first_key(device_metrics, "airUtilTx", "air_util_tx"),
-            uptime_seconds=self._first_key(device_metrics, "uptimeSeconds", "uptime_seconds"),
-            temperature=env_metrics.get("temperature"),
-            relative_humidity=self._first_key(env_metrics, "relativeHumidity", "relative_humidity"),
-            barometric_pressure=self._first_key(
-                env_metrics, "barometricPressure", "barometric_pressure"
-            ),
-        )
-        db.add(telemetry)
+                values = {
+                    "id": str(uuid4()),
+                    "source_id": self.source.id,
+                    "node_num": from_node,
+                    "metric_name": metric_name,
+                    "telemetry_type": telem_type,
+                    "received_at": received_at,
+                    "raw_value": float(value),
+                }
+                if metric_def and metric_def.dedicated_column:
+                    values[metric_def.dedicated_column] = value
+
+                stmt = pg_insert(Telemetry).values(**values).on_conflict_do_nothing(
+                    index_elements=["source_id", "node_num", "received_at", "metric_name"]
+                )
+                result = await db.execute(stmt)
+                if result.rowcount > 0:
+                    inserted_any = True
+
+        # Flat fallback: some MQTT JSON puts metrics at top level of payload
+        if not inserted_any:
+            await self._handle_flat_telemetry(db, from_node, payload, received_at)
+
         logger.debug(f"Received telemetry from {from_node}")
+
+    async def _handle_flat_telemetry(
+        self, db, from_node: int, payload: dict, received_at: datetime
+    ) -> None:
+        """Handle flat MQTT JSON that puts metric keys directly in payload."""
+        from uuid import uuid4
+
+        for key, value in payload.items():
+            if value is None or not isinstance(value, (int, float)):
+                continue
+            # Try both camelCase and snake_case lookups
+            metric_name = CAMEL_TO_METRIC.get(key, key)
+            metric_def = METRIC_REGISTRY.get(metric_name)
+            if not metric_def:
+                # Try the raw key as a metric name
+                metric_def = METRIC_REGISTRY.get(key)
+                if metric_def:
+                    metric_name = key
+                else:
+                    continue  # Skip unknown fields
+
+            values = {
+                "id": str(uuid4()),
+                "source_id": self.source.id,
+                "node_num": from_node,
+                "metric_name": metric_name,
+                "telemetry_type": metric_def.telemetry_type,
+                "received_at": received_at,
+                "raw_value": float(value),
+            }
+            if metric_def.dedicated_column:
+                values[metric_def.dedicated_column] = value
+
+            stmt = pg_insert(Telemetry).values(**values).on_conflict_do_nothing(
+                index_elements=["source_id", "node_num", "received_at", "metric_name"]
+            )
+            await db.execute(stmt)
 
     async def _handle_nodeinfo(self, db, data: dict) -> None:
         """Handle node info update."""

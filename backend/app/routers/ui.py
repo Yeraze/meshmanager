@@ -12,6 +12,7 @@ from app.models.telemetry import TelemetryType
 from app.schemas.node import NodeResponse, NodeSummary
 from app.schemas.telemetry import TelemetryHistory, TelemetryHistoryPoint, TelemetryResponse
 from app.services.collector_manager import collector_manager
+from app.telemetry_registry import CAMEL_TO_METRIC, METRIC_REGISTRY
 
 router = APIRouter(prefix="/api", tags=["ui"])
 
@@ -209,6 +210,74 @@ async def get_telemetry(
     ]
 
 
+@router.get("/telemetry/{node_num}/metrics")
+async def get_available_metrics(
+    node_num: int,
+    db: AsyncSession = Depends(get_db),
+    hours: int = Query(default=24, ge=1, le=168, description="Hours of history to check"),
+) -> dict:
+    """Get available telemetry metrics for a node.
+
+    Returns metrics grouped by telemetry type, with label/unit from registry.
+    Only returns metrics that have actual data in the given time window.
+    """
+    cutoff = datetime.now(UTC) - timedelta(hours=hours)
+
+    result = await db.execute(
+        select(
+            Telemetry.metric_name,
+            Telemetry.telemetry_type,
+            func.count().label("count"),
+        )
+        .where(Telemetry.node_num == node_num)
+        .where(Telemetry.received_at >= cutoff)
+        .where(Telemetry.metric_name.is_not(None))
+        .group_by(Telemetry.metric_name, Telemetry.telemetry_type)
+    )
+    rows = result.all()
+
+    # Consolidate aliases into canonical names and group by telemetry type
+    consolidated: dict[str, dict] = {}  # canonical_name → {type_key, label, unit, count}
+    for metric_name, telem_type, count in rows:
+        metric_def = METRIC_REGISTRY.get(metric_name)
+        if not metric_def:
+            resolved = CAMEL_TO_METRIC.get(metric_name)
+            if resolved:
+                metric_def = METRIC_REGISTRY.get(resolved)
+
+        canonical = metric_def.name if metric_def else metric_name
+        type_key = telem_type.value if telem_type else "device"
+
+        if canonical in consolidated:
+            consolidated[canonical]["count"] += count
+        else:
+            consolidated[canonical] = {
+                "name": canonical,
+                "label": metric_def.label if metric_def else metric_name,
+                "unit": metric_def.unit if metric_def else "",
+                "type_key": type_key,
+                "count": count,
+            }
+
+    # Group by telemetry type
+    grouped: dict[str, list[dict]] = {}
+    for entry in consolidated.values():
+        type_key = entry.pop("type_key")
+        if type_key not in grouped:
+            grouped[type_key] = []
+        grouped[type_key].append(entry)
+
+    # Sort metrics within each group alphabetically by label
+    for type_key in grouped:
+        grouped[type_key].sort(key=lambda m: m["label"])
+
+    return {
+        "node_num": node_num,
+        "hours": hours,
+        "metrics": grouped,
+    }
+
+
 @router.get("/telemetry/{node_num}/history/{metric}")
 async def get_telemetry_history(
     node_num: int,
@@ -217,53 +286,85 @@ async def get_telemetry_history(
     hours: int = Query(default=24, ge=1, le=168, description="Hours of history to fetch"),
 ) -> TelemetryHistory:
     """Get historical data for a specific telemetry metric."""
-    # Validate metric name
-    valid_metrics = {
-        "battery_level": ("Battery Level", "%"),
-        "voltage": ("Voltage", "V"),
-        "channel_utilization": ("Channel Utilization", "%"),
-        "air_util_tx": ("Air Utilization TX", "%"),
-        "uptime_seconds": ("Uptime", "s"),
-        "temperature": ("Temperature", "°C"),
-        "relative_humidity": ("Humidity", "%"),
-        "barometric_pressure": ("Pressure", "hPa"),
-        "current": ("Current", "mA"),
-        "snr_local": ("SNR (Local)", "dB"),
-        "snr_remote": ("SNR (Remote)", "dB"),
-        "rssi": ("RSSI", "dBm"),
-    }
+    # Look up metric in registry (accept both snake_case and camelCase)
+    metric_def = METRIC_REGISTRY.get(metric)
+    if not metric_def:
+        resolved = CAMEL_TO_METRIC.get(metric)
+        if resolved:
+            metric_def = METRIC_REGISTRY.get(resolved)
 
-    if metric not in valid_metrics:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=400, detail=f"Invalid metric: {metric}")
+    if not metric_def:
+        raise HTTPException(status_code=400, detail=f"Unknown metric: {metric}")
 
     cutoff = datetime.now(UTC) - timedelta(hours=hours)
+
+    # Match both the requested name and the canonical snake_case name,
+    # plus any camelCase variants that map to this metric
+    metric_names = {metric, metric_def.name}
+    for camel, snake in CAMEL_TO_METRIC.items():
+        if snake == metric_def.name:
+            metric_names.add(camel)
 
     result = await db.execute(
         select(Telemetry, Source.name.label("source_name"))
         .join(Source)
         .where(Telemetry.node_num == node_num)
         .where(Telemetry.received_at >= cutoff)
+        .where(Telemetry.metric_name.in_(metric_names))
+        .where(Telemetry.raw_value.isnot(None))
         .order_by(Telemetry.received_at.asc())
     )
     rows = result.all()
 
-    # Extract the metric values
     data = []
+    seen_timestamps: set[tuple] = set()
     for t, source_name in rows:
-        value = getattr(t, metric, None)
-        if value is not None:
-            data.append(
-                TelemetryHistoryPoint(
-                    timestamp=t.received_at,
-                    source_id=t.source_id,
-                    source_name=source_name,
-                    value=float(value),
-                )
+        key = (t.received_at, t.source_id)
+        if key in seen_timestamps:
+            continue
+        seen_timestamps.add(key)
+        data.append(
+            TelemetryHistoryPoint(
+                timestamp=t.received_at,
+                source_id=t.source_id,
+                source_name=source_name,
+                value=float(t.raw_value),
             )
+        )
 
-    metric_name, unit = valid_metrics[metric]
-    return TelemetryHistory(metric=metric_name, unit=unit, data=data)
+    # Backward compat: also check dedicated column for old data without metric_name
+    if metric_def.dedicated_column:
+        col = getattr(Telemetry, metric_def.dedicated_column, None)
+        if col is not None:
+            legacy_result = await db.execute(
+                select(Telemetry, Source.name.label("source_name"))
+                .join(Source)
+                .where(Telemetry.node_num == node_num)
+                .where(Telemetry.received_at >= cutoff)
+                .where(col.isnot(None))
+                .where(Telemetry.metric_name.is_(None))
+                .order_by(Telemetry.received_at.asc())
+            )
+            for t, source_name in legacy_result.all():
+                key = (t.received_at, t.source_id)
+                if key in seen_timestamps:
+                    continue
+                seen_timestamps.add(key)
+                value = getattr(t, metric_def.dedicated_column)
+                if value is not None:
+                    data.append(
+                        TelemetryHistoryPoint(
+                            timestamp=t.received_at,
+                            source_id=t.source_id,
+                            source_name=source_name,
+                            value=float(value),
+                        )
+                    )
+
+    # Sort all data by timestamp
+    data.sort(key=lambda p: p.timestamp)
+
+    return TelemetryHistory(metric=metric_def.label, unit=metric_def.unit, data=data)
 
 
 @router.get("/sources/collection-status")

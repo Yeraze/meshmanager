@@ -19,6 +19,9 @@ class TelemetryType(enum.StrEnum):
     POWER = "power"
     AIR_QUALITY = "air_quality"
     POSITION = "position"
+    LOCAL_STATS = "local_stats"
+    HEALTH = "health"
+    HOST = "host"
 
 
 class Telemetry(Base):

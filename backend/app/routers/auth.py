@@ -19,6 +19,7 @@ from app.auth.totp import (
 from app.config import get_settings
 from app.database import get_db
 from app.models import User
+from app.models.user import ANONYMOUS_USER_ID
 from app.schemas.auth import (
     AuthStatus,
     ChangePasswordRequest,
@@ -29,6 +30,7 @@ from app.schemas.auth import (
     TotpSetupResponse,
     TotpVerifyRequest,
     UserInfo,
+    UserPermissions,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -36,8 +38,10 @@ settings = get_settings()
 
 
 async def _get_user_count(db: AsyncSession) -> int:
-    """Get total user count."""
-    result = await db.execute(select(func.count()).select_from(User))
+    """Get total user count (excludes the built-in anonymous user)."""
+    result = await db.execute(
+        select(func.count()).select_from(User).where(User.is_anonymous == False)  # noqa: E712
+    )
     return result.scalar() or 0
 
 
@@ -50,6 +54,13 @@ async def auth_status(
     """Get current authentication status."""
     user_count = await _get_user_count(db)
 
+    # Load anonymous user permissions
+    anon_perms = None
+    anon_result = await db.execute(select(User).where(User.id == ANONYMOUS_USER_ID))
+    anon_user = anon_result.scalar()
+    if anon_user and anon_user.permissions:
+        anon_perms = UserPermissions.model_validate(anon_user.permissions)
+
     return AuthStatus(
         authenticated=user is not None,
         user=UserInfo.model_validate(user) if user else None,
@@ -57,6 +68,7 @@ async def auth_status(
         setup_required=user_count == 0,
         totp_required=bool(request.session.get("totp_pending")),
         local_auth_disabled=settings.disable_local_auth,
+        anonymous_permissions=anon_perms,
     )
 
 

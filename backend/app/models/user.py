@@ -15,6 +15,12 @@ DEFAULT_PERMISSIONS: dict = {
     tab: {"read": True, "write": False} for tab in VALID_TABS
 }
 
+ANONYMOUS_USER_ID = "00000000-0000-0000-0000-000000000000"
+
+ANONYMOUS_DEFAULT_PERMISSIONS: dict = {
+    tab: {"read": tab != "settings", "write": False} for tab in VALID_TABS
+}
+
 
 class User(Base):
     """A user authenticated via local credentials or OIDC."""
@@ -46,6 +52,9 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(20), default="user")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     permissions: Mapped[dict] = mapped_column(JSON, default=lambda: dict(DEFAULT_PERMISSIONS))
+
+    # Anonymous flag
+    is_anonymous: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # TOTP/MFA
     totp_secret: Mapped[str | None] = mapped_column(String(255))

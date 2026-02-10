@@ -33,6 +33,7 @@ class UserInfo(BaseModel):
     auth_provider: str = "local"
     permissions: UserPermissions = UserPermissions()
     totp_enabled: bool = False
+    is_anonymous: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -54,6 +55,7 @@ class AuthStatus(BaseModel):
     setup_required: bool = False
     totp_required: bool = False
     local_auth_disabled: bool = False
+    anonymous_permissions: UserPermissions | None = None
 
 
 class LoginRequest(BaseModel):

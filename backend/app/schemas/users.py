@@ -20,6 +20,7 @@ class UserListItem(BaseModel):
     is_active: bool = True
     permissions: UserPermissions = UserPermissions()
     totp_enabled: bool = False
+    is_anonymous: bool = False
     created_at: datetime | None = None
     last_login_at: datetime | None = None
 

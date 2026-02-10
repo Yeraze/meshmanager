@@ -10,6 +10,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.auth.middleware import require_tab_access
 from app.database import get_db
 from app.models import Node, SystemSetting, Telemetry, UtilizationCell
 
@@ -96,6 +97,7 @@ class GenerateResponse(BaseModel):
 @router.get("/config", response_model=UtilizationConfigResponse)
 async def get_utilization_config(
     db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("analysis")),
 ) -> UtilizationConfigResponse:
     """Get current utilization map configuration."""
     result = await db.execute(
@@ -142,6 +144,7 @@ async def get_utilization_config(
 async def update_utilization_config(
     config: UtilizationConfigRequest,
     db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("analysis", "write")),
 ) -> UtilizationConfigResponse:
     """Update utilization map configuration."""
     result = await db.execute(
@@ -191,7 +194,10 @@ async def update_utilization_config(
 
 
 @router.post("/generate", response_model=GenerateResponse)
-async def generate_utilization(db: AsyncSession = Depends(get_db)) -> GenerateResponse:
+async def generate_utilization(
+    db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("analysis", "write")),
+) -> GenerateResponse:
     """Generate utilization grid from channel utilization telemetry."""
     # Get config
     result = await db.execute(
@@ -384,6 +390,7 @@ async def generate_utilization(db: AsyncSession = Depends(get_db)) -> GenerateRe
 @router.get("/cells", response_model=list[UtilizationCellResponse])
 async def get_utilization_cells(
     db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("map")),
 ) -> list[UtilizationCellResponse]:
     """Get all utilization grid cells for map overlay."""
     result = await db.execute(select(UtilizationCell))

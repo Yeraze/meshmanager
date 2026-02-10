@@ -222,6 +222,13 @@ function EditUserForm({ user, onSuccess, onCancel }: { user: AdminUser; onSucces
     e.preventDefault()
     setError(null)
     try {
+      // Anonymous user: only send permissions
+      if (user.is_anonymous) {
+        await updateMutation.mutateAsync({ id: user.id, data: { permissions: form.permissions } })
+        onSuccess()
+        return
+      }
+
       const data: Record<string, unknown> = {}
       if (form.display_name !== (user.display_name || '')) data.display_name = form.display_name || undefined
       if (form.email !== (user.email || '')) data.email = form.email || undefined
@@ -255,93 +262,108 @@ function EditUserForm({ user, onSuccess, onCancel }: { user: AdminUser; onSucces
 
   return (
     <form onSubmit={handleSubmit} className="user-form">
-      <h3>Edit User: {user.username}</h3>
+      <h3>{user.is_anonymous ? 'Edit Anonymous User Permissions' : `Edit User: ${user.username}`}</h3>
       {error && <div className="user-form-error">{error}</div>}
-      <div className="user-form-grid">
-        <div className="user-form-group">
-          <label htmlFor="edit-display-name">Display Name</label>
-          <input
-            id="edit-display-name"
-            type="text"
-            value={form.display_name}
-            onChange={(e) => setForm({ ...form, display_name: e.target.value })}
-            placeholder="Optional"
-          />
-        </div>
-        <div className="user-form-group">
-          <label htmlFor="edit-email">Email</label>
-          <input
-            id="edit-email"
-            type="email"
-            value={form.email}
-            onChange={(e) => setForm({ ...form, email: e.target.value })}
-            placeholder="Optional"
-          />
-        </div>
-      </div>
-      <div className="user-form-grid">
-        <div className="user-form-group">
-          <label>
-            <input
-              type="checkbox"
-              checked={form.is_admin}
-              onChange={(e) => setForm({ ...form, is_admin: e.target.checked })}
-              disabled={isSelf}
-            />{' '}
-            Admin
-          </label>
-          {isSelf && <small>Cannot change your own admin status</small>}
-        </div>
-        <div className="user-form-group">
-          <label htmlFor="edit-active">Status</label>
-          <select
-            id="edit-active"
-            value={form.is_active ? 'true' : 'false'}
-            onChange={(e) => setForm({ ...form, is_active: e.target.value === 'true' })}
-            disabled={isSelf}
-          >
-            <option value="true">Active</option>
-            <option value="false">Disabled</option>
-          </select>
-          {isSelf && <small>Cannot deactivate your own account</small>}
-        </div>
-      </div>
-      {!form.is_admin && (
+      {user.is_anonymous ? (
         <>
-          <h4 style={{ marginTop: '0.75rem', marginBottom: '0.5rem' }}>Permissions</h4>
+          <p className="settings-description" style={{ marginBottom: '0.75rem' }}>
+            Configure what unauthenticated visitors can access. Changes take effect immediately.
+          </p>
           <PermissionsGrid
             permissions={form.permissions}
             onChange={(perms) => setForm({ ...form, permissions: perms })}
             disabled={false}
           />
         </>
-      )}
-      {form.is_admin && (
-        <p className="settings-description" style={{ marginTop: '0.5rem' }}>
-          Admins have full access to all tabs.
-        </p>
-      )}
-      {user.auth_provider === 'local' && (
-        <div className="user-form-grid">
-          <div className="user-form-group">
-            <label htmlFor="edit-password">New Password</label>
-            <input
-              id="edit-password"
-              type="password"
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-              minLength={8}
-              placeholder="Leave blank to keep current"
-            />
+      ) : (
+        <>
+          <div className="user-form-grid">
+            <div className="user-form-group">
+              <label htmlFor="edit-display-name">Display Name</label>
+              <input
+                id="edit-display-name"
+                type="text"
+                value={form.display_name}
+                onChange={(e) => setForm({ ...form, display_name: e.target.value })}
+                placeholder="Optional"
+              />
+            </div>
+            <div className="user-form-group">
+              <label htmlFor="edit-email">Email</label>
+              <input
+                id="edit-email"
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                placeholder="Optional"
+              />
+            </div>
           </div>
-        </div>
-      )}
-      {user.totp_enabled && (
-        <div style={{ marginTop: '0.75rem' }}>
-          <button type="button" className="btn btn-danger btn-sm" onClick={handleResetTotp}>
-            Reset TOTP
-          </button>
-        </div>
+          <div className="user-form-grid">
+            <div className="user-form-group">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={form.is_admin}
+                  onChange={(e) => setForm({ ...form, is_admin: e.target.checked })}
+                  disabled={isSelf}
+                />{' '}
+                Admin
+              </label>
+              {isSelf && <small>Cannot change your own admin status</small>}
+            </div>
+            <div className="user-form-group">
+              <label htmlFor="edit-active">Status</label>
+              <select
+                id="edit-active"
+                value={form.is_active ? 'true' : 'false'}
+                onChange={(e) => setForm({ ...form, is_active: e.target.value === 'true' })}
+                disabled={isSelf}
+              >
+                <option value="true">Active</option>
+                <option value="false">Disabled</option>
+              </select>
+              {isSelf && <small>Cannot deactivate your own account</small>}
+            </div>
+          </div>
+          {!form.is_admin && (
+            <>
+              <h4 style={{ marginTop: '0.75rem', marginBottom: '0.5rem' }}>Permissions</h4>
+              <PermissionsGrid
+                permissions={form.permissions}
+                onChange={(perms) => setForm({ ...form, permissions: perms })}
+                disabled={false}
+              />
+            </>
+          )}
+          {form.is_admin && (
+            <p className="settings-description" style={{ marginTop: '0.5rem' }}>
+              Admins have full access to all tabs.
+            </p>
+          )}
+          {user.auth_provider === 'local' && (
+            <div className="user-form-grid">
+              <div className="user-form-group">
+                <label htmlFor="edit-password">New Password</label>
+                <input
+                  id="edit-password"
+                  type="password"
+                  value={form.password}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  minLength={8}
+                  placeholder="Leave blank to keep current"
+                />
+              </div>
+            </div>
+          )}
+          {user.totp_enabled && (
+            <div style={{ marginTop: '0.75rem' }}>
+              <button type="button" className="btn btn-danger btn-sm" onClick={handleResetTotp}>
+                Reset TOTP
+              </button>
+            </div>
+          )}
+        </>
       )}
       <div className="user-form-actions">
         <button type="button" className="btn btn-secondary" onClick={onCancel}>
@@ -361,6 +383,13 @@ export default function UsersManagement() {
   const deleteMutation = useDeleteUser()
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null)
+
+  // Sort anonymous user to top of list
+  const sortedUsers = [...users].sort((a, b) => {
+    if (a.is_anonymous && !b.is_anonymous) return -1
+    if (!a.is_anonymous && b.is_anonymous) return 1
+    return 0
+  })
 
   const handleDelete = async (user: AdminUser) => {
     if (confirm(`Are you sure you want to delete user "${user.username}"?`)) {
@@ -405,38 +434,47 @@ export default function UsersManagement() {
           <div className="loading-spinner" />
           Loading users...
         </div>
-      ) : users.length === 0 ? (
+      ) : sortedUsers.length === 0 ? (
         <div className="settings-empty">No users found.</div>
       ) : (
         <div className="settings-list">
-          {users.map((user) => {
+          {sortedUsers.map((user) => {
             const isSelf = currentUser?.id === user.id
+            const canDelete = !isSelf && !user.is_anonymous
             return (
               <div key={user.id} className="settings-card user-card">
                 <div className="user-card-header">
                   <div className="user-card-title">
                     <span className="user-card-avatar">
-                      {user.display_name?.[0]?.toUpperCase() || user.username?.[0]?.toUpperCase() || '?'}
+                      {user.is_anonymous ? '?' : (user.display_name?.[0]?.toUpperCase() || user.username?.[0]?.toUpperCase() || '?')}
                     </span>
                     <div className="user-card-name-group">
                       <span className="user-card-name">
-                        {user.display_name || user.username || 'Unknown'}
+                        {user.is_anonymous ? 'Anonymous' : (user.display_name || user.username || 'Unknown')}
                         {isSelf && <span className="badge">You</span>}
                       </span>
-                      {user.username && (
+                      {user.is_anonymous ? (
+                        <span className="user-card-username">Unauthenticated visitors</span>
+                      ) : user.username && (
                         <span className="user-card-username">@{user.username}</span>
                       )}
                     </div>
                   </div>
                   <div className="user-card-badges">
-                    <RoleBadge isAdmin={user.is_admin} />
+                    {user.is_anonymous ? (
+                      <span className="badge badge-warning">Anonymous</span>
+                    ) : (
+                      <RoleBadge isAdmin={user.is_admin} />
+                    )}
                     {user.totp_enabled && <span className="badge badge-info">MFA</span>}
-                    <span className={`badge ${user.is_active ? '' : 'badge-danger'}`}>
-                      {user.is_active ? user.auth_provider === 'local' ? 'Local' : 'OIDC' : 'Disabled'}
-                    </span>
+                    {!user.is_anonymous && (
+                      <span className={`badge ${user.is_active ? '' : 'badge-danger'}`}>
+                        {user.is_active ? user.auth_provider === 'local' ? 'Local' : 'OIDC' : 'Disabled'}
+                      </span>
+                    )}
                   </div>
                 </div>
-                {user.email && (
+                {user.email && !user.is_anonymous && (
                   <div className="user-card-detail">{user.email}</div>
                 )}
                 <div className="user-card-actions">
@@ -448,16 +486,18 @@ export default function UsersManagement() {
                     }}
                     disabled={!!editingUser || !!showAddForm}
                   >
-                    Edit
+                    {user.is_anonymous ? 'Edit Permissions' : 'Edit'}
                   </button>
-                  <button
-                    className="btn btn-danger btn-sm"
-                    onClick={() => handleDelete(user)}
-                    disabled={isSelf || deleteMutation.isPending}
-                    title={isSelf ? 'Cannot delete your own account' : undefined}
-                  >
-                    Delete
-                  </button>
+                  {!user.is_anonymous && (
+                    <button
+                      className="btn btn-danger btn-sm"
+                      onClick={() => handleDelete(user)}
+                      disabled={!canDelete || deleteMutation.isPending}
+                      title={isSelf ? 'Cannot delete your own account' : undefined}
+                    >
+                      Delete
+                    </button>
+                  )}
                 </div>
               </div>
             )

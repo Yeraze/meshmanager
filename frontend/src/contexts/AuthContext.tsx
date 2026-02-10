@@ -93,11 +93,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const hasPermission = useCallback(
     (tab: string, action: 'read' | 'write'): boolean => {
-      if (!authStatus?.authenticated || !authStatus.user) return false
-      if (authStatus.user.is_admin) return true
-      const perms = authStatus.user.permissions
-      if (!perms) return false
-      const tabPerms = perms[tab as keyof typeof perms]
+      if (authStatus?.authenticated && authStatus.user) {
+        if (authStatus.user.is_admin) return true
+        const perms = authStatus.user.permissions
+        if (!perms) return false
+        const tabPerms = perms[tab as keyof typeof perms]
+        if (!tabPerms) return false
+        return tabPerms[action] ?? false
+      }
+      // Not authenticated: check anonymous permissions
+      const anonPerms = authStatus?.anonymous_permissions
+      if (!anonPerms) return true // Backward compat: no field = allow all
+      const tabPerms = anonPerms[tab as keyof typeof anonPerms]
       if (!tabPerms) return false
       return tabPerms[action] ?? false
     },

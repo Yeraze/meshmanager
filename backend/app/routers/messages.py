@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import String, case, distinct, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.middleware import require_tab_access
 from app.database import get_db
 from app.models import Channel, Message, Node, Source
 
@@ -111,6 +112,7 @@ class MessageSourceDetail(BaseModel):
 @router.get("/channels", response_model=list[ChannelSummary])
 async def list_channels(
     db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("communication")),
 ) -> list[ChannelSummary]:
     """List all channels with message counts, grouped by channel name (or index)."""
     channel_key = _channel_key_expr().label("channel_key")
@@ -192,6 +194,7 @@ async def list_messages(
         Query(description="Filter to messages from these sources"),
     ] = None,
     db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("communication")),
 ) -> MessagesListResponse:
     """List messages for a channel, deduplicated by packet_id.
 
@@ -391,6 +394,7 @@ async def _resolve_relay_node_name(
 async def get_message_sources(
     packet_id: str,
     db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("communication")),
 ) -> list[MessageSourceDetail]:
     """Get per-source reception details for a specific message.
 

@@ -60,7 +60,10 @@ async def init_db() -> None:
     from alembic.config import Config
     from sqlalchemy import inspect
 
-    alembic_cfg = Config(str(Path(__file__).parent.parent / "alembic.ini"))
+    alembic_ini = Path(__file__).parent.parent / "alembic.ini"
+    if not alembic_ini.exists():
+        raise FileNotFoundError(f"Alembic config not found: {alembic_ini}")
+    alembic_cfg = Config(str(alembic_ini))
 
     # Check if this is a pre-Alembic database (app tables exist but no alembic_version)
     async with engine.connect() as conn:
@@ -72,13 +75,19 @@ async def init_db() -> None:
 
         has_alembic, has_app_tables = await conn.run_sync(check_tables)
 
-    if not has_alembic and has_app_tables:
-        # v0.5.2 or earlier: tables created by create_all, no migration tracking.
-        # Stamp at the last revision that was part of v0.5.2, then upgrade.
-        logger.info("Detected pre-migration database, stamping at v0.5.2 baseline...")
-        await asyncio.to_thread(command.stamp, alembic_cfg, "d1e2f3g4h5i6")
+    try:
+        if not has_alembic and has_app_tables:
+            # v0.5.2 or earlier: tables created by create_all, no migration tracking.
+            # Stamp at the last revision that was part of v0.5.2, then upgrade.
+            logger.info("Detected pre-migration database, stamping at v0.5.2 baseline...")
+            await asyncio.to_thread(command.stamp, alembic_cfg, "d1e2f3g4h5i6")
 
-    await asyncio.to_thread(command.upgrade, alembic_cfg, "head")
+        logger.info("Running database migrations...")
+        await asyncio.to_thread(command.upgrade, alembic_cfg, "head")
+        logger.info("Database migrations completed successfully.")
+    except Exception:
+        logger.exception("Failed to run database migrations")
+        raise
 
 
 async def close_db() -> None:

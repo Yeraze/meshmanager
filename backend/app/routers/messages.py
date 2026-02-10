@@ -443,7 +443,7 @@ async def get_message_sources(
                 gateway_node_num=row.gateway_node_num,
             )
 
-        # Resolve gateway node name if present
+        # Resolve gateway node name if present (try same source first, then any source)
         gateway_node_name = None
         if row.gateway_node_num is not None:
             gw_result = await db.execute(
@@ -452,6 +452,17 @@ async def get_message_sources(
                 .limit(1)
             )
             gateway_node_name = gw_result.scalar()
+            if not gateway_node_name:
+                # Fall back to any source that has a name for this node
+                gw_result = await db.execute(
+                    select(func.coalesce(Node.long_name, Node.short_name))
+                    .where(
+                        Node.node_num == row.gateway_node_num,
+                        func.coalesce(Node.long_name, Node.short_name).isnot(None),
+                    )
+                    .limit(1)
+                )
+                gateway_node_name = gw_result.scalar()
 
         sources.append(
             MessageSourceDetail(

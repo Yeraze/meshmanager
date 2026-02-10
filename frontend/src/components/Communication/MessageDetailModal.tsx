@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
-import { fetchMessageSources, type MessageSourceDetail } from '../../services/api'
+import { fetchMessageSources, fetchNodesByNodeNum, type MessageSourceDetail } from '../../services/api'
+import { useDataContext } from '../../contexts/DataContext'
 import styles from './MessageDetailModal.module.css'
 
 interface MessageDetailModalProps {
@@ -40,19 +41,20 @@ function formatHops(detail: MessageSourceDetail): string {
   return '-'
 }
 
-function formatRelay(detail: MessageSourceDetail): string {
+function formatRelayText(detail: MessageSourceDetail): string {
   if (detail.relay_node_name) return detail.relay_node_name
   if (detail.relay_node) return `0x${(detail.relay_node & 0xFF).toString(16).padStart(2, '0').toUpperCase()}`
   return '-'
 }
 
-function formatGateway(detail: MessageSourceDetail): string {
+function formatGatewayText(detail: MessageSourceDetail): string {
   if (detail.gateway_node_name) return detail.gateway_node_name
   if (detail.gateway_node_num) return `!${detail.gateway_node_num.toString(16).padStart(8, '0')}`
   return '-'
 }
 
 export default function MessageDetailModal({ packetId, onClose, senderName, messageText, timestamp }: MessageDetailModalProps) {
+  const { setSelectedNode, navigateToPage } = useDataContext()
   const { data: sources, isLoading, error } = useQuery({
     queryKey: ['message-sources', packetId],
     queryFn: () => fetchMessageSources(packetId),
@@ -61,6 +63,19 @@ export default function MessageDetailModal({ packetId, onClose, senderName, mess
   const handleOverlayClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) {
       onClose()
+    }
+  }
+
+  const handleNodeClick = async (nodeNum: number) => {
+    try {
+      const nodes = await fetchNodesByNodeNum(nodeNum)
+      if (nodes.length > 0) {
+        setSelectedNode(nodes[0])
+        navigateToPage('nodes')
+        onClose()
+      }
+    } catch {
+      // Node not found or API error — ignore
     }
   }
 
@@ -126,11 +141,21 @@ export default function MessageDetailModal({ packetId, onClose, senderName, mess
                   {sources.map((source, index) => (
                     <tr key={`${source.source_id}-${index}`}>
                       <td className={styles.sourceName}>{source.source_name}</td>
-                      <td>{formatGateway(source)}</td>
+                      <td>
+                        {source.gateway_node_num ? (
+                          <button
+                            className={styles.nodeLink}
+                            onClick={() => handleNodeClick(source.gateway_node_num!)}
+                            title="View node details"
+                          >
+                            {formatGatewayText(source)}
+                          </button>
+                        ) : '-'}
+                      </td>
                       <td className={styles.numeric}>{formatSnr(source.rx_snr)}</td>
                       <td className={styles.numeric}>{formatRssi(source.rx_rssi)}</td>
                       <td className={styles.numeric}>{formatHops(source)}</td>
-                      <td>{formatRelay(source)}</td>
+                      <td>{formatRelayText(source)}</td>
                       <td className={styles.timestamp}>{formatDateTime(getSourceTimestamp(source))}</td>
                     </tr>
                   ))}

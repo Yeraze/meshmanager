@@ -149,6 +149,22 @@
   color: var(--color-text-muted, #a6adc8);
 }
 
+.nodeLink {
+  all: unset;
+  color: #89b4fa !important;
+  cursor: pointer !important;
+  text-decoration: underline;
+  text-decoration-color: rgba(137, 180, 250, 0.5);
+  text-underline-offset: 2px;
+  font: inherit;
+  display: inline;
+}
+
+.nodeLink:hover {
+  color: #b4d0fb !important;
+  text-decoration-color: #b4d0fb;
+}
+
 .legend {
   margin-top: 1.5rem;
   padding: 1rem;

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models import User
+from app.models.user import ANONYMOUS_USER_ID
 
 
 async def get_current_user_optional(
@@ -68,3 +69,56 @@ def require_permission(tab: str, action: str = "read") -> Callable:
             )
 
     return _check_permission
+
+
+async def get_effective_user(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Get session user if authenticated, otherwise the anonymous user.
+
+    Used by data endpoints to enforce tab-based permissions for both
+    authenticated and unauthenticated visitors.
+    """
+    user = await get_current_user_optional(request, db)
+    if user is not None:
+        return user
+
+    # Load the built-in anonymous user
+    result = await db.execute(select(User).where(User.id == ANONYMOUS_USER_ID))
+    anon = result.scalar()
+    if not anon:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+        )
+    return anon
+
+
+def require_tab_access(tab: str, action: str = "read") -> Callable:
+    """Factory that returns a dependency checking tab permissions.
+
+    Unlike require_permission (which requires a session), this uses
+    get_effective_user so unauthenticated visitors are checked against
+    the anonymous user's permissions.
+
+    Returns 401 for anonymous users denied access (prompts login).
+    Returns 403 for authenticated users denied access (forbidden).
+    """
+
+    async def _check_tab_access(
+        user: User = Depends(get_effective_user),
+    ) -> None:
+        if user.has_permission(tab, action):
+            return
+        if user.is_anonymous:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Permission denied: {tab} {action}",
+        )
+
+    return _check_tab_access

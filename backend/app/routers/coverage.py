@@ -12,6 +12,7 @@ from sqlalchemy import Numeric, cast, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.auth.middleware import require_tab_access
 from app.database import get_db
 from app.models import CoverageCell, Node, SystemSetting, Telemetry
 
@@ -103,7 +104,10 @@ class GenerateResponse(BaseModel):
 
 
 @router.get("/config", response_model=CoverageConfigResponse)
-async def get_coverage_config(db: AsyncSession = Depends(get_db)) -> CoverageConfigResponse:
+async def get_coverage_config(
+    db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("analysis")),
+) -> CoverageConfigResponse:
     """Get current coverage map configuration."""
     result = await db.execute(
         select(SystemSetting).where(SystemSetting.key == COVERAGE_CONFIG_KEY)
@@ -147,6 +151,7 @@ async def get_coverage_config(db: AsyncSession = Depends(get_db)) -> CoverageCon
 async def update_coverage_config(
     config: CoverageConfigRequest,
     db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("analysis", "write")),
 ) -> CoverageConfigResponse:
     """Update coverage map configuration."""
     result = await db.execute(
@@ -194,7 +199,10 @@ async def update_coverage_config(
 
 
 @router.post("/generate", response_model=GenerateResponse)
-async def generate_coverage(db: AsyncSession = Depends(get_db)) -> GenerateResponse:
+async def generate_coverage(
+    db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("analysis", "write")),
+) -> GenerateResponse:
     """Generate coverage grid from position history."""
     # Get config
     result = await db.execute(
@@ -339,7 +347,10 @@ async def generate_coverage(db: AsyncSession = Depends(get_db)) -> GenerateRespo
 
 
 @router.get("/cells", response_model=list[CoverageCellResponse])
-async def get_coverage_cells(db: AsyncSession = Depends(get_db)) -> list[CoverageCellResponse]:
+async def get_coverage_cells(
+    db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("map")),
+) -> list[CoverageCellResponse]:
     """Get all coverage grid cells for map overlay."""
     result = await db.execute(select(CoverageCell))
     cells = result.scalars().all()
@@ -372,6 +383,7 @@ async def get_position_history(
     bounds_north: float | None = None,
     bounds_east: float | None = None,
     db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("map")),
 ) -> list[PositionPoint]:
     """Get raw position points for heatmap rendering."""
     cutoff = datetime.now(UTC) - timedelta(days=lookback_days)
@@ -404,7 +416,10 @@ async def get_position_history(
 
 
 @router.get("/export/kml")
-async def export_kml(db: AsyncSession = Depends(get_db)) -> Response:
+async def export_kml(
+    db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("analysis")),
+) -> Response:
     """Export coverage grid as KML file."""
     result = await db.execute(select(CoverageCell))
     cells = result.scalars().all()
@@ -538,6 +553,7 @@ async def export_csv(
     bounds_north: float | None = None,
     bounds_east: float | None = None,
     db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("analysis")),
 ) -> Response:
     """Export position points as CSV file with headers."""
     import csv
@@ -578,6 +594,7 @@ async def export_shapefile(
     bounds_north: float | None = None,
     bounds_east: float | None = None,
     db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("analysis")),
 ) -> Response:
     """Export position points as Shapefile (.shp in a ZIP archive)."""
     try:
@@ -659,6 +676,7 @@ async def export_geopackage(
     bounds_north: float | None = None,
     bounds_east: float | None = None,
     db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("analysis")),
 ) -> Response:
     """Export position points as GeoPackage (.gpkg) - OGC standard geodatabase format."""
     try:
@@ -725,7 +743,10 @@ async def export_geopackage(
 
 
 @router.get("/export/geotiff")
-async def export_geotiff(db: AsyncSession = Depends(get_db)) -> Response:
+async def export_geotiff(
+    db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("analysis")),
+) -> Response:
     """Export coverage grid as GeoTIFF with 32-bit count values."""
     # Lazy import to avoid breaking startup if GDAL libraries are missing
     try:
@@ -832,6 +853,7 @@ async def get_message_activity(
     bounds_north: float | None = None,
     bounds_east: float | None = None,
     db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("map")),
 ) -> list[MessageActivityPoint]:
     """Get message activity points for heatmap rendering.
 

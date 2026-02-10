@@ -63,7 +63,9 @@ async def process_oidc_callback(token: dict) -> User:
                 )
 
             # Check if this is the first user (make them admin)
-            count_result = await db.execute(select(func.count()).select_from(User))
+            count_result = await db.execute(
+                select(func.count()).select_from(User).where(User.is_anonymous == False)  # noqa: E712
+            )
             user_count = count_result.scalar() or 0
 
             # Create new user

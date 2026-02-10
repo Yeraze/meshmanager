@@ -20,10 +20,8 @@ export default function NavSidebar({ currentPage, onPageChange }: NavSidebarProp
       { id: 'communication', label: 'Communication', icon: '\u{1F4AC}' },
     ]
 
-    // Filter by read permission for authenticated users
-    const items = isAuthenticated
-      ? allItems.filter((item) => hasPermission(item.id, 'read'))
-      : allItems
+    // Always filter by read permission (works for both authenticated and anonymous)
+    const items = allItems.filter((item) => hasPermission(item.id, 'read'))
 
     // Settings tab: only show when authenticated and has settings read permission
     if (isAuthenticated && hasPermission('settings', 'read')) {

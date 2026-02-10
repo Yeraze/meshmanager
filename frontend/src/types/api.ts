@@ -56,6 +56,7 @@ export interface AuthStatus {
   setup_required: boolean
   totp_required: boolean
   local_auth_disabled: boolean
+  anonymous_permissions: UserPermissions | null
 }
 
 export interface TabPermission {
@@ -84,6 +85,7 @@ export interface UserInfo {
   auth_provider: string
   permissions: UserPermissions
   totp_enabled: boolean
+  is_anonymous: boolean
 }
 
 export interface AdminUser {
@@ -97,6 +99,7 @@ export interface AdminUser {
   is_active: boolean
   permissions: UserPermissions
   totp_enabled: boolean
+  is_anonymous: boolean
   created_at: string | null
   last_login_at: string | null
 }

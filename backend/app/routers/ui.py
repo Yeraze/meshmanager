@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, literal_column, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.middleware import require_tab_access
 from app.database import get_db
 from app.models import Message, Node, SolarProduction, Source, SystemSetting, Telemetry, Traceroute
 from app.models.telemetry import TelemetryType
@@ -31,6 +32,7 @@ class SourceSummary:
 @router.get("/sources")
 async def list_sources_public(
     db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("map")),
 ) -> list[dict]:
     """List sources (public, names only)."""
     result = await db.execute(select(Source).order_by(Source.name))
@@ -53,6 +55,7 @@ async def list_nodes(
     source_id: str | None = Query(default=None, description="Filter by source ID"),
     active_only: bool = Query(default=False, description="Only show recently active nodes"),
     active_hours: int = Query(default=1, ge=1, le=8760, description="Hours to consider a node active (1-8760)"),
+    _access: None = Depends(require_tab_access("map")),
 ) -> list[NodeSummary]:
     """List all nodes across all sources.
 
@@ -100,6 +103,7 @@ async def list_nodes(
 async def get_nodes_by_node_num(
     node_num: int,
     db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("nodes")),
 ) -> list[NodeSummary]:
     """Get all node records across sources for a given node_num."""
     result = await db.execute(
@@ -135,6 +139,7 @@ async def get_nodes_by_node_num(
 @router.get("/nodes/roles")
 async def list_node_roles(
     db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("map")),
 ) -> list[str]:
     """Get list of unique node roles in the database."""
     result = await db.execute(
@@ -148,6 +153,7 @@ async def list_node_roles(
 async def get_node(
     node_id: str,
     db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("nodes")),
 ) -> NodeResponse:
     """Get a specific node by ID."""
     result = await db.execute(
@@ -172,6 +178,7 @@ async def get_telemetry(
     node_num: int,
     db: AsyncSession = Depends(get_db),
     hours: int = Query(default=24, ge=1, le=168, description="Hours of history to fetch"),
+    _access: None = Depends(require_tab_access("nodes")),
 ) -> list[TelemetryResponse]:
     """Get recent telemetry for a node across all sources."""
     cutoff = datetime.now(UTC) - timedelta(hours=hours)
@@ -215,6 +222,7 @@ async def get_available_metrics(
     node_num: int,
     db: AsyncSession = Depends(get_db),
     hours: int = Query(default=24, ge=1, le=168, description="Hours of history to check"),
+    _access: None = Depends(require_tab_access("nodes")),
 ) -> dict:
     """Get available telemetry metrics for a node.
 
@@ -284,6 +292,7 @@ async def get_telemetry_history(
     metric: str,
     db: AsyncSession = Depends(get_db),
     hours: int = Query(default=24, ge=1, le=168, description="Hours of history to fetch"),
+    _access: None = Depends(require_tab_access("graphs")),
 ) -> TelemetryHistory:
     """Get historical data for a specific telemetry metric."""
     # Look up metric in registry (accept both snake_case and camelCase)
@@ -385,6 +394,7 @@ async def get_collection_statuses() -> dict[str, dict]:
 async def get_position_history(
     db: AsyncSession = Depends(get_db),
     days: int = Query(default=7, ge=1, le=365, description="Days of history"),
+    _access: None = Depends(require_tab_access("map")),
 ) -> list[dict]:
     """Get historical position data for coverage analysis.
 
@@ -419,6 +429,7 @@ async def get_position_history(
 async def list_traceroutes(
     db: AsyncSession = Depends(get_db),
     hours: int = Query(default=24, ge=1, le=168, description="Hours of history"),
+    _access: None = Depends(require_tab_access("map")),
 ) -> list[dict]:
     """Get recent traceroutes for rendering on the map."""
     cutoff = datetime.now(UTC) - timedelta(hours=hours)
@@ -449,6 +460,7 @@ async def get_node_connections(
     db: AsyncSession = Depends(get_db),
     hours: int = Query(default=24, ge=1, le=168, description="Hours of history"),
     node_num: int | None = Query(default=None, description="Filter connections for specific node"),
+    _access: None = Depends(require_tab_access("map")),
 ) -> dict:
     """Get node connections graph data from traceroutes.
 
@@ -730,6 +742,7 @@ def _analyze_metric_for_solar_patterns(
 async def identify_solar_nodes(
     db: AsyncSession = Depends(get_db),
     lookback_days: int = Query(default=7, ge=1, le=90, description="Days of history to analyze"),
+    _access: None = Depends(require_tab_access("analysis")),
 ) -> dict:
     """Analyze telemetry to identify nodes that are likely solar-powered.
 
@@ -1222,6 +1235,7 @@ async def identify_solar_nodes(
 async def analyze_solar_forecast(
     db: AsyncSession = Depends(get_db),
     lookback_days: int = Query(default=7, ge=1, le=90, description="Days of history to analyze"),
+    _access: None = Depends(require_tab_access("analysis")),
 ) -> dict:
     """Analyze solar forecast and simulate node battery states.
 
@@ -1753,6 +1767,7 @@ async def analyze_solar_forecast(
 async def get_solar_averages(
     db: AsyncSession = Depends(get_db),
     hours: int = Query(default=168, ge=1, le=8760, description="Hours of history to fetch"),
+    _access: None = Depends(require_tab_access("analysis")),
 ) -> list[dict]:
     """Get averaged solar production data across all sources.
 
@@ -1793,6 +1808,7 @@ SOLAR_SCHEDULE_KEY = "solar_analysis.schedule"
 @router.get("/settings/solar-schedule")
 async def get_solar_schedule_settings(
     db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("analysis")),
 ) -> dict:
     """Get solar analysis schedule settings."""
     result = await db.execute(
@@ -1814,6 +1830,7 @@ async def get_solar_schedule_settings(
 async def update_solar_schedule_settings(
     settings: dict,
     db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("analysis", "write")),
 ) -> dict:
     """Update solar analysis schedule settings.
 
@@ -1864,6 +1881,7 @@ async def update_solar_schedule_settings(
 @router.post("/settings/solar-schedule/test")
 async def test_solar_notification(
     db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("analysis", "write")),
 ) -> dict:
     """Send a test notification with current solar analysis.
 
@@ -1907,6 +1925,7 @@ async def analyze_message_utilization(
     include_position: bool = Query(default=True, description="Include position telemetry"),
     include_air_quality: bool = Query(default=True, description="Include air quality telemetry"),
     exclude_local_nodes: bool = Query(default=False, description="Exclude telemetry from nodes directly connected to sources (hops_away=0)"),
+    _access: None = Depends(require_tab_access("analysis")),
 ) -> dict:
     """Analyze message utilization across the mesh network.
 

@@ -8,7 +8,7 @@ from app.auth.middleware import get_current_user, require_admin
 from app.auth.password import hash_password
 from app.database import get_db
 from app.models import User
-from app.models.user import DEFAULT_PERMISSIONS, VALID_TABS
+from app.models.user import ANONYMOUS_USER_ID, DEFAULT_PERMISSIONS, VALID_TABS
 from app.schemas.users import UserCreate, UserListItem, UserUpdate
 
 router = APIRouter(prefix="/api/admin/users", tags=["users"])
@@ -104,6 +104,22 @@ async def update_user(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
 
+    # Anonymous user: only allow changing permissions
+    if user.is_anonymous:
+        update_data = user_data.model_dump(exclude_unset=True)
+        non_perm_fields = {k for k in update_data if k != "permissions"}
+        if non_perm_fields:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only permissions can be changed for the anonymous user",
+            )
+        if "permissions" in update_data and update_data["permissions"] is not None:
+            _validate_permissions(update_data["permissions"])
+            user.permissions = update_data["permissions"]
+        await db.commit()
+        await db.refresh(user)
+        return UserListItem.model_validate(user)
+
     # Prevent self-demotion or self-deactivation
     if user.id == current_user.id:
         if user_data.is_admin is not None and not user_data.is_admin:
@@ -171,6 +187,11 @@ async def delete_user(
     _admin: None = Depends(require_admin),
 ) -> None:
     """Delete a user."""
+    if user_id == ANONYMOUS_USER_ID:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete the anonymous user",
+        )
     if user_id == current_user.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

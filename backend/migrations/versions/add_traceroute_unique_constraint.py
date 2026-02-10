@@ -37,13 +37,11 @@ def upgrade() -> None:
         )
     """)
 
-    # Now add the unique constraint
-    op.create_index(
-        "idx_traceroutes_unique",
-        "traceroutes",
-        ["source_id", "from_node_num", "to_node_num", "received_at"],
-        unique=True,
-    )
+    # Now add the unique constraint (IF NOT EXISTS for crash-recovery idempotency)
+    op.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_traceroutes_unique
+        ON traceroutes (source_id, from_node_num, to_node_num, received_at)
+    """)
 
 
 def downgrade() -> None:

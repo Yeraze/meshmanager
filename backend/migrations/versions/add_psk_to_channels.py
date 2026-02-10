@@ -15,7 +15,8 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("channels", sa.Column("psk", sa.String(48), nullable=True))
+    # IF NOT EXISTS for crash-recovery idempotency
+    op.execute("ALTER TABLE channels ADD COLUMN IF NOT EXISTS psk VARCHAR(48)")
 
 
 def downgrade() -> None:

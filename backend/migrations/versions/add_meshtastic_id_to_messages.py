@@ -21,9 +21,11 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Add the column
-    op.add_column("messages", sa.Column("meshtastic_id", sa.BigInteger(), nullable=True))
-    op.create_index("ix_messages_meshtastic_id", "messages", ["meshtastic_id"])
+    # Add the column (IF NOT EXISTS for crash-recovery idempotency)
+    op.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS meshtastic_id BIGINT")
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS ix_messages_meshtastic_id ON messages (meshtastic_id)"
+    )
 
     # Backfill from existing packet_id data:
     # - MeshMonitor format: '{from_node}_{raw_id}' -> extract part after last '_'

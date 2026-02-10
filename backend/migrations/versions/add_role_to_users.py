@@ -15,9 +15,12 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("users", sa.Column("role", sa.String(20), nullable=False, server_default="viewer"))
+    # IF NOT EXISTS for crash-recovery idempotency
+    op.execute(
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) NOT NULL DEFAULT 'viewer'"
+    )
     op.execute("UPDATE users SET role = 'admin' WHERE is_admin = true")
-    op.drop_column("users", "is_admin")
+    op.execute("ALTER TABLE users DROP COLUMN IF EXISTS is_admin")
 
 
 def downgrade() -> None:

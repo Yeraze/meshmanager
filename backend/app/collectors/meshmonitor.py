@@ -280,6 +280,10 @@ class MeshMonitorCollector(BaseCollector):
 
     async def _upsert_node(self, db, node_data: dict) -> None:
         """Insert or update a node."""
+        from uuid import uuid4
+
+        from app.models.telemetry import TelemetryType
+
         node_num = node_data.get("nodeNum") or node_data.get("num")
         if not node_num:
             return
@@ -291,6 +295,7 @@ class MeshMonitorCollector(BaseCollector):
             )
         )
         node = result.scalar()
+        node_existed = node is not None
 
         # MeshMonitor nests user info in a "user" object
         user_data = node_data.get("user", {}) or {}
@@ -336,6 +341,11 @@ class MeshMonitorCollector(BaseCollector):
         )
         position_time = position.get("time")
         precision_bits = position.get("precisionBits")
+
+        # Capture old position state before updating (for change detection below)
+        old_position_time = node.position_time if node else None
+        old_lat = node.latitude if node else None
+        old_lon = node.longitude if node else None
 
         if node:
             # Update existing node - only update fields with values (don't overwrite with None)
@@ -404,6 +414,39 @@ class MeshMonitorCollector(BaseCollector):
                     node_data["lastHeard"], tz=UTC
                 )
             db.add(node)
+
+        # Insert position telemetry when position data has changed
+        if new_lat is not None and new_lon is not None:
+            position_changed = False
+            if not node_existed:
+                position_changed = True
+            elif position_time and old_position_time:
+                new_pt = datetime.fromtimestamp(position_time, tz=UTC)
+                position_changed = new_pt != old_position_time
+            elif old_lat != new_lat or old_lon != new_lon:
+                position_changed = True
+
+            if position_changed:
+                received_at = (
+                    datetime.fromtimestamp(position_time, tz=UTC)
+                    if position_time
+                    else datetime.now(UTC)
+                )
+                values = {
+                    "id": str(uuid4()),
+                    "source_id": self.source.id,
+                    "node_num": node_num,
+                    "telemetry_type": TelemetryType.POSITION,
+                    "metric_name": "position",
+                    "latitude": new_lat,
+                    "longitude": new_lon,
+                    "altitude": int(new_alt) if new_alt is not None else None,
+                    "received_at": received_at,
+                }
+                stmt = pg_insert(Telemetry).values(**values).on_conflict_do_nothing(
+                    index_elements=["source_id", "node_num", "received_at", "metric_name"]
+                )
+                await db.execute(stmt)
 
     async def _collect_channels(self, client: httpx.AsyncClient, headers: dict) -> None:
         """Collect channel configuration from the v1 API."""

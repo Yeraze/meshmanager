@@ -118,8 +118,8 @@ export default function MessageList({ channelKey, onMessageClick, sourceNames }:
     }
   }, [fetchNextPage, hasNextPage, isFetchingNextPage])
 
-  // Combine all pages of messages
-  const allMessages = data?.pages.flatMap((page) => page.messages) ?? []
+  // Combine all pages of messages (reverse so older pages come first for chronological order)
+  const allMessages = data?.pages.slice().reverse().flatMap((page) => page.messages) ?? []
 
   // Build lookup maps and filter reactions
   const { meshtasticIdMap, reactionsMap, displayMessages } = useMemo(() => {

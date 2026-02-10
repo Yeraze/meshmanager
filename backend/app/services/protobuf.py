@@ -114,6 +114,16 @@ def decode_meshtastic_packet(
             service_envelope.ParseFromString(payload)
 
             packet = service_envelope.packet
+
+            # Extract gateway_id from the envelope (e.g., "!abcd1234")
+            gw_id = service_envelope.gateway_id
+            gateway_node_num = None
+            if gw_id and gw_id.startswith("!"):
+                try:
+                    gateway_node_num = int(gw_id[1:], 16)
+                except ValueError:
+                    pass
+
             decoded = {
                 "from": getattr(packet, "from"),
                 "to": packet.to,
@@ -124,7 +134,9 @@ def decode_meshtastic_packet(
                 "rxTime": packet.rx_time or None,
                 "rxSnr": packet.rx_snr,
                 "rxRssi": packet.rx_rssi,
-                "relayNode": packet.relay_node,
+                "relayNode": packet.relay_node or None,
+                "gatewayNodeNum": gateway_node_num,
+                "channelId": service_envelope.channel_id or None,
             }
 
             data_msg = None

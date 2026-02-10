@@ -32,6 +32,15 @@ _METRICS: list[MetricDef] = [
     MetricDef("snr_local", "SNR (Local)", "dB", TelemetryType.DEVICE, "snr_local"),
     MetricDef("snr_remote", "SNR (Remote)", "dB", TelemetryType.DEVICE, "snr_remote"),
     MetricDef("rssi", "RSSI", "dBm", TelemetryType.DEVICE, "rssi"),
+    # ---- Paxcounter metrics ----
+    MetricDef("paxcounter_wifi", "PAX WiFi", "count", TelemetryType.DEVICE),
+    MetricDef("paxcounter_ble", "PAX BLE", "count", TelemetryType.DEVICE),
+    MetricDef("paxcounter_uptime", "PAX Uptime", "s", TelemetryType.DEVICE),
+    # ---- Device info metrics (reported by MeshMonitor) ----
+    MetricDef("heap_free_bytes", "Heap Free", "bytes", TelemetryType.DEVICE),
+    MetricDef("heap_total_bytes", "Heap Total", "bytes", TelemetryType.DEVICE),
+    MetricDef("system_node_count", "System Nodes", "count", TelemetryType.DEVICE),
+    MetricDef("system_direct_node_count", "Direct Nodes", "count", TelemetryType.DEVICE),
     # ---- Environment metrics ----
     MetricDef("temperature", "Temperature", "°C", TelemetryType.ENVIRONMENT, "temperature"),
     MetricDef("relative_humidity", "Humidity", "%", TelemetryType.ENVIRONMENT, "relative_humidity"),
@@ -131,6 +140,15 @@ CAMEL_TO_METRIC: dict[str, str] = {
     "channelUtilization": "channel_utilization",
     "airUtilTx": "air_util_tx",
     "uptimeSeconds": "uptime_seconds",
+    # Paxcounter
+    "paxcounterWifi": "paxcounter_wifi",
+    "paxcounterBle": "paxcounter_ble",
+    "paxcounterUptime": "paxcounter_uptime",
+    # Device info (MeshMonitor)
+    "heapFreeBytes": "heap_free_bytes",
+    "heapTotalBytes": "heap_total_bytes",
+    "systemNodeCount": "system_node_count",
+    "systemDirectNodeCount": "system_direct_node_count",
     # Environment
     "temperature": "temperature",
     "relativeHumidity": "relative_humidity",
@@ -198,6 +216,11 @@ CAMEL_TO_METRIC: dict[str, str] = {
     "numPacketsRxDup": "num_packets_rx_dup",
     "numTxCancelled": "num_tx_cancelled",
     "numTxRelayCancelled": "num_tx_relay_cancelled",
+    # MeshMonitor local stats aliases (slightly different naming)
+    "numRxDupe": "num_packets_rx_dup",
+    "numTxDropped": "num_tx_cancelled",
+    "numTxRelay": "num_packets_tx_relay",
+    "numTxRelayCanceled": "num_tx_relay_cancelled",  # single-l variant
     "noiseFloor": "noise_floor",
     # Health
     "heartBpm": "heart_bpm",

@@ -40,10 +40,12 @@ def upgrade() -> None:
     )
 
     # Add permissions JSON column
-    op.execute(
+    # Escape colons in JSON so SQLAlchemy doesn't treat :true/:false as bind params
+    escaped_json = DEFAULT_PERMISSIONS.replace(":", r"\:")
+    op.execute(sa.text(
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS permissions JSON NOT NULL DEFAULT "
-        f"'{DEFAULT_PERMISSIONS}'"
-    )
+        f"'{escaped_json}'"
+    ))
 
     # Migrate editors: set all write=true, change role to 'user'
     op.execute(

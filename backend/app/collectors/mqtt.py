@@ -535,12 +535,19 @@ class MqttCollector(BaseCollector):
         node = result.scalar()
 
         if node:
-            node.node_id = node_id
-            node.short_name = short_name
-            node.long_name = long_name
-            node.hw_model = hw_model
-            node.role = role
-            node.is_licensed = is_licensed
+            # Only update fields that have values (don't overwrite with None)
+            if node_id is not None:
+                node.node_id = node_id
+            if short_name is not None:
+                node.short_name = short_name
+            if long_name is not None:
+                node.long_name = long_name
+            if hw_model is not None:
+                node.hw_model = hw_model
+            if role is not None:
+                node.role = role
+            if is_licensed is not None:
+                node.is_licensed = is_licensed
             node.last_heard = datetime.now(UTC)
         else:
             node = Node(

@@ -337,12 +337,17 @@ class MeshMonitorCollector(BaseCollector):
         precision_bits = position.get("precisionBits")
 
         if node:
-            # Update existing node
-            node.node_id = node_id
-            node.short_name = short_name
-            node.long_name = long_name
-            node.hw_model = hw_model
-            node.role = role
+            # Update existing node - only update fields with values (don't overwrite with None)
+            if node_id is not None:
+                node.node_id = node_id
+            if short_name is not None:
+                node.short_name = short_name
+            if long_name is not None:
+                node.long_name = long_name
+            if hw_model is not None:
+                node.hw_model = hw_model
+            if role is not None:
+                node.role = role
             # Only update position if new data has it (don't overwrite with None)
             if new_lat is not None:
                 node.latitude = new_lat
@@ -356,14 +361,19 @@ class MeshMonitorCollector(BaseCollector):
                 )
             if precision_bits is not None:
                 node.position_precision_bits = precision_bits
-            node.snr = snr
-            node.rssi = rssi
-            node.hops_away = hops_away
+            if snr is not None:
+                node.snr = snr
+            if rssi is not None:
+                node.rssi = rssi
+            if hops_away is not None:
+                node.hops_away = hops_away
             if node_data.get("lastHeard"):
                 node.last_heard = datetime.fromtimestamp(
                     node_data["lastHeard"], tz=UTC
                 )
-            node.is_licensed = node_data.get("isLicensed", False)
+            is_licensed = node_data.get("isLicensed")
+            if is_licensed is not None:
+                node.is_licensed = is_licensed
             node.updated_at = datetime.now(UTC)
         else:
             # Create new node

@@ -42,7 +42,7 @@ function formatHops(detail: MessageSourceDetail): string {
 
 function formatRelay(detail: MessageSourceDetail): string {
   if (detail.relay_node_name) return detail.relay_node_name
-  if (detail.relay_node) return `!${detail.relay_node.toString(16).padStart(8, '0')}`
+  if (detail.relay_node) return `0x${(detail.relay_node & 0xFF).toString(16).padStart(2, '0').toUpperCase()}`
   return '-'
 }
 

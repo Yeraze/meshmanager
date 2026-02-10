@@ -11,6 +11,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models import Channel, Message, Node, Source
 
+# Roles that never relay packets (should be excluded from relay node resolution)
+_MUTE_ROLES = {"1", "CLIENT_MUTE", "8", "CLIENT_HIDDEN"}
+
+# Roles that are relay-capable (preferred when resolving relay node)
+_RELAY_ROLES = {
+    "2", "ROUTER",
+    "3", "ROUTER_CLIENT",
+    "4", "REPEATER",
+    "11", "ROUTER_LATE",
+    "12", "CLIENT_BASE",
+}
+
 router = APIRouter(prefix="/api/messages", tags=["messages"])
 
 
@@ -322,6 +334,45 @@ async def list_messages(
     )
 
 
+async def _resolve_relay_node_name(
+    db: AsyncSession, source_id: str, relay_node_byte: int, message_rssi: int | None
+) -> str | None:
+    """Resolve a relay_node byte to the best-guess node name.
+
+    Meshtastic's relay_node field contains only the last byte of the relaying
+    node's 32-bit node number.  We match by ``(node_num & 0xFF) == relay_node_byte``,
+    exclude non-relaying roles, require the node to be a direct neighbor
+    (hops_away <= 1), and pick the best candidate using relay-capable role
+    preference and RSSI proximity.
+    """
+    rssi_ref = message_rssi if message_rssi is not None else -999
+
+    query = (
+        select(
+            func.coalesce(Node.long_name, Node.short_name).label("name"),
+        )
+        .where(
+            Node.source_id == source_id,
+            (Node.node_num.op("&")(255) == relay_node_byte),
+        )
+        .where(Node.role.notin_(_MUTE_ROLES) | Node.role.is_(None))
+        # A relay node must be a direct neighbor of the receiver
+        .where(or_(Node.hops_away <= 1, Node.hops_away.is_(None)))
+        .order_by(
+            Node.hops_away.asc().nullslast(),
+            case(
+                (Node.role.in_(_RELAY_ROLES), 0),
+                else_=1,
+            ),
+            func.abs(func.coalesce(Node.rssi, -999) - rssi_ref).asc(),
+        )
+        .limit(1)
+    )
+
+    result = await db.execute(query)
+    return result.scalar()
+
+
 @router.get("/{packet_id}/sources", response_model=list[MessageSourceDetail])
 async def get_message_sources(
     packet_id: str,
@@ -345,9 +396,6 @@ async def get_message_sources(
         # Fallback to exact packet_id match
         filter_clause = Message.packet_id == packet_id
 
-    # Alias for the relay node lookup
-    relay_node_tbl = Node.__table__.alias("relay_node_tbl")
-
     query = (
         select(
             Message.source_id,
@@ -359,16 +407,8 @@ async def get_message_sources(
             Message.relay_node,
             Message.rx_time,
             Message.received_at,
-            func.coalesce(
-                relay_node_tbl.c.long_name, relay_node_tbl.c.short_name
-            ).label("relay_node_name"),
         )
         .join(Source, Message.source_id == Source.id)
-        .outerjoin(
-            relay_node_tbl,
-            (Message.relay_node == relay_node_tbl.c.node_num)
-            & (Message.source_id == relay_node_tbl.c.source_id),
-        )
         .where(filter_clause)
         .order_by(Message.rx_snr.desc().nullslast())
     )
@@ -376,23 +416,32 @@ async def get_message_sources(
     result = await db.execute(query)
     rows = result.all()
 
-    return [
-        MessageSourceDetail(
-            source_id=str(row.source_id),
-            source_name=row.source_name,
-            # Convert SNR from stored int (dB * 4) to actual dB
-            rx_snr=row.rx_snr / 4.0 if row.rx_snr is not None else None,
-            rx_rssi=row.rx_rssi,
-            hop_limit=row.hop_limit,
-            hop_start=row.hop_start,
-            # Calculate hop count if both values present
-            hop_count=(row.hop_start - row.hop_limit)
-            if row.hop_start is not None and row.hop_limit is not None
-            else None,
-            relay_node=row.relay_node,
-            relay_node_name=row.relay_node_name,
-            rx_time=row.rx_time,
-            received_at=row.received_at,
+    sources = []
+    for row in rows:
+        relay_node_name = None
+        if row.relay_node is not None:
+            relay_node_name = await _resolve_relay_node_name(
+                db, str(row.source_id), row.relay_node, row.rx_rssi
+            )
+
+        sources.append(
+            MessageSourceDetail(
+                source_id=str(row.source_id),
+                source_name=row.source_name,
+                # Convert SNR from stored int (dB * 4) to actual dB
+                rx_snr=row.rx_snr / 4.0 if row.rx_snr is not None else None,
+                rx_rssi=row.rx_rssi,
+                hop_limit=row.hop_limit,
+                hop_start=row.hop_start,
+                # Calculate hop count if both values present
+                hop_count=(row.hop_start - row.hop_limit)
+                if row.hop_start is not None and row.hop_limit is not None
+                else None,
+                relay_node=row.relay_node,
+                relay_node_name=relay_node_name,
+                rx_time=row.rx_time,
+                received_at=row.received_at,
+            )
         )
-        for row in rows
-    ]
+
+    return sources

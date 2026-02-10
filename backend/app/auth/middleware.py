@@ -1,5 +1,6 @@
 """Authentication middleware."""
 
+import time
 from collections.abc import Callable
 
 from fastapi import Depends, HTTPException, Request, status
@@ -9,6 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models import User
 from app.models.user import ANONYMOUS_USER_ID
+
+# Cache the anonymous user to avoid a DB query on every unauthenticated request.
+# Tuple of (User, expiry_timestamp). Invalidated after 60s so permission changes
+# propagate without a restart.
+_anon_cache: tuple[User | None, float] = (None, 0.0)
+_ANON_CACHE_TTL = 60  # seconds
 
 
 async def get_current_user_optional(
@@ -71,6 +78,12 @@ def require_permission(tab: str, action: str = "read") -> Callable:
     return _check_permission
 
 
+def invalidate_anon_cache() -> None:
+    """Clear the cached anonymous user so the next request reloads from DB."""
+    global _anon_cache
+    _anon_cache = (None, 0.0)
+
+
 async def get_effective_user(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -84,7 +97,13 @@ async def get_effective_user(
     if user is not None:
         return user
 
-    # Load the built-in anonymous user
+    # Return cached anonymous user if still fresh
+    global _anon_cache
+    cached, expiry = _anon_cache
+    if cached is not None and time.monotonic() < expiry:
+        return cached
+
+    # Load the built-in anonymous user from DB
     result = await db.execute(select(User).where(User.id == ANONYMOUS_USER_ID))
     anon = result.scalar()
     if not anon:
@@ -92,6 +111,10 @@ async def get_effective_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
         )
+
+    # Detach from session so the cached object doesn't hold a stale DB session
+    db.expunge(anon)
+    _anon_cache = (anon, time.monotonic() + _ANON_CACHE_TTL)
     return anon
 
 

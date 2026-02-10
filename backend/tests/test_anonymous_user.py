@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-from app.auth.middleware import get_effective_user, require_tab_access
+from app.auth.middleware import get_effective_user, invalidate_anon_cache, require_tab_access
 from app.models.user import (
     ANONYMOUS_DEFAULT_PERMISSIONS,
     ANONYMOUS_USER_ID,
@@ -59,6 +59,7 @@ class TestGetEffectiveUser:
     @pytest.mark.asyncio
     async def test_returns_session_user_when_authenticated(self):
         """Should return the session user when authenticated."""
+        invalidate_anon_cache()
         session_user = User(id="user-1", username="testuser", is_anonymous=False)
         request = MagicMock()
         request.session = {"user_id": "user-1"}
@@ -80,6 +81,7 @@ class TestGetEffectiveUser:
     @pytest.mark.asyncio
     async def test_returns_anonymous_user_when_not_authenticated(self):
         """Should return the anonymous user when no session."""
+        invalidate_anon_cache()
         anon_user = User(
             id=ANONYMOUS_USER_ID,
             username="anonymous",
@@ -106,6 +108,7 @@ class TestGetEffectiveUser:
     @pytest.mark.asyncio
     async def test_raises_401_when_anonymous_user_not_found(self):
         """Should raise 401 when anonymous user is missing from DB."""
+        invalidate_anon_cache()
         request = MagicMock()
         request.session = {}
 

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.middleware import get_current_user, require_admin
+from app.auth.middleware import get_current_user, invalidate_anon_cache, require_admin
 from app.auth.password import hash_password
 from app.database import get_db
 from app.models import User
@@ -118,6 +118,7 @@ async def update_user(
             user.permissions = update_data["permissions"]
         await db.commit()
         await db.refresh(user)
+        invalidate_anon_cache()
         return UserListItem.model_validate(user)
 
     # Prevent self-demotion or self-deactivation

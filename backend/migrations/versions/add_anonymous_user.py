@@ -31,6 +31,13 @@ def upgrade() -> None:
         """)
     )
 
+    # Index for user count queries that filter by is_anonymous
+    op.execute(
+        sa.text("""
+            CREATE INDEX IF NOT EXISTS ix_users_is_anonymous ON users (is_anonymous)
+        """)
+    )
+
     # Insert the anonymous user with default permissions (read all except settings)
     op.execute(
         sa.text("""
@@ -59,7 +66,8 @@ def downgrade() -> None:
         sa.text("DELETE FROM users WHERE id = CAST(:id AS UUID)").bindparams(id=ANONYMOUS_USER_ID)
     )
 
-    # Drop the column
+    # Drop the index and column
+    op.execute(sa.text("DROP INDEX IF EXISTS ix_users_is_anonymous"))
     op.execute(
         sa.text("ALTER TABLE users DROP COLUMN IF EXISTS is_anonymous")
     )

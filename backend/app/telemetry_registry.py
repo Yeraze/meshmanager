@@ -134,7 +134,9 @@ CAMEL_TO_METRIC: dict[str, str] = {
     # Environment
     "temperature": "temperature",
     "relativeHumidity": "relative_humidity",
+    "humidity": "relative_humidity",  # MeshMonitor short alias
     "barometricPressure": "barometric_pressure",
+    "pressure": "barometric_pressure",  # MeshMonitor short alias
     "gasResistance": "gas_resistance",
     "iaq": "iaq",
     "distance": "distance",

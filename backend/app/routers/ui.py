@@ -236,26 +236,36 @@ async def get_available_metrics(
     )
     rows = result.all()
 
-    # Group by telemetry type
-    grouped: dict[str, list[dict]] = {}
+    # Consolidate aliases into canonical names and group by telemetry type
+    consolidated: dict[str, dict] = {}  # canonical_name → {type_key, label, unit, count}
     for metric_name, telem_type, count in rows:
         metric_def = METRIC_REGISTRY.get(metric_name)
         if not metric_def:
             resolved = CAMEL_TO_METRIC.get(metric_name)
             if resolved:
                 metric_def = METRIC_REGISTRY.get(resolved)
-        label = metric_def.label if metric_def else metric_name
-        unit = metric_def.unit if metric_def else ""
+
+        canonical = metric_def.name if metric_def else metric_name
         type_key = telem_type.value if telem_type else "device"
 
+        if canonical in consolidated:
+            consolidated[canonical]["count"] += count
+        else:
+            consolidated[canonical] = {
+                "name": canonical,
+                "label": metric_def.label if metric_def else metric_name,
+                "unit": metric_def.unit if metric_def else "",
+                "type_key": type_key,
+                "count": count,
+            }
+
+    # Group by telemetry type
+    grouped: dict[str, list[dict]] = {}
+    for entry in consolidated.values():
+        type_key = entry.pop("type_key")
         if type_key not in grouped:
             grouped[type_key] = []
-        grouped[type_key].append({
-            "name": metric_name,
-            "label": label,
-            "unit": unit,
-            "count": count,
-        })
+        grouped[type_key].append(entry)
 
     # Sort metrics within each group alphabetically by label
     for type_key in grouped:

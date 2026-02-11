@@ -191,7 +191,7 @@ The redirect URI configured in your OIDC provider must exactly match the `OIDC_R
 
 ### SSO login succeeds but user has no permissions
 
-By default, SSO users are created with the **user** role. An admin can adjust roles and permissions in the **Admin > Users** panel.
+By default, SSO users are created with the **user** role. An admin can adjust roles and permissions on the [Settings > Users](/configuration/users) page.
 
 ### "Auto-creation of OIDC users is disabled" error
 

@@ -29,6 +29,10 @@ Authentication is always enabled. The first user to register becomes an admin.
 
 For SSO configuration details, see the [SSO (OpenID Connect)](/configuration/sso) guide.
 
+::: tip
+Anonymous user permissions and per-user tab permissions are configured through the web UI at **Settings > Users**, not via environment variables. See the [User Management](/configuration/users) guide for details.
+:::
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OIDC_ISSUER` | | OIDC provider issuer URL |

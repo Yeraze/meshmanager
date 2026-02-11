@@ -42,6 +42,17 @@ def mock_db():
     return db
 
 
+def _get_insert_params(mock_db):
+    """Extract values dict from the last pg_insert execute call.
+
+    The INSERT ... ON CONFLICT DO NOTHING is always the last execute call
+    in _handle_traceroute (after any SELECT queries for name resolution
+    and route position building).
+    """
+    stmt = mock_db.execute.call_args_list[-1][0][0]
+    return stmt.compile().params
+
+
 class TestHandleTracerouteJSON:
     """Tests for JSON traceroute handling."""
 
@@ -61,21 +72,21 @@ class TestHandleTracerouteJSON:
         }
         await collector._handle_traceroute(mock_db, data)
 
-        mock_db.add.assert_called_once()
-        tr = mock_db.add.call_args[0][0]
+        params = _get_insert_params(mock_db)
         # from/to should be swapped (requester/responder convention)
-        assert tr.from_node_num == 222
-        assert tr.to_node_num == 111
-        assert tr.route == [333, 444]
-        assert tr.route_back == [444, 333]
-        assert tr.snr_towards == [10, 20]
-        assert tr.snr_back == [15, 25]
-        assert tr.source_id == "test-source-id"
+        assert params["from_node_num"] == 222
+        assert params["to_node_num"] == 111
+        assert params["route"] == [333, 444]
+        assert params["route_back"] == [444, 333]
+        assert params["snr_towards"] == [10, 20]
+        assert params["snr_back"] == [15, 25]
+        assert params["source_id"] == "test-source-id"
 
     async def test_string_route_entries_resolved(self, collector, mock_db):
         """Route arrays with node names (strings) are resolved via DB lookup."""
         # Mock DB to return node_num mappings for the names
         mock_result = MagicMock()
+        mock_result.all.return_value = []
         mock_result.__iter__ = lambda self: iter([
             MagicMock(long_name="Node A", node_num=1001),
             MagicMock(long_name="Node B", node_num=1002),
@@ -97,13 +108,14 @@ class TestHandleTracerouteJSON:
         }
         await collector._handle_traceroute(mock_db, data)
 
-        tr = mock_db.add.call_args[0][0]
-        assert tr.route == [1001, 1002, 1003]
-        assert tr.route_back == [1003, 1001]
+        params = _get_insert_params(mock_db)
+        assert params["route"] == [1001, 1002, 1003]
+        assert params["route_back"] == [1003, 1001]
 
     async def test_mixed_route_entries_resolved(self, collector, mock_db):
         """Route arrays with mixed types resolve names and keep ints."""
         mock_result = MagicMock()
+        mock_result.all.return_value = []
         mock_result.__iter__ = lambda self: iter([
             MagicMock(long_name="Node A", node_num=1001),
             MagicMock(long_name="Node B", node_num=1002),
@@ -119,8 +131,8 @@ class TestHandleTracerouteJSON:
         }
         await collector._handle_traceroute(mock_db, data)
 
-        tr = mock_db.add.call_args[0][0]
-        assert tr.route == [1001, 333, 1002, 444]
+        params = _get_insert_params(mock_db)
+        assert params["route"] == [1001, 333, 1002, 444]
 
     async def test_float_snr_converted_to_db4(self, collector, mock_db):
         """Float SNR values (actual dB) are converted to int (dB * 4)."""
@@ -135,9 +147,9 @@ class TestHandleTracerouteJSON:
         }
         await collector._handle_traceroute(mock_db, data)
 
-        tr = mock_db.add.call_args[0][0]
-        assert tr.snr_towards == [25, -2]
-        assert tr.snr_back == [11]
+        params = _get_insert_params(mock_db)
+        assert params["snr_towards"] == [25, -2]
+        assert params["snr_back"] == [11]
 
     async def test_int_snr_preserved(self, collector, mock_db):
         """Integer SNR values (already dB*4) are preserved as-is."""
@@ -151,8 +163,8 @@ class TestHandleTracerouteJSON:
         }
         await collector._handle_traceroute(mock_db, data)
 
-        tr = mock_db.add.call_args[0][0]
-        assert tr.snr_towards == [25, -8]
+        params = _get_insert_params(mock_db)
+        assert params["snr_towards"] == [25, -8]
 
     async def test_hex_node_ids(self, collector, mock_db):
         """Hex node IDs (e.g. !a2e4ff4c) are converted to integers."""
@@ -163,10 +175,10 @@ class TestHandleTracerouteJSON:
         }
         await collector._handle_traceroute(mock_db, data)
 
-        tr = mock_db.add.call_args[0][0]
+        params = _get_insert_params(mock_db)
         # Swapped: from=to_original, to=from_original
-        assert tr.from_node_num == 0x69859134
-        assert tr.to_node_num == 0xA2E4FF4C
+        assert params["from_node_num"] == 0x69859134
+        assert params["to_node_num"] == 0xA2E4FF4C
 
     async def test_from_to_swap(self, collector, mock_db):
         """In TRACEROUTE_APP replies, from/to are swapped to match MeshMonitor."""
@@ -177,21 +189,21 @@ class TestHandleTracerouteJSON:
         }
         await collector._handle_traceroute(mock_db, data)
 
-        tr = mock_db.add.call_args[0][0]
-        assert tr.from_node_num == 200  # requester becomes from
-        assert tr.to_node_num == 100  # responder becomes to
+        params = _get_insert_params(mock_db)
+        assert params["from_node_num"] == 200  # requester becomes from
+        assert params["to_node_num"] == 100  # responder becomes to
 
     async def test_missing_from_skips(self, collector, mock_db):
         """Missing 'from' field causes handler to return without storing."""
         data = {"to": 222, "payload": {"route": []}}
         await collector._handle_traceroute(mock_db, data)
-        mock_db.add.assert_not_called()
+        mock_db.execute.assert_not_called()
 
     async def test_missing_to_skips(self, collector, mock_db):
         """Missing 'to' field causes handler to return without storing."""
         data = {"from": 111, "payload": {"route": []}}
         await collector._handle_traceroute(mock_db, data)
-        mock_db.add.assert_not_called()
+        mock_db.execute.assert_not_called()
 
     async def test_timestamp_parsed(self, collector, mock_db):
         """Unix timestamp from JSON is parsed into received_at."""
@@ -203,9 +215,9 @@ class TestHandleTracerouteJSON:
         }
         await collector._handle_traceroute(mock_db, data)
 
-        tr = mock_db.add.call_args[0][0]
-        assert tr.received_at is not None
-        assert tr.received_at.tzinfo is not None  # timezone-aware
+        params = _get_insert_params(mock_db)
+        assert params["received_at"] is not None
+        assert params["received_at"].tzinfo is not None  # timezone-aware
 
     async def test_camelcase_json_fields(self, collector, mock_db):
         """CamelCase JSON field names (snrTowards, routeBack) are handled."""
@@ -221,11 +233,11 @@ class TestHandleTracerouteJSON:
         }
         await collector._handle_traceroute(mock_db, data)
 
-        tr = mock_db.add.call_args[0][0]
-        assert tr.route == [333]
-        assert tr.route_back == [333]
-        assert tr.snr_towards == [5]
-        assert tr.snr_back == [10]
+        params = _get_insert_params(mock_db)
+        assert params["route"] == [333]
+        assert params["route_back"] == [333]
+        assert params["snr_towards"] == [5]
+        assert params["snr_back"] == [10]
 
     async def test_flattened_top_level_fields(self, collector, mock_db):
         """Handles MQTT bridges that put route fields at top level with non-dict payload."""
@@ -240,9 +252,9 @@ class TestHandleTracerouteJSON:
         }
         await collector._handle_traceroute(mock_db, data)
 
-        tr = mock_db.add.call_args[0][0]
-        assert tr.route == [333]
-        assert tr.route_back == [444]
+        params = _get_insert_params(mock_db)
+        assert params["route"] == [333]
+        assert params["route_back"] == [444]
 
     async def test_empty_snr_arrays_become_none(self, collector, mock_db):
         """Empty SNR arrays are stored as None."""
@@ -257,14 +269,15 @@ class TestHandleTracerouteJSON:
         }
         await collector._handle_traceroute(mock_db, data)
 
-        tr = mock_db.add.call_args[0][0]
-        assert tr.snr_towards is None
-        assert tr.snr_back is None
+        params = _get_insert_params(mock_db)
+        assert params["snr_towards"] is None
+        assert params["snr_back"] is None
 
 
     async def test_unresolvable_names_dropped(self, collector, mock_db):
         """String route entries not found in DB are dropped."""
         mock_result = MagicMock()
+        mock_result.all.return_value = []
         mock_result.__iter__ = lambda self: iter([
             MagicMock(long_name="Known Node", node_num=999),
         ])
@@ -279,8 +292,8 @@ class TestHandleTracerouteJSON:
         }
         await collector._handle_traceroute(mock_db, data)
 
-        tr = mock_db.add.call_args[0][0]
-        assert tr.route == [999]
+        params = _get_insert_params(mock_db)
+        assert params["route"] == [999]
 
 
 class TestResolveRouteNames:
@@ -353,11 +366,11 @@ class TestHandleTracerouteProtobuf:
         }
         await collector._handle_traceroute(mock_db, data)
 
-        tr = mock_db.add.call_args[0][0]
-        assert tr.route == [333, 444]
-        assert tr.route_back == [444, 333]
-        assert tr.snr_towards == [25, -8]
-        assert tr.snr_back == [12]
+        params = _get_insert_params(mock_db)
+        assert params["route"] == [333, 444]
+        assert params["route_back"] == [444, 333]
+        assert params["snr_towards"] == [25, -8]
+        assert params["snr_back"] == [12]
 
     async def test_protobuf_decode_failure_skips(self, collector, mock_db):
         """Invalid protobuf payload causes graceful skip."""
@@ -369,7 +382,7 @@ class TestHandleTracerouteProtobuf:
         # Should not raise, should just skip
         await collector._handle_traceroute(mock_db, data)
         # Depending on whether meshtastic is available and the bytes parse,
-        # we either get an add or a skip — but no exception
+        # we either get an insert or a skip — but no exception
         # (protobuf is permissive with unknown bytes, may still parse)
 
 

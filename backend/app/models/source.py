@@ -4,7 +4,7 @@ import enum
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, Enum, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -34,21 +34,21 @@ class Source(Base):
     # MeshMonitor specific
     url: Mapped[str | None] = mapped_column(String(500))
     api_token: Mapped[str | None] = mapped_column(String(500))
-    poll_interval_seconds: Mapped[int] = mapped_column(Integer, default=300)
+    poll_interval_seconds: Mapped[int] = mapped_column(Integer, default=300, server_default=text("300"))
     historical_days_back: Mapped[int] = mapped_column(
-        Integer, default=1
+        Integer, default=1, server_default=text("1")
     )  # Days of historical data to sync
 
     # MQTT specific
     mqtt_host: Mapped[str | None] = mapped_column(String(255))
-    mqtt_port: Mapped[int | None] = mapped_column(Integer, default=1883)
+    mqtt_port: Mapped[int | None] = mapped_column(Integer, default=1883, server_default=text("1883"))
     mqtt_username: Mapped[str | None] = mapped_column(String(255))
     mqtt_password: Mapped[str | None] = mapped_column(String(500))
     mqtt_topic_pattern: Mapped[str | None] = mapped_column(String(500))
-    mqtt_use_tls: Mapped[bool] = mapped_column(Boolean, default=False)
+    mqtt_use_tls: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
 
     # Common
-    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
     last_poll_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
     remote_version: Mapped[str | None] = mapped_column(String(50))  # Version from remote source

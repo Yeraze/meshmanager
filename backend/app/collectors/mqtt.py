@@ -662,6 +662,11 @@ class MqttCollector(BaseCollector):
 
         rx_time = self._parse_rx_time(data.get("rxTime") or data.get("timestamp"))
 
+        # Build route_positions from last-known node positions
+        route_positions = await self._build_route_positions(
+            db, from_node, to_node, route or [], route_back or []
+        )
+
         traceroute = Traceroute(
             source_id=self.source.id,
             from_node_num=from_node,
@@ -670,10 +675,55 @@ class MqttCollector(BaseCollector):
             route_back=route_back,
             snr_towards=snr_towards,
             snr_back=snr_back,
+            route_positions=route_positions,
             received_at=rx_time or datetime.now(UTC),
         )
         db.add(traceroute)
         logger.debug(f"Received MQTT traceroute from {from_node} to {to_node}")
+
+    async def _build_route_positions(
+        self, db, from_node: int, to_node: int,
+        route: list[int], route_back: list[int],
+    ) -> dict | None:
+        """Build route_positions from last-known node positions.
+
+        Collects all node numbers involved in the traceroute and looks up
+        their current positions from the DB. Returns a dict mapping node
+        number strings to {lat, lng, alt?}, or None if no positions found.
+
+        Best-effort: returns None on any error (positions are supplemental).
+        """
+        try:
+            all_nums = {from_node, to_node}
+            all_nums.update(route)
+            all_nums.update(route_back)
+            all_nums.discard(4294967295)  # broadcast address
+
+            if not all_nums:
+                return None
+
+            result = await db.execute(
+                select(Node.node_num, Node.latitude, Node.longitude, Node.altitude)
+                .where(Node.node_num.in_(all_nums))
+                .where(Node.latitude.isnot(None))
+                .where(Node.longitude.isnot(None))
+            )
+            rows = result.all()
+
+            if not rows:
+                return None
+
+            positions = {}
+            for row in rows:
+                pos: dict = {"lat": row.latitude, "lng": row.longitude}
+                if row.altitude is not None:
+                    pos["alt"] = row.altitude
+                positions[str(row.node_num)] = pos
+
+            return positions if positions else None
+        except Exception:
+            logger.debug("Failed to build route positions, skipping")
+            return None
 
     async def _resolve_route_names(self, db, route: list) -> list[int]:
         """Resolve a route array that may contain string node names to node numbers.

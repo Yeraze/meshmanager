@@ -249,5 +249,6 @@ export interface Traceroute {
   to_node_num: number
   route: number[]
   route_back: number[] | null
+  route_positions: Record<string, { lat: number; lng: number; alt?: number }> | null
   received_at: string
 }

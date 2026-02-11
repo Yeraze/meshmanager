@@ -451,8 +451,23 @@ export default function MapContainer() {
     const segmentUsage = new Map<string, number>()
     const segmentPositions = new Map<string, { from: [number, number]; to: [number, number] }>()
 
+    // Helper to resolve a node's position: prefer route_positions, fall back to live positions
+    const getNodePos = (
+      nodeNum: number,
+      routePositions: Record<string, { lat: number; lng: number; alt?: number }> | null,
+    ): { lat: number; lng: number } | undefined => {
+      if (routePositions) {
+        const rp = routePositions[String(nodeNum)]
+        if (rp) return { lat: rp.lat, lng: rp.lng }
+      }
+      return nodePositionsByNum.get(nodeNum)
+    }
+
     // Helper to add segments from a node sequence
-    const addSegmentsFromSequence = (nodeNums: number[]) => {
+    const addSegmentsFromSequence = (
+      nodeNums: number[],
+      routePositions: Record<string, { lat: number; lng: number; alt?: number }> | null,
+    ) => {
       for (let i = 0; i < nodeNums.length - 1; i++) {
         const fromNum = nodeNums[i]
         const toNum = nodeNums[i + 1]
@@ -460,8 +475,8 @@ export default function MapContainer() {
         // Skip broadcast address (4294967295) - it's a placeholder for unknown hops
         if (fromNum === 4294967295 || toNum === 4294967295) continue
 
-        const fromPos = nodePositionsByNum.get(fromNum)
-        const toPos = nodePositionsByNum.get(toNum)
+        const fromPos = getNodePos(fromNum, routePositions)
+        const toPos = getNodePos(toNum, routePositions)
 
         if (fromPos && toPos) {
           // Use sorted key so A->B and B->A are the same segment
@@ -486,16 +501,18 @@ export default function MapContainer() {
       // These are failed traceroutes that shouldn't be rendered
       if (trace.route_back === null) continue
 
+      const rp = trace.route_positions
+
       // Forward path: from_node_num -> route hops -> to_node_num
       // This is the path from requester to responder
       const forwardPath = [trace.from_node_num, ...trace.route, trace.to_node_num]
-      addSegmentsFromSequence(forwardPath)
+      addSegmentsFromSequence(forwardPath, rp)
 
       // Return path: to_node_num -> route_back hops -> from_node_num
       // This is the path from responder back to requester
       if (trace.route_back.length > 0) {
         const returnPath = [trace.to_node_num, ...trace.route_back, trace.from_node_num]
-        addSegmentsFromSequence(returnPath)
+        addSegmentsFromSequence(returnPath, rp)
       }
     }
 

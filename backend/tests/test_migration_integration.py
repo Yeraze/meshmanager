@@ -34,13 +34,13 @@ def test_set_missing_server_defaults_revision_exists():
     )
 
 
-def test_set_missing_server_defaults_is_head():
-    """The set_missing_server_defaults migration should be the current head."""
+def test_add_route_positions_is_head():
+    """The add_route_positions_to_traceroutes migration should be the current head."""
     cfg = _get_alembic_cfg()
     script_dir = ScriptDirectory.from_config(cfg)
 
     heads = script_dir.get_heads()
-    assert "p3q4r5s6t7u8" in heads, f"Expected p3q4r5s6t7u8 in heads, got {heads}"
+    assert "q4r5s6t7u8v9" in heads, f"Expected q4r5s6t7u8v9 in heads, got {heads}"
 
 
 def test_model_server_defaults_present():

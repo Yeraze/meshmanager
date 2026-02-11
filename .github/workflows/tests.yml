@@ -62,6 +62,9 @@ jobs:
       - name: Run linter
         run: ruff check app/
 
+      - name: Validate server defaults
+        run: python scripts/validate_server_defaults.py
+
   docker-build:
     name: Docker Build Test
     runs-on: ubuntu-latest

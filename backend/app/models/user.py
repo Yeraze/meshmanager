@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import JSON, Boolean, DateTime, String
+from sqlalchemy import JSON, Boolean, DateTime, String, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -34,7 +34,7 @@ class User(Base):
     )
 
     # Authentication provider: 'local' or 'oidc'
-    auth_provider: Mapped[str] = mapped_column(String(20), default="local")
+    auth_provider: Mapped[str] = mapped_column(String(20), default="local", server_default="local")
 
     # Local authentication
     username: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
@@ -49,16 +49,29 @@ class User(Base):
     display_name: Mapped[str | None] = mapped_column(String(255))
 
     # Permissions
-    role: Mapped[str] = mapped_column(String(20), default="user")
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    permissions: Mapped[dict] = mapped_column(JSON, default=lambda: dict(DEFAULT_PERMISSIONS))
+    role: Mapped[str] = mapped_column(String(20), default="user", server_default="user")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    permissions: Mapped[dict] = mapped_column(
+        JSON,
+        default=lambda: dict(DEFAULT_PERMISSIONS),
+        server_default=text(
+            "'{"
+            '"map": {"read": true, "write": false}, '
+            '"nodes": {"read": true, "write": false}, '
+            '"graphs": {"read": true, "write": false}, '
+            '"analysis": {"read": true, "write": false}, '
+            '"communication": {"read": true, "write": false}, '
+            '"settings": {"read": true, "write": false}'
+            "}'"
+        ),
+    )
 
     # Anonymous flag
-    is_anonymous: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_anonymous: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
 
     # TOTP/MFA
     totp_secret: Mapped[str | None] = mapped_column(String(255))
-    totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
 
     @property
     def is_admin(self) -> bool:

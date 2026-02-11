@@ -12,6 +12,7 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -61,7 +62,7 @@ class Node(Base):
         DateTime(timezone=True),
         index=True,
     )
-    is_licensed: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_licensed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
 
     # Timestamps
     first_seen: Mapped[datetime] = mapped_column(

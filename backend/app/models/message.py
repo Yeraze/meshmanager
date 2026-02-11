@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -36,7 +36,7 @@ class Message(Base):
     )  # Raw Meshtastic packet ID
     from_node_num: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     to_node_num: Mapped[int | None] = mapped_column(BigInteger)
-    channel: Mapped[int] = mapped_column(Integer, default=0)
+    channel: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
     text: Mapped[str | None] = mapped_column(Text)
 
     # Reply/reaction

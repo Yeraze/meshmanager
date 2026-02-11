@@ -1,5 +1,7 @@
 /// <reference types="vite/client" />
 
+declare const __APP_VERSION__: string
+
 declare module 'leaflet/dist/images/marker-icon-2x.png' {
   const value: string
   export default value

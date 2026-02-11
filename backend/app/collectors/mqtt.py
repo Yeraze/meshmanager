@@ -667,18 +667,25 @@ class MqttCollector(BaseCollector):
             db, from_node, to_node, route or [], route_back or []
         )
 
-        traceroute = Traceroute(
-            source_id=self.source.id,
-            from_node_num=from_node,
-            to_node_num=to_node,
-            route=route or [],
-            route_back=route_back,
-            snr_towards=snr_towards,
-            snr_back=snr_back,
-            route_positions=route_positions,
-            received_at=rx_time or datetime.now(UTC),
+        from uuid import uuid4
+
+        values = {
+            "id": str(uuid4()),
+            "source_id": self.source.id,
+            "from_node_num": from_node,
+            "to_node_num": to_node,
+            "route": route or [],
+            "route_back": route_back,
+            "snr_towards": snr_towards,
+            "snr_back": snr_back,
+            "route_positions": route_positions,
+            "received_at": rx_time or datetime.now(UTC),
+        }
+
+        stmt = pg_insert(Traceroute).values(**values).on_conflict_do_nothing(
+            index_elements=["source_id", "from_node_num", "to_node_num", "received_at"]
         )
-        db.add(traceroute)
+        await db.execute(stmt)
         logger.debug(f"Received MQTT traceroute from {from_node} to {to_node}")
 
     async def _build_route_positions(

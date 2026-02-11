@@ -38,10 +38,18 @@ def upgrade() -> None:
         """)
     )
 
+    # Ensure totp_enabled has a server-side DEFAULT. Older installs that
+    # bootstrapped via Base.metadata.create_all have the column but without
+    # a server DEFAULT (only a Python-side default), so inserts that omit the
+    # column fail with a NOT NULL violation.
+    op.execute(
+        sa.text("ALTER TABLE users ALTER COLUMN totp_enabled SET DEFAULT false")
+    )
+
     # Insert the anonymous user with default permissions (read all except settings)
     op.execute(
         sa.text("""
-            INSERT INTO users (id, username, auth_provider, role, is_active, is_anonymous, permissions, created_at)
+            INSERT INTO users (id, username, auth_provider, role, is_active, is_anonymous, permissions, totp_enabled, created_at)
             VALUES (
                 CAST(:id AS UUID),
                 'anonymous',
@@ -50,6 +58,7 @@ def upgrade() -> None:
                 TRUE,
                 TRUE,
                 CAST(:permissions AS JSONB),
+                FALSE,
                 NOW()
             )
             ON CONFLICT (id) DO NOTHING

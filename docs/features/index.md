@@ -52,6 +52,13 @@ Automated reports delivered on schedule:
 - Node relationship mapping
 - Signal quality analysis
 
+### User Management & Permissions
+
+- Role-based access control (admin and user roles)
+- Per-tab read/write permissions
+- Configurable anonymous access for unauthenticated visitors
+- Two-factor authentication (TOTP)
+
 ## Feature Pages
 
 - [Dashboard](/features/dashboard) - Main overview page
@@ -59,3 +66,4 @@ Automated reports delivered on schedule:
 - [Solar Monitoring](/features/solar-monitoring) - Solar-specific features
 - [Notifications](/features/notifications) - Alert configuration
 - [Multi-Source Support](/features/multi-source) - Working with multiple data sources
+- [User Management](/configuration/users) - Roles, permissions, and anonymous access

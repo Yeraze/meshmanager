@@ -45,6 +45,10 @@ Configure automated alerts:
 Configure how users log in:
 - [SSO (OpenID Connect)](/configuration/sso) - OIDC setup with Authentik, Keycloak, Auth0, etc.
 
+### User Management
+
+- [User Management](/configuration/users) - Roles, permissions, and anonymous access
+
 ### Environment Variables
 
 System-level configuration:

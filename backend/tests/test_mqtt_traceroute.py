@@ -34,6 +34,11 @@ def mock_db():
     db = AsyncMock()
     db.add = MagicMock()
     db.commit = AsyncMock()
+    # Default execute returns a result with empty .all() for route position lookups
+    mock_result = MagicMock()
+    mock_result.all.return_value = []
+    mock_result.__iter__ = lambda self: iter([])
+    db.execute = AsyncMock(return_value=mock_result)
     return db
 
 

@@ -449,6 +449,7 @@ async def list_traceroutes(
             "to_node_num": t.to_node_num,
             "route": t.route,
             "route_back": t.route_back,
+            "route_positions": t.route_positions,
             "received_at": t.received_at.isoformat(),
         }
         for t in traceroutes
@@ -503,14 +504,30 @@ async def get_node_connections(
     result = await db.execute(
         select(Node)
         .where(Node.node_num.in_(node_nums))
-        .where(Node.latitude.isnot(None))
-        .where(Node.longitude.isnot(None))
     )
     nodes = result.scalars().all()
 
-    # Build node map
+    # Build node map (all nodes, even without positions)
     node_map = {n.node_num: n for n in nodes}
-    node_nums_with_data = set(node_map.keys())
+
+    # Build position lookup: prefer route_positions, fall back to node DB positions
+    # This ensures nodes that have moved since a traceroute still render at
+    # their historical location, and nodes without DB positions but captured
+    # in route_positions can still form edges.
+    node_positions: dict[int, dict] = {}
+    for t in traceroutes:
+        if t.route_positions:
+            for num_str, pos in t.route_positions.items():
+                num = int(num_str)
+                if num not in node_positions and pos:
+                    node_positions[num] = pos
+
+    # Overlay current DB positions (fill gaps not covered by route_positions)
+    for n in nodes:
+        if n.node_num not in node_positions and n.latitude is not None and n.longitude is not None:
+            node_positions[n.node_num] = {"lat": n.latitude, "lng": n.longitude}
+
+    node_nums_with_data = set(node_positions.keys())
 
     # Build edges from traceroutes
     edges_map: dict[tuple[int, int], dict] = {}
@@ -557,18 +574,20 @@ async def get_node_connections(
 
     # Build response
     nodes_data = []
-    for node_num, node in node_map.items():
+    for num in node_nums_with_data:
+        node = node_map.get(num)
+        pos = node_positions[num]
         nodes_data.append({
-            "id": node_num,
-            "node_num": node.node_num,
-            "name": node.long_name or node.short_name or f"Node {node.node_num}",
-            "short_name": node.short_name,
-            "long_name": node.long_name,
-            "latitude": node.latitude,
-            "longitude": node.longitude,
-            "role": node.role,
-            "hw_model": node.hw_model,
-            "last_heard": node.last_heard.isoformat() if node.last_heard else None,
+            "id": num,
+            "node_num": num,
+            "name": (node.long_name or node.short_name or f"Node {num}") if node else f"Node {num}",
+            "short_name": node.short_name if node else None,
+            "long_name": node.long_name if node else None,
+            "latitude": pos.get("lat"),
+            "longitude": pos.get("lng"),
+            "role": node.role if node else None,
+            "hw_model": node.hw_model if node else None,
+            "last_heard": node.last_heard.isoformat() if node and node.last_heard else None,
         })
 
     edges_data = list(edges_map.values())

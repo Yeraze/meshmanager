@@ -4,7 +4,7 @@ from datetime import datetime
 from uuid import uuid4
 
 from sqlalchemy import BigInteger, DateTime, ForeignKey, Index
-from sqlalchemy.dialects.postgresql import ARRAY, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, utc_now
@@ -47,6 +47,10 @@ class Traceroute(Base):
     # SNR data (arrays of floats as integers, dB * 4)
     snr_towards: Mapped[list[int] | None] = mapped_column(ARRAY(BigInteger))
     snr_back: Mapped[list[int] | None] = mapped_column(ARRAY(BigInteger))
+
+    # Historical positions of nodes at the time the traceroute was completed
+    # Keys are node number strings, values are {lat, lng, alt?}
+    route_positions: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Timestamp
     received_at: Mapped[datetime] = mapped_column(

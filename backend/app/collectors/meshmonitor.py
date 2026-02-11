@@ -930,6 +930,25 @@ class MeshMonitorCollector(BaseCollector):
                 pass
         return None
 
+    def _parse_route_positions(self, value) -> dict | None:
+        """Parse routePositions from the API response.
+
+        The field may be a JSON string or a dict. Returns a dict mapping
+        node number strings to {lat, lng, alt?}, or None if not available.
+        """
+        import json
+
+        if value is None:
+            return None
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except (json.JSONDecodeError, ValueError):
+                return None
+        if isinstance(value, dict):
+            return value if value else None
+        return None
+
     async def _insert_traceroute(self, db, route_data: dict) -> bool:
         """Insert a traceroute using ON CONFLICT DO NOTHING for deduplication.
 
@@ -960,6 +979,11 @@ class MeshMonitorCollector(BaseCollector):
         else:
             received_at = datetime.now(UTC)
 
+        # Parse route_positions (historical node positions at traceroute time)
+        route_positions = self._parse_route_positions(
+            route_data.get("routePositions")
+        )
+
         # Build values dict for the insert
         values = {
             "id": str(uuid4()),
@@ -970,6 +994,7 @@ class MeshMonitorCollector(BaseCollector):
             "route_back": route_back,
             "snr_towards": snr_towards,
             "snr_back": snr_back,
+            "route_positions": route_positions,
             "received_at": received_at,
         }
 

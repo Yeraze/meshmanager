@@ -183,7 +183,7 @@ class MqttCollector(BaseCollector):
                 await db.commit()
         except IntegrityError as e:
             err = str(e)
-            if "idx_messages_source_packet" in err or "idx_messages_source_packet_gateway" in err:
+            if "messages_source_packet" in err:
                 logger.debug("Duplicate message ignored (likely overlapping topics)")
             elif "idx_traceroutes_unique" in err:
                 logger.debug("Duplicate traceroute ignored")

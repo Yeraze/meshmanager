@@ -94,6 +94,7 @@ Use this interactive configurator to generate a customized `docker-compose.yml` 
   <label for="version">MeshManager Version</label>
   <select id="version" v-model="config.version">
     <option value="latest">latest (recommended)</option>
+    <option value="0.7.0">0.7.0</option>
     <option value="0.6.7">0.6.7</option>
     <option value="0.6.6">0.6.6</option>
     <option value="0.6.5">0.6.5</option>

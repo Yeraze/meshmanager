@@ -167,8 +167,27 @@ class MqttCollector(BaseCollector):
         """Process a JSON-encoded Meshtastic message."""
         msg_type = data.get("type", "").lower()
 
+        # Extract gateway and channel info from MQTT topic
+        channel_name, gateway_node_num = self._parse_mqtt_topic(topic)
+        if gateway_node_num is not None and "gatewayNodeNum" not in data:
+            data["gatewayNodeNum"] = gateway_node_num
+        if channel_name:
+            data["channelId"] = channel_name
+
         try:
             async with async_session_maker() as db:
+                # Resolve channel index from name if available
+                if channel_name:
+                    result = await db.execute(
+                        select(Channel).where(
+                            Channel.source_id == self.source.id,
+                            Channel.name == channel_name,
+                        )
+                    )
+                    existing = result.scalar()
+                    if existing is not None:
+                        data["channel"] = existing.channel_index
+
                 await self._ensure_channel(db, data)
                 if msg_type == "text" or "text" in data:
                     await self._handle_text_message(db, data)
@@ -184,7 +203,7 @@ class MqttCollector(BaseCollector):
         except IntegrityError as e:
             err = str(e)
             if "messages_source_packet" in err:
-                logger.debug("Duplicate message ignored (likely overlapping topics)")
+                logger.debug("Duplicate message ignored")
             elif "idx_traceroutes_unique" in err:
                 logger.debug("Duplicate traceroute ignored")
             else:
@@ -201,7 +220,9 @@ class MqttCollector(BaseCollector):
         except (TypeError, ValueError):
             return
 
-        from sqlalchemy import select
+        channel_name = (
+            data.get("channel_name") or data.get("channelName") or data.get("channelId")
+        )
 
         result = await db.execute(
             select(Channel).where(
@@ -211,12 +232,15 @@ class MqttCollector(BaseCollector):
         )
         channel = result.scalar()
         if channel:
+            # Update name if currently empty and we have one
+            if not channel.name and channel_name:
+                channel.name = channel_name
             return
 
         channel = Channel(
             source_id=self.source.id,
             channel_index=channel_index,
-            name=data.get("channel_name") or data.get("channelName") or data.get("channelId"),
+            name=channel_name,
         )
         db.add(channel)
 
@@ -253,11 +277,24 @@ class MqttCollector(BaseCollector):
             keys = await self._get_encryption_keys()
             decoded = decode_meshtastic_packet(payload, encryption_keys=keys)
             if decoded and decoded.get("portnum"):
+                # Ensure channelId from topic if not already set
+                if not decoded.get("channelId"):
+                    channel_name, _ = self._parse_mqtt_topic(topic)
+                    if channel_name:
+                        decoded["channelId"] = channel_name
                 async with async_session_maker() as db:
                     await self._handle_decoded_packet(db, decoded)
                     await db.commit()
+        except IntegrityError as e:
+            err = str(e)
+            if "messages_source_packet" in err:
+                logger.debug("Duplicate protobuf message ignored")
+            elif "idx_traceroutes_unique" in err:
+                logger.debug("Duplicate protobuf traceroute ignored")
+            else:
+                logger.error(f"Unexpected integrity error (protobuf): {e}")
         except Exception as e:
-            logger.debug(f"Failed to decode protobuf: {e}")
+            logger.warning(f"Protobuf decode error on topic={topic}: {type(e).__name__}: {e}")
 
     async def _handle_text_message(self, db, data: dict) -> None:
         """Handle a text message."""
@@ -357,6 +394,30 @@ class MqttCollector(BaseCollector):
         except (TypeError, ValueError, OSError):
             return None
         return None
+
+    @staticmethod
+    def _parse_mqtt_topic(topic: str) -> tuple[str | None, int | None]:
+        """Parse MQTT topic to extract channel name and gateway node_num.
+
+        Topic structure ends with {channelName}/{!gatewayHexId}:
+        - msh/US/FL/2/json/MediumFast/!435730e4
+        - msh/US/FL/2/e/LongFast/!9e9fb878
+        """
+        parts = topic.split("/")
+        if len(parts) < 2:
+            return None, None
+
+        gateway_hex = parts[-1]  # e.g. "!435730e4"
+        channel_name = parts[-2]  # e.g. "MediumFast"
+
+        gateway_node_num = None
+        if gateway_hex.startswith("!"):
+            try:
+                gateway_node_num = int(gateway_hex[1:], 16)
+            except ValueError:
+                pass
+
+        return channel_name or None, gateway_node_num
 
     async def _handle_position(self, db, data: dict) -> None:
         """Handle a position update."""
@@ -786,6 +847,7 @@ class MqttCollector(BaseCollector):
     async def _handle_decoded_packet(self, db, decoded: dict) -> None:
         """Handle a decoded protobuf packet."""
         portnum = decoded.get("portnum", "")
+        await self._ensure_channel(db, decoded)
 
         if portnum == "TEXT_MESSAGE_APP":
             await self._handle_text_message(db, decoded)

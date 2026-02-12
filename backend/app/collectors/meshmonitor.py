@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from urllib.parse import quote
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.collectors.base import BaseCollector
@@ -630,13 +630,20 @@ class MeshMonitorCollector(BaseCollector):
             "rx_snr": msg_data.get("rxSnr"),
             "rx_rssi": msg_data.get("rxRssi"),
             "relay_node": msg_data.get("relayNode") or None,
+            "gateway_node_num": None,  # MeshMonitor messages have no gateway
             "rx_time": rx_time,
             "received_at": received_at,
         }
 
         # Use PostgreSQL INSERT ... ON CONFLICT DO NOTHING
+        # The unique index includes COALESCE(gateway_node_num, 0) so we must
+        # match the full expression to satisfy PostgreSQL's conflict resolution.
         stmt = pg_insert(Message).values(**values).on_conflict_do_nothing(
-            index_elements=["source_id", "packet_id"]
+            index_elements=[
+                "source_id",
+                "packet_id",
+                text("COALESCE(gateway_node_num, 0)"),
+            ]
         )
         result = await db.execute(stmt)
         return result.rowcount > 0

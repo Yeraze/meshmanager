@@ -181,3 +181,36 @@
 .legend p:last-child {
   margin-bottom: 0;
 }
+
+.propagationRow {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.propagationTime {
+  font-size: 0.85rem;
+  color: var(--color-text-muted, #a6adc8);
+}
+
+.propagationTime strong {
+  color: var(--color-text, #cdd6f4);
+}
+
+.propagationButton {
+  background: none;
+  border: 1px solid var(--color-primary, #89b4fa);
+  color: var(--color-primary, #89b4fa);
+  border-radius: 6px;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.propagationButton:hover {
+  background: rgba(137, 180, 250, 0.12);
+  color: #b4d0fb;
+}

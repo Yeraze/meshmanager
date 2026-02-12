@@ -378,9 +378,9 @@ export default function MessageList({ channelKey, onMessageClick, sourceNames }:
                           fontSize: '0.65rem',
                           fontWeight: 600,
                         }}
-                        title={`Received by ${msg.source_count} sources`}
+                        title={`Received ${msg.source_count} times (via different sources or gateways)`}
                       >
-                        {msg.source_count} sources
+                        {msg.source_count} copies
                       </span>
                     )}
                     <span

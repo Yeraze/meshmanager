@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchMessageSources, fetchNodesByNodeNum, type MessageSourceDetail } from '../../services/api'
 import { useDataContext } from '../../contexts/DataContext'
+import PropagationMapModal from './PropagationMapModal'
 import styles from './MessageDetailModal.module.css'
 
 interface MessageDetailModalProps {
@@ -53,8 +55,29 @@ function formatGatewayText(detail: MessageSourceDetail): string {
   return '-'
 }
 
+function computePropagationTime(sources: MessageSourceDetail[]): string | null {
+  const timestamps: number[] = []
+  for (const s of sources) {
+    const tsStr = s.rx_time || s.received_at
+    if (!tsStr) continue
+    const ts = new Date(tsStr).getTime()
+    if (!isNaN(ts)) timestamps.push(ts)
+  }
+  if (timestamps.length < 2) return null
+  const min = Math.min(...timestamps)
+  const max = Math.max(...timestamps)
+  const delta = max - min
+  if (delta === 0) return null
+  if (delta < 1000) return `${delta}ms`
+  if (delta < 60000) return `${(delta / 1000).toFixed(1)}s`
+  const mins = Math.floor(delta / 60000)
+  const secs = Math.round((delta % 60000) / 1000)
+  return `${mins}m ${secs}s`
+}
+
 export default function MessageDetailModal({ packetId, onClose, senderName, messageText, timestamp }: MessageDetailModalProps) {
   const { setSelectedNode, navigateToPage } = useDataContext()
+  const [showPropagationMap, setShowPropagationMap] = useState(false)
   const { data: sources, isLoading, error } = useQuery({
     queryKey: ['message-sources', packetId],
     queryFn: () => fetchMessageSources(packetId),
@@ -119,11 +142,43 @@ export default function MessageDetailModal({ packetId, onClose, senderName, mess
             <div className={styles.empty}>No reception data found for this message.</div>
           )}
 
-          {sources && sources.length > 0 && (
+          {sources && sources.length > 0 && (() => {
+            const uniqueSources = new Set(sources.map(s => s.source_name)).size
+            const uniqueGateways = new Set(sources.map(s => s.gateway_node_num).filter(Boolean)).size
+            const total = sources.length
+            let subtitle: string
+            if (total === 1) {
+              subtitle = 'Received 1 time:'
+            } else if (uniqueGateways === 0) {
+              subtitle = `Received ${total} times from ${uniqueSources} source${uniqueSources > 1 ? 's' : ''}:`
+            } else {
+              subtitle = `Received ${total} times (${uniqueSources} source${uniqueSources > 1 ? 's' : ''}, ${uniqueGateways} gateway${uniqueGateways > 1 ? 's' : ''}):`
+            }
+            const propagationTime = computePropagationTime(sources)
+            const canVisualize = sources.length >= 2
+            return (
             <>
               <p className={styles.subtitle}>
-                This message was received by {sources.length} source{sources.length > 1 ? 's' : ''}:
+                {subtitle}
               </p>
+
+              {(propagationTime || canVisualize) && (
+                <div className={styles.propagationRow}>
+                  {propagationTime && (
+                    <span className={styles.propagationTime}>
+                      Propagation Time: <strong>{propagationTime}</strong>
+                    </span>
+                  )}
+                  {canVisualize && (
+                    <button
+                      className={styles.propagationButton}
+                      onClick={() => setShowPropagationMap(true)}
+                    >
+                      Visualize Propagation
+                    </button>
+                  )}
+                </div>
+              )}
 
               <table className={styles.table}>
                 <thead>
@@ -171,9 +226,17 @@ export default function MessageDetailModal({ packetId, onClose, senderName, mess
                 <p><strong>Gateway</strong>: The node that uploaded this packet to MQTT</p>
               </div>
             </>
-          )}
+            )
+          })()}
         </div>
       </div>
+
+      {showPropagationMap && sources && sources.length >= 2 && (
+        <PropagationMapModal
+          sources={sources}
+          onClose={() => setShowPropagationMap(false)}
+        />
+      )}
     </div>
   )
 }

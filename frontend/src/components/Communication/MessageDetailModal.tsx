@@ -143,6 +143,11 @@ export default function MessageDetailModal({ packetId, onClose, senderName, mess
           )}
 
           {sources && sources.length > 0 && (() => {
+            const sortedSources = [...sources].sort((a, b) => {
+              const tsA = new Date(a.rx_time || a.received_at).getTime()
+              const tsB = new Date(b.rx_time || b.received_at).getTime()
+              return tsA - tsB
+            })
             const uniqueSources = new Set(sources.map(s => s.source_name)).size
             const uniqueGateways = new Set(sources.map(s => s.gateway_node_num).filter(Boolean)).size
             const total = sources.length
@@ -193,7 +198,7 @@ export default function MessageDetailModal({ packetId, onClose, senderName, mess
                   </tr>
                 </thead>
                 <tbody>
-                  {sources.map((source, index) => (
+                  {sortedSources.map((source, index) => (
                     <tr key={`${source.source_id}-${index}`}>
                       <td className={styles.sourceName}>{source.source_name}</td>
                       <td>

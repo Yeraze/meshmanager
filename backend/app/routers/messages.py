@@ -27,22 +27,24 @@ _RELAY_ROLES = {
 router = APIRouter(prefix="/api/messages", tags=["messages"])
 
 
-def _normalized_channel_name():
-    """Return NULLIF(Channel.name, '') so NULL and empty string are treated equally."""
-    return func.nullif(Channel.name, "")
-
-
 def _channel_key_expr():
-    """Return a SQLAlchemy CASE expression that produces the channel key.
+    """Return a channel key based on the message's own source channel name.
 
-    If the channel has a non-empty name, use the name; otherwise fall back to
-    the stringified channel index from the Message table.
+    Uses a correlated subquery to look up the channel name from the same source
+    that recorded the message.  This ensures each source's naming is respected
+    (e.g. MQTT "MediumFast" vs "LongFast") while unnamed channels fall back to
+    the stringified channel index.
     """
-    normed = _normalized_channel_name()
-    return case(
-        (normed.isnot(None), normed),
-        else_=func.cast(Message.channel, String),
+    source_name = (
+        select(Channel.name)
+        .where(Channel.source_id == Message.source_id)
+        .where(Channel.channel_index == Message.channel)
+        .where(Channel.name.isnot(None))
+        .where(Channel.name != "")
+        .correlate(Message)
+        .scalar_subquery()
     )
+    return func.coalesce(source_name, func.cast(Message.channel, String))
 
 
 # Response schemas
@@ -114,21 +116,17 @@ async def list_channels(
     db: AsyncSession = Depends(get_db),
     _access: None = Depends(require_tab_access("communication")),
 ) -> list[ChannelSummary]:
-    """List all channels with message counts, grouped by channel name (or index)."""
+    """List all channels with message counts, grouped by per-source channel name."""
     channel_key = _channel_key_expr().label("channel_key")
 
-    # Join messages to channels to compute channel_key, then aggregate.
-    # Group by the channel_key label to correctly merge NULL and empty-string
-    # channel names that both resolve to the same key.
+    # Group by channel name (per-source lookup).  Channels with the same name
+    # across different sources merge naturally; unnamed channels fall back to
+    # their stringified index.
     query = (
         select(
             channel_key,
             func.count(distinct(Message.meshtastic_id)).label("message_count"),
             func.max(Message.received_at).label("last_message_at"),
-        )
-        .outerjoin(
-            Channel,
-            (Message.source_id == Channel.source_id) & (Message.channel == Channel.channel_index),
         )
         .where(or_(Message.text.isnot(None), Message.emoji.isnot(None)))
         .where(Message.channel >= 0)
@@ -139,32 +137,34 @@ async def list_channels(
     result = await db.execute(query)
     rows = result.all()
 
-    # For each channel_key, gather per-source names using DISTINCT instead of
-    # GROUP BY to avoid the same PostgreSQL CASE-in-GROUP-BY issue.
-    source_names_query = (
+    # Collect the set of channel_keys from the main query
+    channel_keys = {row.channel_key for row in rows}
+
+    # Build per-source channel info.  Each Channel record's key is determined
+    # by its own name (empty → stringified index).
+    all_channels_query = (
         select(
-            _channel_key_expr().label("channel_key"),
-            Source.name.label("source_name"),
+            Channel.channel_index,
             Channel.name.label("channel_name"),
+            Source.name.label("source_name"),
         )
-        .distinct()
         .select_from(Channel)
         .join(Source, Channel.source_id == Source.id)
-        .outerjoin(
-            Message,
-            (Message.source_id == Channel.source_id) & (Message.channel == Channel.channel_index),
-        )
-        .where(or_(Message.text.isnot(None), Message.emoji.isnot(None)))
-        .where(Message.channel >= 0)
     )
-    source_result = await db.execute(source_names_query)
+    all_channels_result = await db.execute(all_channels_query)
 
+    # Map each Channel record to its channel_key and collect source info
     channel_source_names: dict[str, list[ChannelSourceName]] = {}
-    for row in source_result:
-        key = row.channel_key
-        if key not in channel_source_names:
-            channel_source_names[key] = []
-        channel_source_names[key].append(
+    seen: set[tuple[str, str]] = set()  # (key, source_name) dedup
+    for row in all_channels_result:
+        key = row.channel_name if row.channel_name else str(row.channel_index)
+        if key not in channel_keys:
+            continue  # No messages for this channel
+        dedup = (key, row.source_name)
+        if dedup in seen:
+            continue
+        seen.add(dedup)
+        channel_source_names.setdefault(key, []).append(
             ChannelSourceName(source_name=row.source_name, channel_name=row.channel_name)
         )
 
@@ -172,7 +172,9 @@ async def list_channels(
         ChannelSummary(
             channel_key=row.channel_key,
             display_name=(
-                row.channel_key if not row.channel_key.isdigit() else f"Channel {row.channel_key}"
+                row.channel_key
+                if not row.channel_key.isdigit()
+                else f"Channel {row.channel_key}"
             ),
             message_count=row.message_count,
             last_message_at=row.last_message_at,
@@ -211,10 +213,6 @@ async def list_messages(
             Message.meshtastic_id,
             func.min(Message.received_at).label("first_received_at"),
             func.count(Message.id).label("source_count"),
-        )
-        .outerjoin(
-            Channel,
-            (Message.source_id == Channel.source_id) & (Message.channel == Channel.channel_index),
         )
         .where(ck_expr == channel_key)
         .where(or_(Message.text.isnot(None), Message.emoji.isnot(None)))
@@ -266,10 +264,6 @@ async def list_messages(
         .outerjoin(
             Node,
             (Message.from_node_num == Node.node_num) & (Message.source_id == Node.source_id),
-        )
-        .outerjoin(
-            Channel,
-            (Message.source_id == Channel.source_id) & (Message.channel == Channel.channel_index),
         )
         .where(ck_expr == channel_key)
         .where(or_(Message.text.isnot(None), Message.emoji.isnot(None)))

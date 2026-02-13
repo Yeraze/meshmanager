@@ -6,8 +6,9 @@ from datetime import UTC, datetime, timedelta
 from urllib.parse import quote
 
 import httpx
-from sqlalchemy import select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.orm import aliased
 
 from app.collectors.base import BaseCollector
 from app.database import async_session_maker
@@ -215,6 +216,9 @@ class MeshMonitorCollector(BaseCollector):
 
                 # Collect channels
                 await self._collect_channels(client, headers)
+
+                # Infer names for unnamed channels from cross-source messages
+                await self._infer_missing_channel_names()
 
                 # Collect messages
                 await self._collect_messages(client, headers)
@@ -526,6 +530,73 @@ class MeshMonitorCollector(BaseCollector):
                 psk=channel_data.get("psk"),
             )
             db.add(channel)
+
+    async def _infer_missing_channel_names(self) -> None:
+        """Infer channel names for unnamed channels by cross-referencing messages.
+
+        When a message (by meshtastic_id) appears in both this source and another
+        source whose channel has a non-empty name, we adopt that name.  This
+        handles the common case where MeshMonitor reports an empty name for the
+        primary channel but MQTT knows it as e.g. "MediumFast".
+        """
+        try:
+            async with async_session_maker() as db:
+                # Find unnamed channels for this source
+                unnamed_result = await db.execute(
+                    select(Channel).where(
+                        Channel.source_id == self.source.id,
+                        or_(Channel.name.is_(None), Channel.name == ""),
+                    )
+                )
+                unnamed_channels = unnamed_result.scalars().all()
+                if not unnamed_channels:
+                    return
+
+                m1 = aliased(Message)  # message in this source
+                m2 = aliased(Message)  # same message in another source
+
+                updated = 0
+                for ch in unnamed_channels:
+                    # Find the most common channel name from cross-source
+                    # message matches, so the majority vote wins.
+                    result = await db.execute(
+                        select(
+                            Channel.name,
+                            func.count().label("cnt"),
+                        )
+                        .select_from(m1)
+                        .join(
+                            m2,
+                            (m1.meshtastic_id == m2.meshtastic_id)
+                            & (m1.source_id != m2.source_id),
+                        )
+                        .join(
+                            Channel,
+                            (m2.source_id == Channel.source_id)
+                            & (m2.channel == Channel.channel_index),
+                        )
+                        .where(m1.source_id == self.source.id)
+                        .where(m1.channel == ch.channel_index)
+                        .where(m1.meshtastic_id.isnot(None))
+                        .where(Channel.name.isnot(None))
+                        .where(Channel.name != "")
+                        .group_by(Channel.name)
+                        .order_by(func.count().desc())
+                        .limit(1)
+                    )
+                    row = result.first()
+                    inferred_name = row.name if row else None
+                    if inferred_name:
+                        ch.name = inferred_name
+                        updated += 1
+
+                if updated:
+                    await db.commit()
+                    logger.info(
+                        f"Inferred {updated} channel name(s) for {self.source.name}"
+                    )
+        except Exception as e:
+            logger.error(f"Error inferring channel names: {e}")
 
     async def _collect_messages(self, client: httpx.AsyncClient, headers: dict) -> None:
         """Collect messages from the API."""

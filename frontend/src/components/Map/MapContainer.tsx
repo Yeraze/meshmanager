@@ -442,13 +442,36 @@ export default function MapContainer() {
     return map
   }, [allNodes])
 
+  // Build source name lookup by source_id for route segment popups
+  const sourceNameById = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const node of allNodes) {
+      if (node.source_id && node.source_name && !map.has(node.source_id)) {
+        map.set(node.source_id, node.source_name)
+      }
+    }
+    return map
+  }, [allNodes])
+
+  // Build node name lookup by node_num for route segment popups
+  const nodeNamesByNum = useMemo(() => {
+    const map = new Map<number, string>()
+    for (const node of allNodes) {
+      if (!map.has(node.node_num)) {
+        map.set(node.node_num, node.long_name || node.short_name || node.node_id || `!${node.node_num.toString(16)}`)
+      }
+    }
+    return map
+  }, [allNodes])
+
   // Build traceroute segments with usage weighting (like MeshMonitor)
   // Processes both forward route and route_back for complete path visualization
   const routeSegments = useMemo(() => {
     if (!showRoutes) return []
 
-    // Track segment usage counts
+    // Track segment usage counts and contributing sources
     const segmentUsage = new Map<string, number>()
+    const segmentSources = new Map<string, Set<string>>()
     const segmentPositions = new Map<string, { from: [number, number]; to: [number, number] }>()
 
     // Helper to resolve a node's position: prefer route_positions, fall back to live positions
@@ -467,6 +490,7 @@ export default function MapContainer() {
     const addSegmentsFromSequence = (
       nodeNums: number[],
       routePositions: Record<string, { lat: number; lng: number; alt?: number }> | null,
+      sourceId: string,
     ) => {
       for (let i = 0; i < nodeNums.length - 1; i++) {
         const fromNum = nodeNums[i]
@@ -482,6 +506,13 @@ export default function MapContainer() {
           // Use sorted key so A->B and B->A are the same segment
           const segmentKey = [fromNum, toNum].sort((a, b) => a - b).join('-')
           segmentUsage.set(segmentKey, (segmentUsage.get(segmentKey) || 0) + 1)
+
+          const sources = segmentSources.get(segmentKey)
+          if (sources) {
+            sources.add(sourceId)
+          } else {
+            segmentSources.set(segmentKey, new Set([sourceId]))
+          }
 
           if (!segmentPositions.has(segmentKey)) {
             segmentPositions.set(segmentKey, {
@@ -506,13 +537,13 @@ export default function MapContainer() {
       // Forward path: from_node_num -> route hops -> to_node_num
       // This is the path from requester to responder
       const forwardPath = [trace.from_node_num, ...trace.route, trace.to_node_num]
-      addSegmentsFromSequence(forwardPath, rp)
+      addSegmentsFromSequence(forwardPath, rp, trace.source_id)
 
       // Return path: to_node_num -> route_back hops -> from_node_num
       // This is the path from responder back to requester
       if (trace.route_back.length > 0) {
         const returnPath = [trace.to_node_num, ...trace.route_back, trace.from_node_num]
-        addSegmentsFromSequence(returnPath, rp)
+        addSegmentsFromSequence(returnPath, rp, trace.source_id)
       }
     }
 
@@ -524,12 +555,17 @@ export default function MapContainer() {
       // Opacity: more usage = more visible
       const opacity = Math.min(0.5 + usage * 0.03, 0.9)
 
+      const [fromNum, toNum] = key.split('-').map(Number)
+
       return {
         id: key,
         positions: [positions.from, positions.to] as [number, number][],
         weight,
         opacity,
         usage,
+        fromNum,
+        toNum,
+        sourceIds: segmentSources.get(key) ?? new Set<string>(),
       }
     })
   }, [traceroutes, nodePositionsByNum, showRoutes, enabledSourceIds])
@@ -613,7 +649,33 @@ export default function MapContainer() {
               weight: segment.weight,
               opacity: segment.opacity,
             }}
-          />
+          >
+            <Popup>
+              <div className="node-popup">
+                <div className="node-popup-header">
+                  <div className="node-popup-title">Route Segment</div>
+                </div>
+                <div className="node-popup-grid">
+                  <div className="node-popup-item node-popup-item-full">
+                    <span className="node-popup-icon">📍</span>
+                    <span className="node-popup-value">{nodeNamesByNum.get(segment.fromNum) ?? `Node ${segment.fromNum}`}</span>
+                  </div>
+                  <div className="node-popup-item node-popup-item-full">
+                    <span className="node-popup-icon">📍</span>
+                    <span className="node-popup-value">{nodeNamesByNum.get(segment.toNum) ?? `Node ${segment.toNum}`}</span>
+                  </div>
+                  <div className="node-popup-item node-popup-item-full">
+                    <span className="node-popup-icon">📊</span>
+                    <span className="node-popup-value">{segment.usage} traceroute{segment.usage !== 1 ? 's' : ''}</span>
+                  </div>
+                  <div className="node-popup-item node-popup-item-full">
+                    <span className="node-popup-icon">📡</span>
+                    <span className="node-popup-value">{Array.from(segment.sourceIds).map(id => sourceNameById.get(id) ?? id).join(', ')}</span>
+                  </div>
+                </div>
+              </div>
+            </Popup>
+          </Polyline>
         ))}
 
         {showNodes && nodesWithPosition.map((node) => {

@@ -55,6 +55,23 @@ function formatGatewayText(detail: MessageSourceDetail): string {
   return '-'
 }
 
+const CLOCK_SKEW_THRESHOLD_MS = 30000 // 30 seconds
+
+function getClockSkew(source: MessageSourceDetail): { skewMs: number; formatted: string } | null {
+  if (!source.rx_time) return null
+  const rxTime = new Date(source.rx_time).getTime()
+  const receivedAt = new Date(source.received_at).getTime()
+  if (isNaN(rxTime) || isNaN(receivedAt)) return null
+  const skewMs = rxTime - receivedAt
+  if (Math.abs(skewMs) < CLOCK_SKEW_THRESHOLD_MS) return null
+  const absSec = Math.abs(skewMs) / 1000
+  let formatted: string
+  if (absSec < 60) formatted = `${absSec.toFixed(0)}s`
+  else formatted = `${Math.floor(absSec / 60)}m ${Math.round(absSec % 60)}s`
+  formatted = (skewMs < 0 ? '-' : '+') + formatted
+  return { skewMs, formatted }
+}
+
 function computePropagationTime(sources: MessageSourceDetail[]): string | null {
   const timestamps: number[] = []
   for (const s of sources) {
@@ -216,7 +233,21 @@ export default function MessageDetailModal({ packetId, onClose, senderName, mess
                       <td className={styles.numeric}>{formatRssi(source.rx_rssi)}</td>
                       <td className={styles.numeric}>{formatHops(source)}</td>
                       <td>{formatRelayText(source)}</td>
-                      <td className={styles.timestamp}>{formatDateTime(getSourceTimestamp(source))}</td>
+                      <td className={styles.timestamp}>
+                        {formatDateTime(getSourceTimestamp(source))}
+                        {(() => {
+                          const skew = getClockSkew(source)
+                          if (!skew) return null
+                          return (
+                            <span
+                              className={styles.clockSkew}
+                              title={`Possible clock skew: rx_time is ${skew.formatted} from server time (received_at: ${formatDateTime(source.received_at)})`}
+                            >
+                              {' \u231A'}
+                            </span>
+                          )
+                        })()}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -229,6 +260,7 @@ export default function MessageDetailModal({ packetId, onClose, senderName, mess
                 <p><strong>Hops</strong>: Number of nodes the message passed through to reach this source</p>
                 <p><strong>Relay</strong>: The node that relayed/forwarded this packet</p>
                 <p><strong>Gateway</strong>: The node that uploaded this packet to MQTT</p>
+                <p><strong>{'\u231A'}</strong>: Possible clock skew — the gateway radio&apos;s clock differs from server time by &gt;30s. Hover for details.</p>
               </div>
             </>
             )

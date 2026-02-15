@@ -214,3 +214,9 @@
   background: rgba(137, 180, 250, 0.12);
   color: #b4d0fb;
 }
+
+.clockSkew {
+  color: var(--color-warning, #f9e2af);
+  cursor: help;
+  font-size: 0.85rem;
+}

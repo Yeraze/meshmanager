@@ -610,12 +610,12 @@ class MqttCollector(BaseCollector):
         payload = data.get("payload", {}) if isinstance(data.get("payload"), dict) else {}
 
         # Try camelCase (MeshMonitor/protobuf) then lowercase (MQTT JSON)
-        node_id = self._first_key(user, "id") or payload.get("id")
-        short_name = self._first_key(user, "shortName") or payload.get("shortname")
-        long_name = self._first_key(user, "longName") or payload.get("longname")
-        hw_model = self._first_key(user, "hwModel") or payload.get("hardware")
-        role = self._first_key(user, "role") or payload.get("role")
-        is_licensed = self._first_key(user, "isLicensed") or payload.get("is_licensed") or False
+        node_id = self._first_key(user, "id") or self._first_key(payload, "id")
+        short_name = self._first_key(user, "shortName") or self._first_key(payload, "shortName", "shortname", "short_name")
+        long_name = self._first_key(user, "longName") or self._first_key(payload, "longName", "longname", "long_name")
+        hw_model = self._first_key(user, "hwModel") or self._first_key(payload, "hwModel", "hardware", "hw_model")
+        role = self._first_key(user, "role") or self._first_key(payload, "role")
+        is_licensed = self._first_key(user, "isLicensed") or self._first_key(payload, "isLicensed", "is_licensed") or False
 
         # Convert integer hw_model/role to string if needed
         if isinstance(hw_model, int):

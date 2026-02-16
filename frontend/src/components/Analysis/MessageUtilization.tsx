@@ -73,7 +73,7 @@ export default function MessageUtilization() {
     exclude_local_nodes: excludeLocalNodes,
   })
 
-  const { data, isLoading, error, refetch } = useQuery({
+  const { data, isFetching, error, refetch } = useQuery({
     queryKey: ['message-utilization'],
     queryFn: () => fetchMessageUtilizationAnalysis(paramsRef.current),
     enabled: false,
@@ -275,7 +275,7 @@ export default function MessageUtilization() {
           <div style={controlGroupStyle}>
             <button
               onClick={handleAnalyze}
-              disabled={isLoading}
+              disabled={isFetching}
               style={{
                 width: '100%',
                 padding: '0.75rem 1rem',
@@ -283,12 +283,12 @@ export default function MessageUtilization() {
                 border: 'none',
                 background: 'var(--color-primary)',
                 color: 'white',
-                cursor: isLoading ? 'not-allowed' : 'pointer',
+                cursor: isFetching ? 'not-allowed' : 'pointer',
                 fontWeight: 600,
-                opacity: isLoading ? 0.7 : 1,
+                opacity: isFetching ? 0.7 : 1,
               }}
             >
-              {isLoading ? 'Analyzing...' : 'Analyze Messages'}
+              {isFetching ? 'Analyzing...' : 'Analyze Messages'}
             </button>
           </div>
 
@@ -353,7 +353,7 @@ export default function MessageUtilization() {
         </div>
 
         <div style={{ flex: 1, overflow: 'auto', padding: '1rem' }}>
-          {!isLoading && !data && !error && (
+          {!isFetching && !data && !error && (
             <div
               style={{
                 display: 'flex',
@@ -370,7 +370,7 @@ export default function MessageUtilization() {
             </div>
           )}
 
-          {isLoading && (
+          {isFetching && (
             <div
               style={{
                 display: 'flex',
@@ -378,9 +378,22 @@ export default function MessageUtilization() {
                 justifyContent: 'center',
                 height: '100%',
                 color: 'var(--color-text-muted)',
+                flexDirection: 'column',
+                gap: '1rem',
               }}
             >
-              Analyzing message data...
+              <div
+                style={{
+                  width: 32,
+                  height: 32,
+                  border: '3px solid var(--color-border)',
+                  borderTopColor: 'var(--color-primary)',
+                  borderRadius: '50%',
+                  animation: 'spin 0.8s linear infinite',
+                }}
+              />
+              <span>Analyzing message data...</span>
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
             </div>
           )}
 
@@ -403,7 +416,7 @@ export default function MessageUtilization() {
             </div>
           )}
 
-          {data && (
+          {data && !isFetching && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
               {/* Top 10 Chattiest Nodes Chart */}
               <ChattiesNodesChart data={data} />

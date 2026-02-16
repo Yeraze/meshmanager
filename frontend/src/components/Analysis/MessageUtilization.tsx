@@ -43,7 +43,6 @@ const TYPE_LABELS: Record<string, string> = {
 
 export default function MessageUtilization() {
   const [lookbackDays, setLookbackDays] = useState(7)
-  const [runAnalysis, setRunAnalysis] = useState(false)
 
   // Filter states
   const [includeText, setIncludeText] = useState(true)
@@ -58,9 +57,7 @@ export default function MessageUtilization() {
   const [includeUnknown, setIncludeUnknown] = useState(true)
   const [excludeLocalNodes, setExcludeLocalNodes] = useState(false)
 
-  // Snapshot counter incremented on each Analyze click to trigger refetch
-  const [queryTrigger, setQueryTrigger] = useState(0)
-  // Ref captures current filter values at click time so query uses a stable snapshot
+  // Ref captures current filter values at click time so queryFn uses a stable snapshot
   const paramsRef = useRef({
     lookback_days: lookbackDays,
     include_text: includeText,
@@ -76,10 +73,10 @@ export default function MessageUtilization() {
     exclude_local_nodes: excludeLocalNodes,
   })
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['message-utilization', queryTrigger],
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['message-utilization'],
     queryFn: () => fetchMessageUtilizationAnalysis(paramsRef.current),
-    enabled: runAnalysis,
+    enabled: false,
   })
 
   const handleAnalyze = useCallback(() => {
@@ -97,9 +94,8 @@ export default function MessageUtilization() {
       include_unknown: includeUnknown,
       exclude_local_nodes: excludeLocalNodes,
     }
-    setRunAnalysis(true)
-    setQueryTrigger((n) => n + 1)
-  }, [lookbackDays, includeText, includeDevice, includeEnvironment, includePower, includePosition, includeAirQuality, includeTraceroute, includeNodeinfo, includeEncrypted, includeUnknown, excludeLocalNodes])
+    refetch()
+  }, [lookbackDays, includeText, includeDevice, includeEnvironment, includePower, includePosition, includeAirQuality, includeTraceroute, includeNodeinfo, includeEncrypted, includeUnknown, excludeLocalNodes, refetch])
 
   const labelStyle = {
     fontSize: '0.75rem',
@@ -357,7 +353,7 @@ export default function MessageUtilization() {
         </div>
 
         <div style={{ flex: 1, overflow: 'auto', padding: '1rem' }}>
-          {!runAnalysis && !data && (
+          {!isLoading && !data && !error && (
             <div
               style={{
                 display: 'flex',

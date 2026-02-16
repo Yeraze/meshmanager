@@ -1172,11 +1172,21 @@ class MeshMonitorCollector(BaseCollector):
         else:
             received_at = datetime.now(UTC)
 
+        # Extract meshtastic packet ID for cross-source dedup
+        raw_pkt_id = pkt_data.get("packetId") or pkt_data.get("id")
+        meshtastic_id = None
+        if raw_pkt_id is not None:
+            try:
+                meshtastic_id = int(raw_pkt_id)
+            except (TypeError, ValueError):
+                pass
+
         values = {
             "id": str(uuid4()),
             "source_id": self.source.id,
             "from_node_num": from_node,
             "to_node_num": to_node,
+            "meshtastic_id": meshtastic_id,
             "packet_type": packet_type,
             "portnum": portnum_name,
             "received_at": received_at,

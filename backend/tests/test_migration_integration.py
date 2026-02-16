@@ -34,13 +34,13 @@ def test_set_missing_server_defaults_revision_exists():
     )
 
 
-def test_add_packet_records_is_head():
-    """The add_packet_records_table migration should be the current head."""
+def test_add_meshtastic_id_columns_is_head():
+    """The add_meshtastic_id_columns migration should be the current head."""
     cfg = _get_alembic_cfg()
     script_dir = ScriptDirectory.from_config(cfg)
 
     heads = script_dir.get_heads()
-    assert "x7y8z9a0b1c2" in heads, f"Expected x7y8z9a0b1c2 in heads, got {heads}"
+    assert "b2c3d4e5f6g7" in heads, f"Expected b2c3d4e5f6g7 in heads, got {heads}"
 
 
 def test_model_server_defaults_present():

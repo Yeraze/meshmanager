@@ -51,6 +51,7 @@ class Telemetry(Base):
         index=True,
     )
     node_num: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    meshtastic_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
 
     # Metric identifier for deduplication (e.g., "battery_level", "voltage", etc.)
     metric_name: Mapped[str | None] = mapped_column(String(50), index=True)

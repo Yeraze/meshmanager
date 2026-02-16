@@ -48,6 +48,7 @@ class PacketRecord(Base):
 
     from_node_num: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     to_node_num: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    meshtastic_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
 
     packet_type: Mapped[PacketRecordType] = mapped_column(
         Enum(PacketRecordType), nullable=False, index=True

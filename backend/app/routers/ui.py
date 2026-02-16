@@ -8,7 +8,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.middleware import require_tab_access
 from app.database import get_db
-from app.models import Message, Node, SolarProduction, Source, SystemSetting, Telemetry, Traceroute
+from app.models import (
+    Message,
+    Node,
+    PacketRecord,
+    SolarProduction,
+    Source,
+    SystemSetting,
+    Telemetry,
+    Traceroute,
+)
+from app.models.packet_record import PacketRecordType
+from app.models.source import SourceType
 from app.models.telemetry import TelemetryType
 from app.schemas.node import NodeResponse, NodeSummary
 from app.schemas.telemetry import TelemetryHistory, TelemetryHistoryPoint, TelemetryResponse
@@ -1943,6 +1954,10 @@ async def analyze_message_utilization(
     include_power: bool = Query(default=True, description="Include power telemetry"),
     include_position: bool = Query(default=True, description="Include position telemetry"),
     include_air_quality: bool = Query(default=True, description="Include air quality telemetry"),
+    include_traceroute: bool = Query(default=True, description="Include traceroute packets"),
+    include_nodeinfo: bool = Query(default=True, description="Include nodeinfo packets"),
+    include_encrypted: bool = Query(default=True, description="Include encrypted/undecryptable packets"),
+    include_unknown: bool = Query(default=True, description="Include unknown portnum packets"),
     exclude_local_nodes: bool = Query(default=False, description="Exclude telemetry from nodes directly connected to sources (hops_away=0)"),
     _access: None = Depends(require_tab_access("analysis")),
 ) -> dict:
@@ -1976,6 +1991,17 @@ async def analyze_message_utilization(
         if node.hops_away is None or node.hops_away == 0:
             local_nodes.add((node.source_id, node.node_num))
 
+    # Build lookup of local node numbers per MeshMonitor source
+    source_result = await db.execute(
+        select(Source).where(Source.type == SourceType.MESHMONITOR)
+    )
+    meshmonitor_source_ids = {s.id for s in source_result.scalars().all()}
+
+    meshmonitor_local_nodes: dict[str, set[int]] = defaultdict(set)
+    for source_id, node_num in local_nodes:
+        if source_id in meshmonitor_source_ids:
+            meshmonitor_local_nodes[source_id].add(node_num)
+
     # Track counts
     node_counts: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     hourly_counts: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
@@ -1990,6 +2016,11 @@ async def analyze_message_utilization(
         messages = msg_result.scalars().all()
 
         for msg in messages:
+            # Always exclude MeshMonitor internal messages (never traverse the mesh)
+            if msg.source_id in meshmonitor_local_nodes:
+                local_nums = meshmonitor_local_nodes[msg.source_id]
+                if msg.from_node_num in local_nums and msg.to_node_num in local_nums:
+                    continue
             # Skip messages from locally connected nodes if flag is set
             if exclude_local_nodes and (msg.source_id, msg.from_node_num) in local_nodes:
                 continue
@@ -2027,6 +2058,57 @@ async def analyze_message_utilization(
             type_key = t.telemetry_type.value
             node_counts[t.node_num][type_key] += 1
             hour = t.received_at.hour
+            hourly_counts[hour][type_key] += 1
+            type_totals[type_key] += 1
+
+    # Query traceroutes if enabled
+    if include_traceroute:
+        traceroute_result = await db.execute(
+            select(Traceroute).where(Traceroute.received_at >= cutoff)
+        )
+        traceroute_rows = traceroute_result.scalars().all()
+
+        for tr in traceroute_rows:
+            # Exclude MeshMonitor internal traceroutes (both nodes local)
+            if tr.source_id in meshmonitor_local_nodes:
+                local_nums = meshmonitor_local_nodes[tr.source_id]
+                if tr.from_node_num in local_nums and tr.to_node_num in local_nums:
+                    continue
+            if exclude_local_nodes and (tr.source_id, tr.from_node_num) in local_nodes:
+                continue
+            node_counts[tr.from_node_num]["traceroute"] += 1
+            hour = tr.received_at.hour
+            hourly_counts[hour]["traceroute"] += 1
+            type_totals["traceroute"] += 1
+
+    # Query packet records (encrypted, unknown, nodeinfo) if any are enabled
+    packet_record_types = []
+    if include_nodeinfo:
+        packet_record_types.append(PacketRecordType.NODEINFO)
+    if include_encrypted:
+        packet_record_types.append(PacketRecordType.ENCRYPTED)
+    if include_unknown:
+        packet_record_types.append(PacketRecordType.UNKNOWN)
+
+    if packet_record_types:
+        pr_result = await db.execute(
+            select(PacketRecord)
+            .where(PacketRecord.received_at >= cutoff)
+            .where(PacketRecord.packet_type.in_(packet_record_types))
+        )
+        pr_rows = pr_result.scalars().all()
+
+        for pr in pr_rows:
+            # Exclude MeshMonitor internal packets (both nodes local) — only if to_node is set
+            if pr.to_node_num is not None and pr.source_id in meshmonitor_local_nodes:
+                local_nums = meshmonitor_local_nodes[pr.source_id]
+                if pr.from_node_num in local_nums and pr.to_node_num in local_nums:
+                    continue
+            if exclude_local_nodes and (pr.source_id, pr.from_node_num) in local_nodes:
+                continue
+            type_key = pr.packet_type.value
+            node_counts[pr.from_node_num][type_key] += 1
+            hour = pr.received_at.hour
             hourly_counts[hour][type_key] += 1
             type_totals[type_key] += 1
 
@@ -2071,6 +2153,10 @@ async def analyze_message_utilization(
             "power": include_power,
             "position": include_position,
             "air_quality": include_air_quality,
+            "traceroute": include_traceroute,
+            "nodeinfo": include_nodeinfo,
+            "encrypted": include_encrypted,
+            "unknown": include_unknown,
             "exclude_local_nodes": exclude_local_nodes,
         },
         "local_nodes_excluded": len(local_nodes) if exclude_local_nodes else 0,

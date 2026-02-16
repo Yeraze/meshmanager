@@ -34,13 +34,13 @@ def test_set_missing_server_defaults_revision_exists():
     )
 
 
-def test_drop_stale_message_index_is_head():
-    """The drop_stale_message_source_packet_index migration should be the current head."""
+def test_add_packet_records_is_head():
+    """The add_packet_records_table migration should be the current head."""
     cfg = _get_alembic_cfg()
     script_dir = ScriptDirectory.from_config(cfg)
 
     heads = script_dir.get_heads()
-    assert "r5s6t7u8v9w0" in heads, f"Expected r5s6t7u8v9w0 in heads, got {heads}"
+    assert "x7y8z9a0b1c2" in heads, f"Expected x7y8z9a0b1c2 in heads, got {heads}"
 
 
 def test_model_server_defaults_present():

@@ -4,6 +4,7 @@ from app.models.channel import Channel
 from app.models.coverage import CoverageCell
 from app.models.message import Message
 from app.models.node import Node
+from app.models.packet_record import PacketRecord
 from app.models.settings import SystemSetting
 from app.models.solar_production import SolarProduction
 from app.models.source import Source
@@ -17,6 +18,7 @@ __all__ = [
     "CoverageCell",
     "Message",
     "Node",
+    "PacketRecord",
     "SolarProduction",
     "Source",
     "SystemSetting",

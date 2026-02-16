@@ -22,6 +22,10 @@ const TYPE_COLORS: Record<string, string> = {
   power: '#f9e2af',     // Yellow - power
   position: '#cba6f7',  // Mauve - position
   air_quality: '#94e2d5', // Teal - air quality
+  traceroute: '#f5c2e7', // Pink - traceroutes
+  nodeinfo: '#74c7ec',  // Sapphire - node info
+  encrypted: '#f38ba8', // Red - encrypted
+  unknown: '#9399b2',   // Overlay1 - unknown
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -31,6 +35,10 @@ const TYPE_LABELS: Record<string, string> = {
   power: 'Power',
   position: 'Position',
   air_quality: 'Air Quality',
+  traceroute: 'Traceroutes',
+  nodeinfo: 'Node Info',
+  encrypted: 'Encrypted',
+  unknown: 'Unknown',
 }
 
 export default function MessageUtilization() {
@@ -44,10 +52,14 @@ export default function MessageUtilization() {
   const [includePower, setIncludePower] = useState(true)
   const [includePosition, setIncludePosition] = useState(true)
   const [includeAirQuality, setIncludeAirQuality] = useState(true)
+  const [includeTraceroute, setIncludeTraceroute] = useState(true)
+  const [includeNodeinfo, setIncludeNodeinfo] = useState(true)
+  const [includeEncrypted, setIncludeEncrypted] = useState(true)
+  const [includeUnknown, setIncludeUnknown] = useState(true)
   const [excludeLocalNodes, setExcludeLocalNodes] = useState(false)
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['message-utilization', lookbackDays, includeText, includeDevice, includeEnvironment, includePower, includePosition, includeAirQuality, excludeLocalNodes],
+    queryKey: ['message-utilization', lookbackDays, includeText, includeDevice, includeEnvironment, includePower, includePosition, includeAirQuality, includeTraceroute, includeNodeinfo, includeEncrypted, includeUnknown, excludeLocalNodes],
     queryFn: () => fetchMessageUtilizationAnalysis({
       lookback_days: lookbackDays,
       include_text: includeText,
@@ -56,6 +68,10 @@ export default function MessageUtilization() {
       include_power: includePower,
       include_position: includePosition,
       include_air_quality: includeAirQuality,
+      include_traceroute: includeTraceroute,
+      include_nodeinfo: includeNodeinfo,
+      include_encrypted: includeEncrypted,
+      include_unknown: includeUnknown,
       exclude_local_nodes: excludeLocalNodes,
     }),
     enabled: runAnalysis,
@@ -185,6 +201,42 @@ export default function MessageUtilization() {
               />
               <span style={{ display: 'inline-block', width: 12, height: 12, background: TYPE_COLORS.air_quality, borderRadius: 2, marginRight: 4 }} />
               <span style={{ fontSize: '0.85rem' }}>Air Quality</span>
+            </label>
+            <label style={checkboxStyle}>
+              <input
+                type="checkbox"
+                checked={includeTraceroute}
+                onChange={(e) => setIncludeTraceroute(e.target.checked)}
+              />
+              <span style={{ display: 'inline-block', width: 12, height: 12, background: TYPE_COLORS.traceroute, borderRadius: 2, marginRight: 4 }} />
+              <span style={{ fontSize: '0.85rem' }}>Traceroutes</span>
+            </label>
+            <label style={checkboxStyle}>
+              <input
+                type="checkbox"
+                checked={includeNodeinfo}
+                onChange={(e) => setIncludeNodeinfo(e.target.checked)}
+              />
+              <span style={{ display: 'inline-block', width: 12, height: 12, background: TYPE_COLORS.nodeinfo, borderRadius: 2, marginRight: 4 }} />
+              <span style={{ fontSize: '0.85rem' }}>Node Info</span>
+            </label>
+            <label style={checkboxStyle}>
+              <input
+                type="checkbox"
+                checked={includeEncrypted}
+                onChange={(e) => setIncludeEncrypted(e.target.checked)}
+              />
+              <span style={{ display: 'inline-block', width: 12, height: 12, background: TYPE_COLORS.encrypted, borderRadius: 2, marginRight: 4 }} />
+              <span style={{ fontSize: '0.85rem' }}>Encrypted</span>
+            </label>
+            <label style={checkboxStyle}>
+              <input
+                type="checkbox"
+                checked={includeUnknown}
+                onChange={(e) => setIncludeUnknown(e.target.checked)}
+              />
+              <span style={{ display: 'inline-block', width: 12, height: 12, background: TYPE_COLORS.unknown, borderRadius: 2, marginRight: 4 }} />
+              <span style={{ fontSize: '0.85rem' }}>Unknown</span>
             </label>
           </div>
 

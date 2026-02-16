@@ -83,6 +83,11 @@ class Source(Base):
         back_populates="source",
         cascade="all, delete-orphan",
     )
+    packet_records: Mapped[list["PacketRecord"]] = relationship(  # noqa: F821
+        "PacketRecord",
+        back_populates="source",
+        cascade="all, delete-orphan",
+    )
     channels: Mapped[list["Channel"]] = relationship(  # noqa: F821
         "Channel",
         back_populates="source",

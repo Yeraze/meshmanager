@@ -2065,11 +2065,13 @@ async def analyze_message_utilization(
             # Skip telemetry from locally connected nodes if flag is set
             if exclude_local_nodes and (t.source_id, t.node_num) in local_nodes:
                 continue
-            # Dedup: prefer meshtastic_id, fall back to timestamp-based key
+            # Dedup: prefer meshtastic_id, fall back to timestamp-based key.
+            # Use telemetry_type (not metric_name) because one packet produces
+            # multiple metric rows — we want to count packets, not metrics.
             if t.meshtastic_id is not None:
                 dedup_key = (t.node_num, t.meshtastic_id)
             else:
-                dedup_key = (t.node_num, t.metric_name, t.received_at)
+                dedup_key = (t.node_num, t.telemetry_type, t.received_at)
             if dedup_key in seen_telemetry:
                 continue
             seen_telemetry.add(dedup_key)

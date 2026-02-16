@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Bar,
@@ -58,9 +58,32 @@ export default function MessageUtilization() {
   const [includeUnknown, setIncludeUnknown] = useState(true)
   const [excludeLocalNodes, setExcludeLocalNodes] = useState(false)
 
-  const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['message-utilization', lookbackDays, includeText, includeDevice, includeEnvironment, includePower, includePosition, includeAirQuality, includeTraceroute, includeNodeinfo, includeEncrypted, includeUnknown, excludeLocalNodes],
-    queryFn: () => fetchMessageUtilizationAnalysis({
+  // Snapshot counter incremented on each Analyze click to trigger refetch
+  const [queryTrigger, setQueryTrigger] = useState(0)
+  // Ref captures current filter values at click time so query uses a stable snapshot
+  const paramsRef = useRef({
+    lookback_days: lookbackDays,
+    include_text: includeText,
+    include_device: includeDevice,
+    include_environment: includeEnvironment,
+    include_power: includePower,
+    include_position: includePosition,
+    include_air_quality: includeAirQuality,
+    include_traceroute: includeTraceroute,
+    include_nodeinfo: includeNodeinfo,
+    include_encrypted: includeEncrypted,
+    include_unknown: includeUnknown,
+    exclude_local_nodes: excludeLocalNodes,
+  })
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['message-utilization', queryTrigger],
+    queryFn: () => fetchMessageUtilizationAnalysis(paramsRef.current),
+    enabled: runAnalysis,
+  })
+
+  const handleAnalyze = useCallback(() => {
+    paramsRef.current = {
       lookback_days: lookbackDays,
       include_text: includeText,
       include_device: includeDevice,
@@ -73,14 +96,10 @@ export default function MessageUtilization() {
       include_encrypted: includeEncrypted,
       include_unknown: includeUnknown,
       exclude_local_nodes: excludeLocalNodes,
-    }),
-    enabled: runAnalysis,
-  })
-
-  const handleAnalyze = () => {
+    }
     setRunAnalysis(true)
-    refetch()
-  }
+    setQueryTrigger((n) => n + 1)
+  }, [lookbackDays, includeText, includeDevice, includeEnvironment, includePower, includePosition, includeAirQuality, includeTraceroute, includeNodeinfo, includeEncrypted, includeUnknown, excludeLocalNodes])
 
   const labelStyle = {
     fontSize: '0.75rem',

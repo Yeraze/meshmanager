@@ -561,6 +561,10 @@ export interface MessageUtilizationFilters {
   power: boolean
   position: boolean
   air_quality: boolean
+  traceroute: boolean
+  nodeinfo: boolean
+  encrypted: boolean
+  unknown: boolean
   exclude_local_nodes: boolean
 }
 
@@ -583,6 +587,10 @@ export interface MessageUtilizationParams {
   include_power?: boolean
   include_position?: boolean
   include_air_quality?: boolean
+  include_traceroute?: boolean
+  include_nodeinfo?: boolean
+  include_encrypted?: boolean
+  include_unknown?: boolean
   exclude_local_nodes?: boolean
 }
 
@@ -597,6 +605,10 @@ export async function fetchMessageUtilizationAnalysis(
   if (params?.include_power !== undefined) queryParams.append('include_power', params.include_power.toString())
   if (params?.include_position !== undefined) queryParams.append('include_position', params.include_position.toString())
   if (params?.include_air_quality !== undefined) queryParams.append('include_air_quality', params.include_air_quality.toString())
+  if (params?.include_traceroute !== undefined) queryParams.append('include_traceroute', params.include_traceroute.toString())
+  if (params?.include_nodeinfo !== undefined) queryParams.append('include_nodeinfo', params.include_nodeinfo.toString())
+  if (params?.include_encrypted !== undefined) queryParams.append('include_encrypted', params.include_encrypted.toString())
+  if (params?.include_unknown !== undefined) queryParams.append('include_unknown', params.include_unknown.toString())
   if (params?.exclude_local_nodes !== undefined) queryParams.append('exclude_local_nodes', params.exclude_local_nodes.toString())
 
   const response = await api.get<MessageUtilizationAnalysis>(`/api/analysis/message-utilization?${queryParams.toString()}`)

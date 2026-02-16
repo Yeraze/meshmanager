@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Bar,
@@ -22,6 +22,10 @@ const TYPE_COLORS: Record<string, string> = {
   power: '#f9e2af',     // Yellow - power
   position: '#cba6f7',  // Mauve - position
   air_quality: '#94e2d5', // Teal - air quality
+  traceroute: '#f5c2e7', // Pink - traceroutes
+  nodeinfo: '#74c7ec',  // Sapphire - node info
+  encrypted: '#f38ba8', // Red - encrypted
+  unknown: '#9399b2',   // Overlay1 - unknown
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -31,11 +35,14 @@ const TYPE_LABELS: Record<string, string> = {
   power: 'Power',
   position: 'Position',
   air_quality: 'Air Quality',
+  traceroute: 'Traceroutes',
+  nodeinfo: 'Node Info',
+  encrypted: 'Encrypted',
+  unknown: 'Unknown',
 }
 
 export default function MessageUtilization() {
   const [lookbackDays, setLookbackDays] = useState(7)
-  const [runAnalysis, setRunAnalysis] = useState(false)
 
   // Filter states
   const [includeText, setIncludeText] = useState(true)
@@ -44,11 +51,36 @@ export default function MessageUtilization() {
   const [includePower, setIncludePower] = useState(true)
   const [includePosition, setIncludePosition] = useState(true)
   const [includeAirQuality, setIncludeAirQuality] = useState(true)
+  const [includeTraceroute, setIncludeTraceroute] = useState(true)
+  const [includeNodeinfo, setIncludeNodeinfo] = useState(true)
+  const [includeEncrypted, setIncludeEncrypted] = useState(true)
+  const [includeUnknown, setIncludeUnknown] = useState(true)
   const [excludeLocalNodes, setExcludeLocalNodes] = useState(false)
 
-  const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['message-utilization', lookbackDays, includeText, includeDevice, includeEnvironment, includePower, includePosition, includeAirQuality, excludeLocalNodes],
-    queryFn: () => fetchMessageUtilizationAnalysis({
+  // Ref captures current filter values at click time so queryFn uses a stable snapshot
+  const paramsRef = useRef({
+    lookback_days: lookbackDays,
+    include_text: includeText,
+    include_device: includeDevice,
+    include_environment: includeEnvironment,
+    include_power: includePower,
+    include_position: includePosition,
+    include_air_quality: includeAirQuality,
+    include_traceroute: includeTraceroute,
+    include_nodeinfo: includeNodeinfo,
+    include_encrypted: includeEncrypted,
+    include_unknown: includeUnknown,
+    exclude_local_nodes: excludeLocalNodes,
+  })
+
+  const { data, isFetching, error, refetch } = useQuery({
+    queryKey: ['message-utilization'],
+    queryFn: () => fetchMessageUtilizationAnalysis(paramsRef.current),
+    enabled: false,
+  })
+
+  const handleAnalyze = useCallback(() => {
+    paramsRef.current = {
       lookback_days: lookbackDays,
       include_text: includeText,
       include_device: includeDevice,
@@ -56,15 +88,14 @@ export default function MessageUtilization() {
       include_power: includePower,
       include_position: includePosition,
       include_air_quality: includeAirQuality,
+      include_traceroute: includeTraceroute,
+      include_nodeinfo: includeNodeinfo,
+      include_encrypted: includeEncrypted,
+      include_unknown: includeUnknown,
       exclude_local_nodes: excludeLocalNodes,
-    }),
-    enabled: runAnalysis,
-  })
-
-  const handleAnalyze = () => {
-    setRunAnalysis(true)
+    }
     refetch()
-  }
+  }, [lookbackDays, includeText, includeDevice, includeEnvironment, includePower, includePosition, includeAirQuality, includeTraceroute, includeNodeinfo, includeEncrypted, includeUnknown, excludeLocalNodes, refetch])
 
   const labelStyle = {
     fontSize: '0.75rem',
@@ -186,6 +217,42 @@ export default function MessageUtilization() {
               <span style={{ display: 'inline-block', width: 12, height: 12, background: TYPE_COLORS.air_quality, borderRadius: 2, marginRight: 4 }} />
               <span style={{ fontSize: '0.85rem' }}>Air Quality</span>
             </label>
+            <label style={checkboxStyle}>
+              <input
+                type="checkbox"
+                checked={includeTraceroute}
+                onChange={(e) => setIncludeTraceroute(e.target.checked)}
+              />
+              <span style={{ display: 'inline-block', width: 12, height: 12, background: TYPE_COLORS.traceroute, borderRadius: 2, marginRight: 4 }} />
+              <span style={{ fontSize: '0.85rem' }}>Traceroutes</span>
+            </label>
+            <label style={checkboxStyle}>
+              <input
+                type="checkbox"
+                checked={includeNodeinfo}
+                onChange={(e) => setIncludeNodeinfo(e.target.checked)}
+              />
+              <span style={{ display: 'inline-block', width: 12, height: 12, background: TYPE_COLORS.nodeinfo, borderRadius: 2, marginRight: 4 }} />
+              <span style={{ fontSize: '0.85rem' }}>Node Info</span>
+            </label>
+            <label style={checkboxStyle}>
+              <input
+                type="checkbox"
+                checked={includeEncrypted}
+                onChange={(e) => setIncludeEncrypted(e.target.checked)}
+              />
+              <span style={{ display: 'inline-block', width: 12, height: 12, background: TYPE_COLORS.encrypted, borderRadius: 2, marginRight: 4 }} />
+              <span style={{ fontSize: '0.85rem' }}>Encrypted</span>
+            </label>
+            <label style={checkboxStyle}>
+              <input
+                type="checkbox"
+                checked={includeUnknown}
+                onChange={(e) => setIncludeUnknown(e.target.checked)}
+              />
+              <span style={{ display: 'inline-block', width: 12, height: 12, background: TYPE_COLORS.unknown, borderRadius: 2, marginRight: 4 }} />
+              <span style={{ fontSize: '0.85rem' }}>Unknown</span>
+            </label>
           </div>
 
           {/* Exclusions */}
@@ -208,7 +275,7 @@ export default function MessageUtilization() {
           <div style={controlGroupStyle}>
             <button
               onClick={handleAnalyze}
-              disabled={isLoading}
+              disabled={isFetching}
               style={{
                 width: '100%',
                 padding: '0.75rem 1rem',
@@ -216,12 +283,12 @@ export default function MessageUtilization() {
                 border: 'none',
                 background: 'var(--color-primary)',
                 color: 'white',
-                cursor: isLoading ? 'not-allowed' : 'pointer',
+                cursor: isFetching ? 'not-allowed' : 'pointer',
                 fontWeight: 600,
-                opacity: isLoading ? 0.7 : 1,
+                opacity: isFetching ? 0.7 : 1,
               }}
             >
-              {isLoading ? 'Analyzing...' : 'Analyze Messages'}
+              {isFetching ? 'Analyzing...' : 'Analyze Messages'}
             </button>
           </div>
 
@@ -286,7 +353,7 @@ export default function MessageUtilization() {
         </div>
 
         <div style={{ flex: 1, overflow: 'auto', padding: '1rem' }}>
-          {!runAnalysis && !data && (
+          {!isFetching && !data && !error && (
             <div
               style={{
                 display: 'flex',
@@ -303,7 +370,7 @@ export default function MessageUtilization() {
             </div>
           )}
 
-          {isLoading && (
+          {isFetching && (
             <div
               style={{
                 display: 'flex',
@@ -311,9 +378,22 @@ export default function MessageUtilization() {
                 justifyContent: 'center',
                 height: '100%',
                 color: 'var(--color-text-muted)',
+                flexDirection: 'column',
+                gap: '1rem',
               }}
             >
-              Analyzing message data...
+              <div
+                style={{
+                  width: 32,
+                  height: 32,
+                  border: '3px solid var(--color-border)',
+                  borderTopColor: 'var(--color-primary)',
+                  borderRadius: '50%',
+                  animation: 'spin 0.8s linear infinite',
+                }}
+              />
+              <span>Analyzing message data...</span>
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
             </div>
           )}
 
@@ -336,7 +416,7 @@ export default function MessageUtilization() {
             </div>
           )}
 
-          {data && (
+          {data && !isFetching && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
               {/* Top 10 Chattiest Nodes Chart */}
               <ChattiesNodesChart data={data} />

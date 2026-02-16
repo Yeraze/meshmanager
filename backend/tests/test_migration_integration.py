@@ -34,13 +34,13 @@ def test_set_missing_server_defaults_revision_exists():
     )
 
 
-def test_drop_stale_message_index_is_head():
-    """The drop_stale_message_source_packet_index migration should be the current head."""
+def test_add_meshtastic_id_columns_is_head():
+    """The add_meshtastic_id_columns migration should be the current head."""
     cfg = _get_alembic_cfg()
     script_dir = ScriptDirectory.from_config(cfg)
 
     heads = script_dir.get_heads()
-    assert "r5s6t7u8v9w0" in heads, f"Expected r5s6t7u8v9w0 in heads, got {heads}"
+    assert "b2c3d4e5f6g7" in heads, f"Expected b2c3d4e5f6g7 in heads, got {heads}"
 
 
 def test_model_server_defaults_present():

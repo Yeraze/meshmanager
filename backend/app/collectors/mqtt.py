@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from app.collectors.base import BaseCollector
 from app.database import async_session_maker
 from app.models import Channel, Message, Node, Source, Telemetry, Traceroute
+from app.models.packet_record import PacketRecord, PacketRecordType
 from app.schemas.source import SourceTestResult
 from app.services.protobuf import (
     MESHTASTIC_DEFAULT_KEY,
@@ -206,6 +207,8 @@ class MqttCollector(BaseCollector):
                 logger.debug("Duplicate message ignored")
             elif "idx_traceroutes_unique" in err:
                 logger.debug("Duplicate traceroute ignored")
+            elif "idx_packet_records_unique" in err:
+                logger.debug("Duplicate packet record ignored")
             else:
                 logger.error(f"Unexpected integrity error: {e}")
                 raise
@@ -285,12 +288,21 @@ class MqttCollector(BaseCollector):
                 async with async_session_maker() as db:
                     await self._handle_decoded_packet(db, decoded)
                     await db.commit()
+            elif decoded:
+                # Packet decoded but no portnum — encrypted/undecryptable
+                async with async_session_maker() as db:
+                    await self._store_packet_record(
+                        db, decoded, PacketRecordType.ENCRYPTED
+                    )
+                    await db.commit()
         except IntegrityError as e:
             err = str(e)
             if "messages_source_packet" in err:
                 logger.debug("Duplicate protobuf message ignored")
             elif "idx_traceroutes_unique" in err:
                 logger.debug("Duplicate protobuf traceroute ignored")
+            elif "idx_packet_records_unique" in err:
+                logger.debug("Duplicate packet record ignored")
             else:
                 logger.error(f"Unexpected integrity error (protobuf): {e}")
         except Exception as e:
@@ -378,6 +390,17 @@ class MqttCollector(BaseCollector):
             if key in data:
                 return data[key]
         return None
+
+    @staticmethod
+    def _extract_meshtastic_id(data: dict) -> int | None:
+        """Extract the raw Meshtastic packet ID from a data dict."""
+        raw_id = data.get("id")
+        if raw_id is None:
+            return None
+        try:
+            return int(raw_id)
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def _parse_rx_time(value) -> datetime | None:
@@ -474,6 +497,7 @@ class MqttCollector(BaseCollector):
         telemetry = Telemetry(
             source_id=self.source.id,
             node_num=from_node,
+            meshtastic_id=self._extract_meshtastic_id(data),
             telemetry_type=TelemetryType.POSITION,
             latitude=lat,
             longitude=lon,
@@ -521,6 +545,7 @@ class MqttCollector(BaseCollector):
 
         rx_time = self._parse_rx_time(data.get("rxTime") or data.get("timestamp"))
         received_at = rx_time or datetime.now(UTC)
+        mesh_id = self._extract_meshtastic_id(data)
         inserted_any = False
 
         for submsg_key, telem_type in SUBMESSAGE_TYPE_MAP.items():
@@ -537,6 +562,7 @@ class MqttCollector(BaseCollector):
                     "id": str(uuid4()),
                     "source_id": self.source.id,
                     "node_num": from_node,
+                    "meshtastic_id": mesh_id,
                     "metric_name": metric_name,
                     "telemetry_type": telem_type,
                     "received_at": received_at,
@@ -554,12 +580,17 @@ class MqttCollector(BaseCollector):
 
         # Flat fallback: some MQTT JSON puts metrics at top level of payload
         if not inserted_any:
-            await self._handle_flat_telemetry(db, from_node, payload, received_at)
+            await self._handle_flat_telemetry(db, from_node, payload, received_at, mesh_id)
 
         logger.debug(f"Received telemetry from {from_node}")
 
     async def _handle_flat_telemetry(
-        self, db, from_node: int, payload: dict, received_at: datetime
+        self,
+        db,
+        from_node: int,
+        payload: dict,
+        received_at: datetime,
+        meshtastic_id: int | None = None,
     ) -> None:
         """Handle flat MQTT JSON that puts metric keys directly in payload."""
         from uuid import uuid4
@@ -582,6 +613,7 @@ class MqttCollector(BaseCollector):
                 "id": str(uuid4()),
                 "source_id": self.source.id,
                 "node_num": from_node,
+                "meshtastic_id": meshtastic_id,
                 "metric_name": metric_name,
                 "telemetry_type": metric_def.telemetry_type,
                 "received_at": received_at,
@@ -735,6 +767,7 @@ class MqttCollector(BaseCollector):
             "source_id": self.source.id,
             "from_node_num": from_node,
             "to_node_num": to_node,
+            "meshtastic_id": self._extract_meshtastic_id(data),
             "route": route or [],
             "route_back": route_back,
             "snr_towards": snr_towards,
@@ -844,6 +877,46 @@ class MqttCollector(BaseCollector):
                 result.append(v)
         return result or None
 
+    async def _store_packet_record(
+        self,
+        db,
+        data: dict,
+        packet_type: PacketRecordType,
+        portnum: str | None = None,
+    ) -> None:
+        """Store a packet record for encrypted, unknown, or nodeinfo packets."""
+        from uuid import uuid4
+
+        from_node = data.get("from") or data.get("fromId")
+        if not from_node:
+            return
+
+        if isinstance(from_node, str) and from_node.startswith("!"):
+            from_node = int(from_node[1:], 16)
+
+        to_node = data.get("to") or data.get("toId")
+        if isinstance(to_node, str) and to_node.startswith("!"):
+            to_node = int(to_node[1:], 16)
+
+        rx_time = self._parse_rx_time(data.get("rxTime") or data.get("timestamp"))
+
+        values = {
+            "id": str(uuid4()),
+            "source_id": self.source.id,
+            "from_node_num": from_node,
+            "to_node_num": to_node,
+            "meshtastic_id": self._extract_meshtastic_id(data),
+            "packet_type": packet_type,
+            "portnum": portnum,
+            "received_at": rx_time or datetime.now(UTC),
+        }
+
+        stmt = pg_insert(PacketRecord).values(**values).on_conflict_do_nothing(
+            index_elements=["source_id", "from_node_num", "packet_type", "received_at"]
+        )
+        await db.execute(stmt)
+        logger.debug(f"Stored {packet_type.value} packet record from {from_node}")
+
     async def _handle_decoded_packet(self, db, decoded: dict) -> None:
         """Handle a decoded protobuf packet."""
         portnum = decoded.get("portnum", "")
@@ -857,8 +930,13 @@ class MqttCollector(BaseCollector):
             await self._handle_telemetry(db, decoded)
         elif portnum == "NODEINFO_APP":
             await self._handle_nodeinfo(db, decoded)
+            await self._store_packet_record(db, decoded, PacketRecordType.NODEINFO)
         elif portnum == "TRACEROUTE_APP":
             await self._handle_traceroute(db, decoded)
+        else:
+            await self._store_packet_record(
+                db, decoded, PacketRecordType.UNKNOWN, portnum=portnum
+            )
 
     async def stop(self) -> None:
         """Stop MQTT subscription."""

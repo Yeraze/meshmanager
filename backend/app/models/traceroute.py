@@ -39,6 +39,7 @@ class Traceroute(Base):
 
     from_node_num: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     to_node_num: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    meshtastic_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
 
     # Route data (arrays of node numbers)
     route: Mapped[list[int] | None] = mapped_column(ARRAY(BigInteger))

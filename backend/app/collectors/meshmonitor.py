@@ -13,6 +13,7 @@ from sqlalchemy.orm import aliased
 from app.collectors.base import BaseCollector
 from app.database import async_session_maker
 from app.models import Channel, Message, Node, SolarProduction, Source, Telemetry, Traceroute
+from app.models.packet_record import PacketRecord, PacketRecordType
 from app.schemas.source import SourceTestResult
 from app.telemetry_registry import CAMEL_TO_METRIC, METRIC_REGISTRY, SUBMESSAGE_TYPE_MAP
 
@@ -228,6 +229,9 @@ class MeshMonitorCollector(BaseCollector):
 
                 # Collect traceroutes
                 await self._collect_traceroutes(client, headers)
+
+                # Collect packet records (encrypted, unknown, nodeinfo)
+                await self._collect_packet_records(client, headers)
 
                 # Collect solar production data
                 await self._collect_solar(client, headers)
@@ -1079,6 +1083,120 @@ class MeshMonitorCollector(BaseCollector):
         # Use PostgreSQL INSERT ... ON CONFLICT DO NOTHING
         stmt = pg_insert(Traceroute).values(**values).on_conflict_do_nothing(
             index_elements=["source_id", "from_node_num", "to_node_num", "received_at"]
+        )
+        result = await db.execute(stmt)
+        return result.rowcount > 0
+
+    # Known portnums that are already collected by other methods
+    _KNOWN_PORTNUMS = {1, 3, 67, 70}  # TEXT, POSITION, TELEMETRY, TRACEROUTE
+
+    async def _collect_packet_records(
+        self, client: httpx.AsyncClient, headers: dict
+    ) -> None:
+        """Collect packet records (encrypted, unknown, nodeinfo) from the packets API."""
+        try:
+            offset = 0
+            limit = 100
+            max_total = 10000
+            inserted_count = 0
+
+            while offset < max_total:
+                response = await client.get(
+                    f"{self.source.url}/api/v1/packets",
+                    headers=headers,
+                    params={"limit": limit, "offset": offset},
+                )
+                if response.status_code != 200:
+                    logger.warning(
+                        f"Failed to fetch packets: {response.status_code}"
+                    )
+                    return
+
+                data = response.json()
+                if isinstance(data, dict) and "data" in data:
+                    packets_data = data.get("data", [])
+                elif isinstance(data, list):
+                    packets_data = data
+                else:
+                    packets_data = []
+
+                if not packets_data:
+                    break
+
+                async with async_session_maker() as db:
+                    for pkt in packets_data:
+                        inserted = await self._insert_packet_record(db, pkt)
+                        if inserted:
+                            inserted_count += 1
+                    await db.commit()
+
+                # Stop if we got fewer than the limit (last page)
+                if len(packets_data) < limit:
+                    break
+                offset += limit
+
+            logger.debug(f"Collected {inserted_count} packet records")
+        except Exception as e:
+            logger.error(f"Error collecting packet records: {e}")
+
+    async def _insert_packet_record(self, db, pkt_data: dict) -> bool:
+        """Classify and insert a packet record. Returns True if inserted."""
+        from uuid import uuid4
+
+        from_node = pkt_data.get("from_node")
+        if not from_node:
+            return False
+
+        to_node = pkt_data.get("to_node")
+        encrypted = pkt_data.get("encrypted", False)
+        portnum = pkt_data.get("portnum")
+        portnum_name = pkt_data.get("portnum_name")
+
+        # Classify the packet
+        if encrypted:
+            packet_type = PacketRecordType.ENCRYPTED
+        elif portnum == 4:  # NODEINFO_APP
+            packet_type = PacketRecordType.NODEINFO
+        elif portnum not in self._KNOWN_PORTNUMS:
+            packet_type = PacketRecordType.UNKNOWN
+        else:
+            # Known portnum (text, position, telemetry, traceroute) — skip
+            return False
+
+        # Parse timestamp
+        timestamp_val = pkt_data.get("timestamp")
+        if timestamp_val:
+            if timestamp_val > 1e12:  # Likely milliseconds
+                received_at = datetime.fromtimestamp(timestamp_val / 1000, tz=UTC)
+            else:
+                received_at = datetime.fromtimestamp(timestamp_val, tz=UTC)
+        else:
+            received_at = datetime.now(UTC)
+
+        # Extract meshtastic packet ID for cross-source dedup
+        raw_pkt_id = pkt_data.get("packetId") or pkt_data.get("id")
+        meshtastic_id = None
+        if raw_pkt_id is not None:
+            try:
+                meshtastic_id = int(raw_pkt_id)
+            except (TypeError, ValueError):
+                pass
+
+        values = {
+            "id": str(uuid4()),
+            "source_id": self.source.id,
+            "from_node_num": from_node,
+            "to_node_num": to_node,
+            "meshtastic_id": meshtastic_id,
+            "packet_type": packet_type,
+            "portnum": portnum_name,
+            "received_at": received_at,
+        }
+
+        stmt = pg_insert(PacketRecord).values(**values).on_conflict_do_nothing(
+            index_elements=[
+                "source_id", "from_node_num", "packet_type", "received_at"
+            ]
         )
         result = await db.execute(stmt)
         return result.rowcount > 0

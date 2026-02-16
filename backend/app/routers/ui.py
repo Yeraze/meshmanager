@@ -1423,10 +1423,6 @@ async def analyze_solar_forecast(
     # Track simulation for all solar nodes (not just at-risk)
     all_solar_simulations = []
 
-    # Global tracking for average hours calculations
-    all_charging_hours = []
-    all_discharge_hours = []
-
     # Analyze each node's daily patterns (similar to solar-nodes endpoint)
     for node_num, daily_data in node_data.items():
         # Track patterns independently for battery and voltage
@@ -1436,6 +1432,8 @@ async def analyze_solar_forecast(
             "high_efficiency_days": 0,
             "charge_rates": [],
             "discharge_rates": [],
+            "charging_hours_list": [],
+            "discharge_hours_list": [],
             "previous_day_sunset": None,
             "total_variance": 0,
         }
@@ -1445,6 +1443,8 @@ async def analyze_solar_forecast(
             "high_efficiency_days": 0,
             "charge_rates": [],
             "discharge_rates": [],
+            "charging_hours_list": [],
+            "discharge_hours_list": [],
             "previous_day_sunset": None,
             "total_variance": 0,
         }
@@ -1463,6 +1463,8 @@ async def analyze_solar_forecast(
                 "high_efficiency_days": 0,
                 "charge_rates": [],
                 "discharge_rates": [],
+                "charging_hours_list": [],
+                "discharge_hours_list": [],
                 "previous_day_sunset": None,
                 "total_variance": 0,
             }
@@ -1507,9 +1509,9 @@ async def analyze_solar_forecast(
                     if battery_result["discharge_rate"] is not None:
                         battery_stats["discharge_rates"].append(battery_result["discharge_rate"])
                     if battery_result["daylight_hours"]:
-                        all_charging_hours.append(battery_result["daylight_hours"])
+                        battery_stats["charging_hours_list"].append(battery_result["daylight_hours"])
                     if battery_result["discharge_hours"]:
-                        all_discharge_hours.append(battery_result["discharge_hours"])
+                        battery_stats["discharge_hours_list"].append(battery_result["discharge_hours"])
                     battery_stats["total_variance"] += battery_result["daily_range"]
                     if battery_result["is_high_efficiency"]:
                         battery_stats["high_efficiency_days"] += 1
@@ -1535,9 +1537,9 @@ async def analyze_solar_forecast(
                     if voltage_result["discharge_rate"] is not None:
                         voltage_stats["discharge_rates"].append(voltage_result["discharge_rate"])
                     if voltage_result["daylight_hours"]:
-                        all_charging_hours.append(voltage_result["daylight_hours"])
+                        voltage_stats["charging_hours_list"].append(voltage_result["daylight_hours"])
                     if voltage_result["discharge_hours"]:
-                        all_discharge_hours.append(voltage_result["discharge_hours"])
+                        voltage_stats["discharge_hours_list"].append(voltage_result["discharge_hours"])
                     voltage_stats["total_variance"] += voltage_result["daily_range"]
                     if voltage_result["is_high_efficiency"]:
                         voltage_stats["high_efficiency_days"] += 1
@@ -1565,9 +1567,9 @@ async def analyze_solar_forecast(
                         if ina_result["discharge_rate"] is not None:
                             stats["discharge_rates"].append(ina_result["discharge_rate"])
                         if ina_result["daylight_hours"]:
-                            all_charging_hours.append(ina_result["daylight_hours"])
+                            stats["charging_hours_list"].append(ina_result["daylight_hours"])
                         if ina_result["discharge_hours"]:
-                            all_discharge_hours.append(ina_result["discharge_hours"])
+                            stats["discharge_hours_list"].append(ina_result["discharge_hours"])
                         stats["total_variance"] += ina_result["daily_range"]
                         if ina_result["is_high_efficiency"]:
                             stats["high_efficiency_days"] += 1
@@ -1655,8 +1657,8 @@ async def analyze_solar_forecast(
             discharge_rates = [r for r in (chosen_stats["discharge_rates"] if chosen_stats else []) if r is not None]
             avg_charge_rate = sum(charge_rates) / len(charge_rates) if charge_rates else 0
             avg_discharge_rate = sum(discharge_rates) / len(discharge_rates) if discharge_rates else 0
-            valid_charging_hours = [h for h in all_charging_hours if h is not None]
-            valid_discharge_hours = [h for h in all_discharge_hours if h is not None]
+            valid_charging_hours = [h for h in (chosen_stats["charging_hours_list"] if chosen_stats else []) if h is not None]
+            valid_discharge_hours = [h for h in (chosen_stats["discharge_hours_list"] if chosen_stats else []) if h is not None]
             avg_charging_hours = sum(valid_charging_hours) / len(valid_charging_hours) if valid_charging_hours else 10
             avg_discharge_hours = sum(valid_discharge_hours) / len(valid_discharge_hours) if valid_discharge_hours else 14
 

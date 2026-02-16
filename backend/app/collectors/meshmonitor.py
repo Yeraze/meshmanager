@@ -1097,9 +1097,10 @@ class MeshMonitorCollector(BaseCollector):
         try:
             offset = 0
             limit = 100
+            max_total = 10000
             inserted_count = 0
 
-            while True:
+            while offset < max_total:
                 response = await client.get(
                     f"{self.source.url}/api/v1/packets",
                     headers=headers,

@@ -19,7 +19,7 @@ def upgrade() -> None:
     op.execute("""
         DO $$ BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'packetrecordtype') THEN
-                CREATE TYPE packetrecordtype AS ENUM ('ENCRYPTED', 'UNKNOWN', 'NODEINFO');
+                CREATE TYPE packetrecordtype AS ENUM ('encrypted', 'unknown', 'nodeinfo');
             END IF;
         END $$;
     """)

@@ -192,32 +192,93 @@ def _decode_inner_payload(
     mesh_pb2: Any,
     portnums_pb2: Any,
     telemetry_pb2: Any,
-) -> dict | bytes:
+) -> dict | str | bytes:
     """Decode the inner payload bytes into a dict based on portnum.
 
-    Returns the decoded dict on success, or the original raw bytes if decoding
-    fails or the portnum is unrecognized.
+    Returns the decoded dict (or UTF-8 string for text-based portnums)
+    on success, or the original raw bytes if decoding fails or the portnum
+    is unrecognized.
     """
+    pn = portnums_pb2.PortNum
+
+    # Protobuf message-based portnums: (module, class_name)
+    proto_portnums: dict[int, tuple[Any, str]] = {
+        pn.POSITION_APP: (mesh_pb2, "Position"),
+        pn.NODEINFO_APP: (mesh_pb2, "User"),
+        pn.TELEMETRY_APP: (telemetry_pb2, "Telemetry"),
+        pn.TRACEROUTE_APP: (mesh_pb2, "RouteDiscovery"),
+        pn.WAYPOINT_APP: (mesh_pb2, "Waypoint"),
+        pn.ROUTING_APP: (mesh_pb2, "Routing"),
+        pn.NEIGHBORINFO_APP: (mesh_pb2, "NeighborInfo"),
+        pn.STORE_FORWARD_PLUSPLUS_APP: (mesh_pb2, "StoreForwardPlusPlus"),
+        pn.KEY_VERIFICATION_APP: (mesh_pb2, "KeyVerification"),
+    }
+
+    # Text-based portnums (decode as UTF-8)
+    text_portnums: set[int] = {
+        pn.DETECTION_SENSOR_APP,
+        pn.ALERT_APP,
+        pn.RANGE_TEST_APP,
+        pn.REPLY_APP,
+        pn.NODE_STATUS_APP,
+    }
+
     try:
-        if portnum == portnums_pb2.PortNum.POSITION_APP:
-            msg = mesh_pb2.Position()
+        # Check protobuf message-based portnums
+        if portnum in proto_portnums:
+            module, class_name = proto_portnums[portnum]
+            msg = getattr(module, class_name)()
             msg.ParseFromString(raw_payload)
             return MessageToDict(msg)
 
-        if portnum == portnums_pb2.PortNum.NODEINFO_APP:
-            msg = mesh_pb2.User()
+        # Lazy-imported protobuf modules for less common portnums
+        if portnum == pn.PAXCOUNTER_APP:
+            from meshtastic import paxcount_pb2
+
+            msg = paxcount_pb2.Paxcount()
             msg.ParseFromString(raw_payload)
             return MessageToDict(msg)
 
-        if portnum == portnums_pb2.PortNum.TELEMETRY_APP:
-            msg = telemetry_pb2.Telemetry()
+        if portnum == pn.MAP_REPORT_APP:
+            from meshtastic import mqtt_pb2 as mqtt_pb2_mod
+
+            msg = mqtt_pb2_mod.MapReport()
             msg.ParseFromString(raw_payload)
             return MessageToDict(msg)
 
-        if portnum == portnums_pb2.PortNum.TRACEROUTE_APP:
-            msg = mesh_pb2.RouteDiscovery()
+        if portnum == pn.STORE_FORWARD_APP:
+            from meshtastic import storeforward_pb2
+
+            msg = storeforward_pb2.StoreAndForward()
             msg.ParseFromString(raw_payload)
             return MessageToDict(msg)
+
+        if portnum == pn.REMOTE_HARDWARE_APP:
+            from meshtastic import remote_hardware_pb2
+
+            msg = remote_hardware_pb2.HardwareMessage()
+            msg.ParseFromString(raw_payload)
+            return MessageToDict(msg)
+
+        if portnum == pn.ADMIN_APP:
+            from meshtastic import admin_pb2
+
+            msg = admin_pb2.AdminMessage()
+            msg.ParseFromString(raw_payload)
+            return MessageToDict(msg)
+
+        if portnum == getattr(pn, "ATAK_PLUGIN", None):
+            from meshtastic.protobuf import atak_pb2
+
+            msg = atak_pb2.TAKPacket()
+            msg.ParseFromString(raw_payload)
+            return MessageToDict(msg)
+
+        # Text-based portnums
+        if portnum in text_portnums:
+            return raw_payload.decode("utf-8", errors="replace")
+
+        # TEXT_MESSAGE_COMPRESSED_APP: leave as raw bytes (compressed)
 
     except Exception as e:
         logger.debug(f"Failed to decode inner payload for portnum {portnum}: {e}")

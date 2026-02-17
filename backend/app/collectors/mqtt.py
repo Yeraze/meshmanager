@@ -933,10 +933,68 @@ class MqttCollector(BaseCollector):
             await self._store_packet_record(db, decoded, PacketRecordType.NODEINFO)
         elif portnum == "TRACEROUTE_APP":
             await self._handle_traceroute(db, decoded)
+        elif portnum == "PAXCOUNTER_APP":
+            await self._handle_paxcounter(db, decoded)
         else:
             await self._store_packet_record(
                 db, decoded, PacketRecordType.UNKNOWN, portnum=portnum
             )
+
+    async def _handle_paxcounter(self, db, data: dict) -> None:
+        """Handle a PaxCounter packet, storing metrics as telemetry rows."""
+        from uuid import uuid4
+
+        from app.models.telemetry import TelemetryType
+
+        from_node = data.get("from") or data.get("fromId")
+        if not from_node:
+            return
+
+        if isinstance(from_node, str) and from_node.startswith("!"):
+            from_node = int(from_node[1:], 16)
+
+        payload = data.get("payload", {})
+        if not isinstance(payload, dict):
+            return
+
+        rx_time = self._parse_rx_time(data.get("rxTime") or data.get("timestamp"))
+        received_at = rx_time or datetime.now(UTC)
+        mesh_id = self._extract_meshtastic_id(data)
+
+        # PaxCounter protobuf fields → metric names (local mapping to avoid
+        # conflicts with global CAMEL_TO_METRIC, e.g. "uptime" is ambiguous)
+        pax_field_map = {
+            "wifi": "paxcounter_wifi",
+            "ble": "paxcounter_ble",
+            "uptime": "paxcounter_uptime",
+        }
+
+        for field_name, metric_name in pax_field_map.items():
+            value = payload.get(field_name)
+            if value is None or not isinstance(value, (int, float)):
+                continue
+
+            metric_def = METRIC_REGISTRY.get(metric_name)
+
+            values = {
+                "id": str(uuid4()),
+                "source_id": self.source.id,
+                "node_num": from_node,
+                "meshtastic_id": mesh_id,
+                "metric_name": metric_name,
+                "telemetry_type": TelemetryType.DEVICE,
+                "received_at": received_at,
+                "raw_value": float(value),
+            }
+            if metric_def and metric_def.dedicated_column:
+                values[metric_def.dedicated_column] = value
+
+            stmt = pg_insert(Telemetry).values(**values).on_conflict_do_nothing(
+                index_elements=["source_id", "node_num", "received_at", "metric_name"]
+            )
+            await db.execute(stmt)
+
+        logger.debug(f"Received paxcounter from {from_node}")
 
     async def stop(self) -> None:
         """Stop MQTT subscription."""

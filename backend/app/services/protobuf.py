@@ -201,7 +201,9 @@ def _decode_inner_payload(
     """
     pn = portnums_pb2.PortNum
 
-    # Protobuf message-based portnums: (module, class_name)
+    # Portnums whose pb2 modules are already imported by the caller go in the
+    # lookup dict; others use lazy imports below to avoid loading rarely-needed
+    # modules on every packet.
     proto_portnums: dict[int, tuple[Any, str]] = {
         pn.POSITION_APP: (mesh_pb2, "Position"),
         pn.NODEINFO_APP: (mesh_pb2, "User"),
@@ -267,7 +269,8 @@ def _decode_inner_payload(
             msg.ParseFromString(raw_payload)
             return MessageToDict(msg)
 
-        if portnum == getattr(pn, "ATAK_PLUGIN", None):
+        atak_portnum = getattr(pn, "ATAK_PLUGIN", None)
+        if atak_portnum is not None and portnum == atak_portnum:
             from meshtastic.protobuf import atak_pb2
 
             msg = atak_pb2.TAKPacket()

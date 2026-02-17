@@ -176,7 +176,7 @@ class TestPaxcounterDispatch:
     """Tests for PAXCOUNTER_APP routing in _handle_decoded_packet."""
 
     async def test_paxcounter_dispatched(self, collector, mock_db):
-        """PAXCOUNTER_APP portnum routes to _handle_paxcounter."""
+        """PAXCOUNTER_APP portnum routes to _handle_paxcounter and stores packet record."""
         from unittest.mock import patch
 
         decoded = {
@@ -185,6 +185,10 @@ class TestPaxcounterDispatch:
             "to": 4294967295,
             "payload": {"wifi": 10, "ble": 3},
         }
-        with patch.object(collector, "_handle_paxcounter", new_callable=AsyncMock) as mock:
+        with (
+            patch.object(collector, "_handle_paxcounter", new_callable=AsyncMock) as mock_pax,
+            patch.object(collector, "_store_packet_record", new_callable=AsyncMock) as mock_store,
+        ):
             await collector._handle_decoded_packet(mock_db, decoded)
-            mock.assert_called_once_with(mock_db, decoded)
+            mock_pax.assert_called_once_with(mock_db, decoded)
+            mock_store.assert_called_once()

@@ -935,6 +935,9 @@ class MqttCollector(BaseCollector):
             await self._handle_traceroute(db, decoded)
         elif portnum == "PAXCOUNTER_APP":
             await self._handle_paxcounter(db, decoded)
+            await self._store_packet_record(
+                db, decoded, PacketRecordType.UNKNOWN, portnum=portnum
+            )
         else:
             await self._store_packet_record(
                 db, decoded, PacketRecordType.UNKNOWN, portnum=portnum
@@ -961,8 +964,10 @@ class MqttCollector(BaseCollector):
         received_at = rx_time or datetime.now(UTC)
         mesh_id = self._extract_meshtastic_id(data)
 
-        # PaxCounter protobuf fields → metric names (local mapping to avoid
-        # conflicts with global CAMEL_TO_METRIC, e.g. "uptime" is ambiguous)
+        # PaxCounter protobuf fields → metric names.  Uses a local mapping to
+        # avoid conflicts with global CAMEL_TO_METRIC (e.g. "uptime" is
+        # ambiguous with deviceMetrics.uptimeSeconds).
+        # TelemetryType.DEVICE matches the MetricDefs in telemetry_registry.py.
         pax_field_map = {
             "wifi": "paxcounter_wifi",
             "ble": "paxcounter_ble",

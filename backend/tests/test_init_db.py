@@ -37,4 +37,22 @@ def test_entrypoint_contains_migration_commands():
     content = entrypoint.read_text()
     assert "alembic upgrade head" in content
     assert "alembic stamp d1e2f3g4h5i6" in content
+    assert "alembic stamp head" in content
     assert "alembic_version" in content
+
+
+def test_entrypoint_bootstrap_seeds_anonymous_user():
+    """Bootstrap path should seed the anonymous user."""
+    entrypoint = Path(__file__).parent.parent / "entrypoint.sh"
+    content = entrypoint.read_text()
+    assert "ANONYMOUS_USER_ID" in content
+    assert "anonymous" in content
+    assert "ON CONFLICT" in content
+
+
+def test_entrypoint_has_error_guards():
+    """entrypoint.sh should exit on detection or bootstrap failure."""
+    entrypoint = Path(__file__).parent.parent / "entrypoint.sh"
+    content = entrypoint.read_text()
+    assert "FATAL: Database state detection failed" in content
+    assert "FATAL: Schema creation failed" in content

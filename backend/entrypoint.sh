@@ -27,7 +27,7 @@ async def check():
         print('bootstrap')
 
 asyncio.run(check())
-")
+") || { echo "FATAL: Database state detection failed"; exit 1; }
 
 if [ "$DB_STATE" = "bootstrap" ]; then
     echo "Fresh database detected, creating schema..."
@@ -45,7 +45,43 @@ async def create():
     await engine.dispose()
 
 asyncio.run(create())
-"
+" || { echo "FATAL: Schema creation failed"; exit 1; }
+
+    echo "Seeding bootstrap data..."
+    python -c "
+import asyncio
+from app.config import get_settings
+from app.models.user import ANONYMOUS_USER_ID, ANONYMOUS_DEFAULT_PERMISSIONS
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy import text
+import json
+
+async def seed():
+    engine = create_async_engine(get_settings().database_url)
+    async with engine.begin() as conn:
+        await conn.execute(
+            text('''
+                INSERT INTO users (id, username, auth_provider, role, is_active, is_anonymous, permissions, totp_enabled, created_at)
+                VALUES (
+                    CAST(:id AS UUID),
+                    'anonymous',
+                    'system',
+                    'user',
+                    TRUE,
+                    TRUE,
+                    CAST(:permissions AS JSONB),
+                    FALSE,
+                    NOW()
+                )
+                ON CONFLICT (id) DO NOTHING
+            '''),
+            {'id': ANONYMOUS_USER_ID, 'permissions': json.dumps(ANONYMOUS_DEFAULT_PERMISSIONS)},
+        )
+    await engine.dispose()
+
+asyncio.run(seed())
+" || { echo "FATAL: Bootstrap seed data failed"; exit 1; }
+
     echo "Stamping Alembic at head..."
     python -m alembic stamp head
 elif [ "$DB_STATE" = "stamp" ]; then

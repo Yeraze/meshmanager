@@ -51,7 +51,9 @@ class PacketRecord(Base):
     meshtastic_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
 
     packet_type: Mapped[PacketRecordType] = mapped_column(
-        Enum(PacketRecordType), nullable=False, index=True
+        Enum(PacketRecordType, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        index=True,
     )
     portnum: Mapped[str | None] = mapped_column(String(100), nullable=True)
 

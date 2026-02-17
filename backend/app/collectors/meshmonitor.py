@@ -74,8 +74,10 @@ class CollectionStatus:
                             self.smoothed_rate = instantaneous_rate
                         else:
                             # Exponential moving average: new = alpha * current + (1-alpha) * old
-                            self.smoothed_rate = (smoothing_alpha * instantaneous_rate +
-                                                 (1 - smoothing_alpha) * self.smoothed_rate)
+                            self.smoothed_rate = (
+                                smoothing_alpha * instantaneous_rate
+                                + (1 - smoothing_alpha) * self.smoothed_rate
+                            )
                         self.last_completed_count = self.current_batch
                         self.last_completion_time = datetime.now()
 
@@ -89,8 +91,10 @@ class CollectionStatus:
                     progress_ratio = self.current_batch / min_nodes_for_accurate_rate
                     actual_rate = self.current_batch / elapsed_seconds if elapsed_seconds > 0 else 0
                     # Gradually transition from baseline to actual as we approach MIN_NODES
-                    effective_nodes_per_second = (baseline_nodes_per_second * (1 - progress_ratio) +
-                                                  actual_rate * progress_ratio)
+                    effective_nodes_per_second = (
+                        baseline_nodes_per_second * (1 - progress_ratio)
+                        + actual_rate * progress_ratio
+                    )
                     estimated_seconds_remaining = int(remaining_nodes / effective_nodes_per_second)
                     calculation_method = "hybrid"
                 else:
@@ -105,7 +109,7 @@ class CollectionStatus:
                     logger.info(
                         f"ETA ({calculation_method}): elapsed={elapsed_seconds}s, completed={self.current_batch}/{total_nodes}, "
                         f"rate={effective_nodes_per_second:.2f} nodes/s, "
-                        f"remaining={remaining_nodes}, ETA={estimated_seconds_remaining}s ({estimated_seconds_remaining/60:.1f}m)"
+                        f"remaining={remaining_nodes}, ETA={estimated_seconds_remaining}s ({estimated_seconds_remaining / 60:.1f}m)"
                     )
 
         return {
@@ -136,14 +140,55 @@ class MeshMonitorCollector(BaseCollector):
             headers["Authorization"] = f"Bearer {self.source.api_token}"
         return headers
 
-    async def _get_remote_version(
-        self, client: httpx.AsyncClient, headers: dict
-    ) -> str | None:
+    async def _api_get(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        headers: dict,
+        params: dict | None = None,
+        max_retries: int = 5,
+        base_delay: float = 2.0,
+    ) -> httpx.Response:
+        """Make a GET request with 429 rate-limit retry and exponential backoff.
+
+        If the server responds with HTTP 429, retries up to ``max_retries``
+        times. The delay between retries honours the ``Retry-After`` header
+        when present; otherwise it uses exponential backoff capped at 120 s.
+
+        For any other status code (including other errors) the response is
+        returned immediately for the caller to handle.
+        """
+        for attempt in range(max_retries):
+            response = await client.get(url, headers=headers, params=params)
+            if response.status_code != 429:
+                return response
+
+            retry_after = response.headers.get("Retry-After")
+            if retry_after is not None:
+                try:
+                    delay = float(retry_after)
+                except (ValueError, TypeError):
+                    delay = base_delay * (2**attempt)
+            else:
+                delay = base_delay * (2**attempt)
+            delay = min(delay, 120.0)
+
+            logger.warning(
+                f"Rate limited (429), retrying in {delay:.1f}s "
+                f"(attempt {attempt + 1}/{max_retries})"
+            )
+            await asyncio.sleep(delay)
+
+        # Final attempt after all retries exhausted
+        return await client.get(url, headers=headers, params=params)
+
+    async def _get_remote_version(self, client: httpx.AsyncClient, headers: dict) -> str | None:
         """Get version from the remote MeshMonitor health endpoint."""
         try:
-            response = await client.get(
+            response = await self._api_get(
+                client,
                 f"{self.source.url}/api/health",
-                headers=headers,
+                headers,
             )
             if response.status_code == 200:
                 data = response.json()
@@ -161,9 +206,10 @@ class MeshMonitorCollector(BaseCollector):
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 # Try the health endpoint first
-                response = await client.get(
+                response = await self._api_get(
+                    client,
                     f"{self.source.url}/api/health",
-                    headers=self._get_headers(),
+                    self._get_headers(),
                 )
                 if response.status_code != 200:
                     return SourceTestResult(
@@ -172,9 +218,10 @@ class MeshMonitorCollector(BaseCollector):
                     )
 
                 # Try to get nodes (use v1 API for token auth)
-                response = await client.get(
+                response = await self._api_get(
+                    client,
                     f"{self.source.url}/api/v1/nodes",
-                    headers=self._get_headers(),
+                    self._get_headers(),
                 )
                 if response.status_code == 200:
                     data = response.json()
@@ -238,9 +285,7 @@ class MeshMonitorCollector(BaseCollector):
 
             # Update last poll time and version
             async with async_session_maker() as db:
-                result = await db.execute(
-                    select(Source).where(Source.id == self.source.id)
-                )
+                result = await db.execute(select(Source).where(Source.id == self.source.id))
                 source = result.scalar()
                 if source:
                     source.last_poll_at = datetime.now(UTC)
@@ -255,9 +300,7 @@ class MeshMonitorCollector(BaseCollector):
             logger.error(f"Collection error for {self.source.name}: {e}")
             # Record the error
             async with async_session_maker() as db:
-                result = await db.execute(
-                    select(Source).where(Source.id == self.source.id)
-                )
+                result = await db.execute(select(Source).where(Source.id == self.source.id))
                 source = result.scalar()
                 if source:
                     source.last_error = str(e)
@@ -266,9 +309,10 @@ class MeshMonitorCollector(BaseCollector):
     async def _collect_nodes(self, client: httpx.AsyncClient, headers: dict) -> None:
         """Collect nodes from the API (uses v1 API for token auth)."""
         try:
-            response = await client.get(
+            response = await self._api_get(
+                client,
                 f"{self.source.url}/api/v1/nodes",
-                headers=headers,
+                headers,
             )
             if response.status_code != 200:
                 logger.warning(f"Failed to fetch nodes: {response.status_code}")
@@ -375,9 +419,7 @@ class MeshMonitorCollector(BaseCollector):
             if new_alt is not None:
                 node.altitude = new_alt
             if position_time:
-                node.position_time = datetime.fromtimestamp(
-                    position_time, tz=UTC
-                )
+                node.position_time = datetime.fromtimestamp(position_time, tz=UTC)
             if precision_bits is not None:
                 node.position_precision_bits = precision_bits
             if snr is not None:
@@ -387,9 +429,7 @@ class MeshMonitorCollector(BaseCollector):
             if hops_away is not None:
                 node.hops_away = hops_away
             if node_data.get("lastHeard"):
-                node.last_heard = datetime.fromtimestamp(
-                    node_data["lastHeard"], tz=UTC
-                )
+                node.last_heard = datetime.fromtimestamp(node_data["lastHeard"], tz=UTC)
             is_licensed = node_data.get("isLicensed")
             if is_licensed is not None:
                 node.is_licensed = is_licensed
@@ -414,13 +454,9 @@ class MeshMonitorCollector(BaseCollector):
                 is_licensed=node_data.get("isLicensed", False),
             )
             if position_time:
-                node.position_time = datetime.fromtimestamp(
-                    position_time, tz=UTC
-                )
+                node.position_time = datetime.fromtimestamp(position_time, tz=UTC)
             if node_data.get("lastHeard"):
-                node.last_heard = datetime.fromtimestamp(
-                    node_data["lastHeard"], tz=UTC
-                )
+                node.last_heard = datetime.fromtimestamp(node_data["lastHeard"], tz=UTC)
             db.add(node)
 
         # Insert position telemetry when position data has changed
@@ -451,17 +487,22 @@ class MeshMonitorCollector(BaseCollector):
                     "altitude": int(new_alt) if new_alt is not None else None,
                     "received_at": received_at,
                 }
-                stmt = pg_insert(Telemetry).values(**values).on_conflict_do_nothing(
-                    index_elements=["source_id", "node_num", "received_at", "metric_name"]
+                stmt = (
+                    pg_insert(Telemetry)
+                    .values(**values)
+                    .on_conflict_do_nothing(
+                        index_elements=["source_id", "node_num", "received_at", "metric_name"]
+                    )
                 )
                 await db.execute(stmt)
 
     async def _collect_channels(self, client: httpx.AsyncClient, headers: dict) -> None:
         """Collect channel configuration from the v1 API."""
         try:
-            response = await client.get(
+            response = await self._api_get(
+                client,
                 f"{self.source.url}/api/v1/channels",
-                headers=headers,
+                headers,
             )
             if response.status_code == 404:
                 # API not available on this MeshMonitor version
@@ -571,8 +612,7 @@ class MeshMonitorCollector(BaseCollector):
                         .select_from(m1)
                         .join(
                             m2,
-                            (m1.meshtastic_id == m2.meshtastic_id)
-                            & (m1.source_id != m2.source_id),
+                            (m1.meshtastic_id == m2.meshtastic_id) & (m1.source_id != m2.source_id),
                         )
                         .join(
                             Channel,
@@ -596,18 +636,17 @@ class MeshMonitorCollector(BaseCollector):
 
                 if updated:
                     await db.commit()
-                    logger.info(
-                        f"Inferred {updated} channel name(s) for {self.source.name}"
-                    )
+                    logger.info(f"Inferred {updated} channel name(s) for {self.source.name}")
         except Exception as e:
             logger.error(f"Error inferring channel names: {e}")
 
     async def _collect_messages(self, client: httpx.AsyncClient, headers: dict) -> None:
         """Collect messages from the API."""
         try:
-            response = await client.get(
+            response = await self._api_get(
+                client,
                 f"{self.source.url}/api/v1/messages",
-                headers=headers,
+                headers,
                 params={"limit": 100},
             )
             if response.status_code != 200:
@@ -713,12 +752,16 @@ class MeshMonitorCollector(BaseCollector):
         # Use PostgreSQL INSERT ... ON CONFLICT DO NOTHING
         # The unique index includes COALESCE(gateway_node_num, 0) so we must
         # match the full expression to satisfy PostgreSQL's conflict resolution.
-        stmt = pg_insert(Message).values(**values).on_conflict_do_nothing(
-            index_elements=[
-                "source_id",
-                "packet_id",
-                text("COALESCE(gateway_node_num, 0)"),
-            ]
+        stmt = (
+            pg_insert(Message)
+            .values(**values)
+            .on_conflict_do_nothing(
+                index_elements=[
+                    "source_id",
+                    "packet_id",
+                    text("COALESCE(gateway_node_num, 0)"),
+                ]
+            )
         )
         result = await db.execute(stmt)
         return result.rowcount > 0
@@ -756,9 +799,10 @@ class MeshMonitorCollector(BaseCollector):
 
                     # Fetch a batch of messages
                     try:
-                        response = await client.get(
+                        response = await self._api_get(
+                            client,
                             f"{self.source.url}/api/v1/messages",
-                            headers=headers,
+                            headers,
                             params={"limit": batch_size, "offset": offset},
                         )
                         if response.status_code != 200:
@@ -803,7 +847,9 @@ class MeshMonitorCollector(BaseCollector):
 
                         # If we got fewer messages than requested, we've reached the end
                         if len(messages_data) < batch_size:
-                            logger.info(f"Reached end of historical messages for {self.source.name}")
+                            logger.info(
+                                f"Reached end of historical messages for {self.source.name}"
+                            )
                             break
 
                         # Delay before next batch to avoid rate limiting
@@ -825,9 +871,10 @@ class MeshMonitorCollector(BaseCollector):
     async def _collect_telemetry(self, client: httpx.AsyncClient, headers: dict) -> None:
         """Collect telemetry from the API."""
         try:
-            response = await client.get(
+            response = await self._api_get(
+                client,
                 f"{self.source.url}/api/v1/telemetry",
-                headers=headers,
+                headers,
             )
             if response.status_code != 200:
                 logger.warning(f"Failed to fetch telemetry: {response.status_code}")
@@ -904,8 +951,12 @@ class MeshMonitorCollector(BaseCollector):
                 values[metric_def.dedicated_column] = value
 
             # Use PostgreSQL INSERT ... ON CONFLICT DO NOTHING
-            stmt = pg_insert(Telemetry).values(**values).on_conflict_do_nothing(
-                index_elements=["source_id", "node_num", "received_at", "metric_name"]
+            stmt = (
+                pg_insert(Telemetry)
+                .values(**values)
+                .on_conflict_do_nothing(
+                    index_elements=["source_id", "node_num", "received_at", "metric_name"]
+                )
             )
             result = await db.execute(stmt)
             return result.rowcount > 0
@@ -935,8 +986,12 @@ class MeshMonitorCollector(BaseCollector):
                     }
                     if metric_def and metric_def.dedicated_column:
                         values[metric_def.dedicated_column] = metric_value
-                    stmt = pg_insert(Telemetry).values(**values).on_conflict_do_nothing(
-                        index_elements=["source_id", "node_num", "received_at", "metric_name"]
+                    stmt = (
+                        pg_insert(Telemetry)
+                        .values(**values)
+                        .on_conflict_do_nothing(
+                            index_elements=["source_id", "node_num", "received_at", "metric_name"]
+                        )
                     )
                     result = await db.execute(stmt)
                     if result.rowcount > 0:
@@ -944,14 +999,13 @@ class MeshMonitorCollector(BaseCollector):
 
             return inserted
 
-    async def _collect_traceroutes(
-        self, client: httpx.AsyncClient, headers: dict
-    ) -> None:
+    async def _collect_traceroutes(self, client: httpx.AsyncClient, headers: dict) -> None:
         """Collect traceroutes from the API."""
         try:
-            response = await client.get(
+            response = await self._api_get(
+                client,
                 f"{self.source.url}/api/v1/traceroutes",
-                headers=headers,
+                headers,
                 params={"limit": 100},  # Get recent traceroutes
             )
             if response.status_code != 200:
@@ -1062,9 +1116,7 @@ class MeshMonitorCollector(BaseCollector):
             received_at = datetime.now(UTC)
 
         # Parse route_positions (historical node positions at traceroute time)
-        route_positions = self._parse_route_positions(
-            route_data.get("routePositions")
-        )
+        route_positions = self._parse_route_positions(route_data.get("routePositions"))
 
         # Build values dict for the insert
         values = {
@@ -1081,8 +1133,12 @@ class MeshMonitorCollector(BaseCollector):
         }
 
         # Use PostgreSQL INSERT ... ON CONFLICT DO NOTHING
-        stmt = pg_insert(Traceroute).values(**values).on_conflict_do_nothing(
-            index_elements=["source_id", "from_node_num", "to_node_num", "received_at"]
+        stmt = (
+            pg_insert(Traceroute)
+            .values(**values)
+            .on_conflict_do_nothing(
+                index_elements=["source_id", "from_node_num", "to_node_num", "received_at"]
+            )
         )
         result = await db.execute(stmt)
         return result.rowcount > 0
@@ -1090,9 +1146,7 @@ class MeshMonitorCollector(BaseCollector):
     # Known portnums that are already collected by other methods
     _KNOWN_PORTNUMS = {1, 3, 67, 70}  # TEXT, POSITION, TELEMETRY, TRACEROUTE
 
-    async def _collect_packet_records(
-        self, client: httpx.AsyncClient, headers: dict
-    ) -> None:
+    async def _collect_packet_records(self, client: httpx.AsyncClient, headers: dict) -> None:
         """Collect packet records (encrypted, unknown, nodeinfo) from the packets API."""
         try:
             offset = 0
@@ -1101,15 +1155,14 @@ class MeshMonitorCollector(BaseCollector):
             inserted_count = 0
 
             while offset < max_total:
-                response = await client.get(
+                response = await self._api_get(
+                    client,
                     f"{self.source.url}/api/v1/packets",
-                    headers=headers,
+                    headers,
                     params={"limit": limit, "offset": offset},
                 )
                 if response.status_code != 200:
-                    logger.warning(
-                        f"Failed to fetch packets: {response.status_code}"
-                    )
+                    logger.warning(f"Failed to fetch packets: {response.status_code}")
                     return
 
                 data = response.json()
@@ -1193,10 +1246,12 @@ class MeshMonitorCollector(BaseCollector):
             "received_at": received_at,
         }
 
-        stmt = pg_insert(PacketRecord).values(**values).on_conflict_do_nothing(
-            index_elements=[
-                "source_id", "from_node_num", "packet_type", "received_at"
-            ]
+        stmt = (
+            pg_insert(PacketRecord)
+            .values(**values)
+            .on_conflict_do_nothing(
+                index_elements=["source_id", "from_node_num", "packet_type", "received_at"]
+            )
         )
         result = await db.execute(stmt)
         return result.rowcount > 0
@@ -1204,9 +1259,10 @@ class MeshMonitorCollector(BaseCollector):
     async def _collect_solar(self, client: httpx.AsyncClient, headers: dict) -> None:
         """Collect solar production data from the API."""
         try:
-            response = await client.get(
+            response = await self._api_get(
+                client,
                 f"{self.source.url}/api/v1/solar",
-                headers=headers,
+                headers,
                 params={"limit": 100},
             )
             if response.status_code == 404:
@@ -1279,8 +1335,10 @@ class MeshMonitorCollector(BaseCollector):
         }
 
         # Use PostgreSQL INSERT ... ON CONFLICT DO NOTHING
-        stmt = pg_insert(SolarProduction).values(**values).on_conflict_do_nothing(
-            index_elements=["source_id", "timestamp"]
+        stmt = (
+            pg_insert(SolarProduction)
+            .values(**values)
+            .on_conflict_do_nothing(index_elements=["source_id", "timestamp"])
         )
         result = await db.execute(stmt)
         return result.rowcount > 0
@@ -1306,9 +1364,7 @@ class MeshMonitorCollector(BaseCollector):
         if not self.source.url:
             return 0
 
-        logger.info(
-            f"Starting historical solar collection for {self.source.name}"
-        )
+        logger.info(f"Starting historical solar collection for {self.source.name}")
 
         total_collected = 0
         offset = 0
@@ -1322,9 +1378,10 @@ class MeshMonitorCollector(BaseCollector):
                     if offset > 0:
                         params["offset"] = offset
 
-                    response = await client.get(
+                    response = await self._api_get(
+                        client,
                         f"{self.source.url}/api/v1/solar",
-                        headers=headers,
+                        headers,
                         params=params,
                     )
 
@@ -1376,9 +1433,7 @@ class MeshMonitorCollector(BaseCollector):
         except Exception as e:
             logger.error(f"Error in solar historical collection: {e}")
 
-        logger.info(
-            f"Solar historical collection complete: {total_collected} records"
-        )
+        logger.info(f"Solar historical collection complete: {total_collected} records")
         return total_collected
 
     async def collect_historical_batch(
@@ -1467,17 +1522,16 @@ class MeshMonitorCollector(BaseCollector):
             self.collection_status.last_error = str(e)
             self.collection_status.start_time = None  # Clear start time on error
 
-    async def _get_telemetry_count(
-        self, client: httpx.AsyncClient, headers: dict
-    ) -> int | None:
+    async def _get_telemetry_count(self, client: httpx.AsyncClient, headers: dict) -> int | None:
         """Get total telemetry count from the API.
 
         Returns the total count or None if the endpoint is not available.
         """
         try:
-            response = await client.get(
+            response = await self._api_get(
+                client,
                 f"{self.source.url}/api/v1/telemetry/count",
-                headers=headers,
+                headers,
             )
             if response.status_code == 200:
                 data = response.json()
@@ -1488,9 +1542,7 @@ class MeshMonitorCollector(BaseCollector):
             logger.debug(f"Could not get telemetry count: {e}")
             return None
 
-    async def sync_all_data(
-        self, batch_size: int = 500, delay_seconds: float = 5.0
-    ) -> None:
+    async def sync_all_data(self, batch_size: int = 500, delay_seconds: float = 5.0) -> None:
         """Sync all data from the source, skipping duplicates.
 
         This fetches ALL telemetry data (no batch limit) and inserts only
@@ -1532,7 +1584,9 @@ class MeshMonitorCollector(BaseCollector):
                 # Try to get total count for progress tracking
                 total_count = await self._get_telemetry_count(client, headers)
                 if total_count is not None:
-                    self.collection_status.max_batches = (total_count + batch_size - 1) // batch_size
+                    self.collection_status.max_batches = (
+                        total_count + batch_size - 1
+                    ) // batch_size
                     logger.info(
                         f"Sync will process ~{total_count} records in "
                         f"~{self.collection_status.max_batches} batches"
@@ -1544,9 +1598,10 @@ class MeshMonitorCollector(BaseCollector):
 
                     # Fetch batch
                     params = {"limit": batch_size, "offset": offset}
-                    response = await client.get(
+                    response = await self._api_get(
+                        client,
                         f"{self.source.url}/api/v1/telemetry",
-                        headers=headers,
+                        headers,
                         params=params,
                     )
 
@@ -1574,9 +1629,7 @@ class MeshMonitorCollector(BaseCollector):
                     # Insert with duplicate checking
                     async with async_session_maker() as db:
                         for telem in telemetry_data:
-                            inserted = await self._insert_telemetry(
-                                db, telem, skip_duplicates=True
-                            )
+                            inserted = await self._insert_telemetry(db, telem, skip_duplicates=True)
                             if inserted:
                                 batch_inserted += 1
                         await db.commit()
@@ -1620,9 +1673,10 @@ class MeshMonitorCollector(BaseCollector):
             if offset > 0:
                 params["offset"] = offset
 
-            response = await client.get(
+            response = await self._api_get(
+                client,
                 f"{self.source.url}/api/v1/telemetry",
-                headers=headers,
+                headers,
                 params=params,
             )
             if response.status_code != 200:
@@ -1683,10 +1737,11 @@ class MeshMonitorCollector(BaseCollector):
                 params["before"] = before_ms
 
             # URL-encode the node_id since it contains '!' character
-            encoded_node_id = quote(node_id, safe='')
-            response = await client.get(
+            encoded_node_id = quote(node_id, safe="")
+            response = await self._api_get(
+                client,
                 f"{self.source.url}/api/v1/telemetry/{encoded_node_id}",
-                headers=headers,
+                headers,
                 params=params,
             )
 
@@ -1757,13 +1812,10 @@ class MeshMonitorCollector(BaseCollector):
             return 0
 
         # Calculate the cutoff timestamp
-        cutoff_ms = int(
-            (datetime.now(UTC) - timedelta(days=days_back)).timestamp() * 1000
-        )
+        cutoff_ms = int((datetime.now(UTC) - timedelta(days=days_back)).timestamp() * 1000)
 
         logger.info(
-            f"Collecting historical telemetry for node {node_id} "
-            f"(up to {days_back} days back)"
+            f"Collecting historical telemetry for node {node_id} (up to {days_back} days back)"
         )
 
         total_collected = 0
@@ -1795,9 +1847,7 @@ class MeshMonitorCollector(BaseCollector):
 
                         # Check if we've gone back far enough
                         if oldest_ts <= cutoff_ms:
-                            logger.debug(
-                                f"Reached cutoff date for node {node_id}"
-                            )
+                            logger.debug(f"Reached cutoff date for node {node_id}")
                             break
 
                     logger.debug(
@@ -1816,10 +1866,7 @@ class MeshMonitorCollector(BaseCollector):
         except Exception as e:
             logger.error(f"Error collecting historical telemetry for {node_id}: {e}")
 
-        logger.info(
-            f"Historical collection for node {node_id} complete: "
-            f"{total_collected} records"
-        )
+        logger.info(f"Historical collection for node {node_id} complete: {total_collected} records")
         return total_collected
 
     async def collect_all_nodes_historical_telemetry(
@@ -1873,9 +1920,10 @@ class MeshMonitorCollector(BaseCollector):
                 headers = self._get_headers()
 
                 # First, get list of nodes
-                response = await client.get(
+                response = await self._api_get(
+                    client,
                     nodes_url,
-                    headers=headers,
+                    headers,
                 )
 
                 if response.status_code != 200:
@@ -1897,7 +1945,9 @@ class MeshMonitorCollector(BaseCollector):
                 # Process nodes in parallel batches for faster collection
                 semaphore = asyncio.Semaphore(max_concurrent)
                 completed_nodes = 0
-                completed_nodes_lock = asyncio.Lock()  # Protect completed_nodes from race conditions
+                completed_nodes_lock = (
+                    asyncio.Lock()
+                )  # Protect completed_nodes from race conditions
 
                 async def collect_node_with_semaphore(node_data: dict, index: int) -> int:
                     """Collect data for a single node with semaphore limiting."""
@@ -1958,7 +2008,7 @@ class MeshMonitorCollector(BaseCollector):
                         collection_cancelled = True
                         break
 
-                    chunk = tasks[chunk_start:chunk_start + chunk_size]
+                    chunk = tasks[chunk_start : chunk_start + chunk_size]
                     results = await asyncio.gather(*chunk, return_exceptions=True)
 
                     # Sum up results
@@ -1980,9 +2030,7 @@ class MeshMonitorCollector(BaseCollector):
             self.collection_status.last_error = str(e)
             self.collection_status.start_time = None  # Clear start time on error
 
-        logger.info(
-            f"All-nodes historical collection complete: {total_collected} total records"
-        )
+        logger.info(f"All-nodes historical collection complete: {total_collected} total records")
         return total_collected
 
     async def collect_since_last_poll(self) -> int:
@@ -2000,14 +2048,10 @@ class MeshMonitorCollector(BaseCollector):
 
         # Get the latest last_poll_at from database
         async with async_session_maker() as db:
-            result = await db.execute(
-                select(Source).where(Source.id == self.source.id)
-            )
+            result = await db.execute(select(Source).where(Source.id == self.source.id))
             source = result.scalar()
             if not source or not source.last_poll_at:
-                logger.info(
-                    f"No last_poll_at for {self.source.name}, skipping catchup"
-                )
+                logger.info(f"No last_poll_at for {self.source.name}, skipping catchup")
                 return 0
             last_poll_at = source.last_poll_at
 
@@ -2040,15 +2084,14 @@ class MeshMonitorCollector(BaseCollector):
                 headers = self._get_headers()
 
                 # First get list of nodes to collect from
-                response = await client.get(
+                response = await self._api_get(
+                    client,
                     f"{self.source.url}/api/v1/nodes",
-                    headers=headers,
+                    headers,
                 )
 
                 if response.status_code != 200:
-                    logger.warning(
-                        f"Failed to fetch nodes for catchup: {response.status_code}"
-                    )
+                    logger.warning(f"Failed to fetch nodes for catchup: {response.status_code}")
                     return 0
 
                 data = response.json()
@@ -2059,9 +2102,7 @@ class MeshMonitorCollector(BaseCollector):
                 else:
                     nodes = []
 
-                logger.info(
-                    f"Catching up {len(nodes)} nodes since {last_poll_at.isoformat()}"
-                )
+                logger.info(f"Catching up {len(nodes)} nodes since {last_poll_at.isoformat()}")
 
                 # Collect telemetry for each node since last_poll_at
                 for node in nodes:
@@ -2084,17 +2125,13 @@ class MeshMonitorCollector(BaseCollector):
                         await asyncio.sleep(0.5)
 
                 # Also catch up solar data
-                solar_count = await self._collect_solar_since(
-                    client, headers, since_ms
-                )
+                solar_count = await self._collect_solar_since(client, headers, since_ms)
                 total_collected += solar_count
 
         except Exception as e:
             logger.error(f"Error during catchup for {self.source.name}: {e}")
 
-        logger.info(
-            f"Catchup complete for {self.source.name}: {total_collected} records"
-        )
+        logger.info(f"Catchup complete for {self.source.name}: {total_collected} records")
         return total_collected
 
     async def _collect_solar_since(
@@ -2114,9 +2151,10 @@ class MeshMonitorCollector(BaseCollector):
             Number of records collected
         """
         try:
-            response = await client.get(
+            response = await self._api_get(
+                client,
                 f"{self.source.url}/api/v1/solar",
-                headers=headers,
+                headers,
                 params={"since": since_ms, "limit": 500},
             )
 
@@ -2226,7 +2264,7 @@ class MeshMonitorCollector(BaseCollector):
             except asyncio.CancelledError:
                 pass
         # Also stop historical collection if running
-        if hasattr(self, '_historical_task') and self._historical_task:
+        if hasattr(self, "_historical_task") and self._historical_task:
             self._historical_task.cancel()
             try:
                 await self._historical_task

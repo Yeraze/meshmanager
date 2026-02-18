@@ -2070,10 +2070,13 @@ async def analyze_message_utilization(
             # Dedup: prefer meshtastic_id, fall back to timestamp-based key.
             # Use telemetry_type (not metric_name) because one packet produces
             # multiple metric rows — we want to count packets, not metrics.
+            # Truncate to second for the fallback key because MeshMonitor
+            # stores per-metric timestamps that differ by milliseconds
+            # within the same packet.
             if t.meshtastic_id is not None:
                 dedup_key = (t.node_num, t.meshtastic_id)
             else:
-                dedup_key = (t.node_num, t.telemetry_type, t.received_at)
+                dedup_key = (t.node_num, t.telemetry_type, t.received_at.replace(microsecond=0))
             if dedup_key in seen_telemetry:
                 continue
             seen_telemetry.add(dedup_key)

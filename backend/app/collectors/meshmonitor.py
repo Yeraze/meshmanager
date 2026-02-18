@@ -262,6 +262,9 @@ class MeshMonitorCollector(BaseCollector):
                 # Collect nodes
                 await self._collect_nodes(client, headers)
 
+                # Collect position history for all nodes
+                await self._collect_position_history(client, headers)
+
                 # Collect channels
                 await self._collect_channels(client, headers)
 
@@ -1785,6 +1788,203 @@ class MeshMonitorCollector(BaseCollector):
             logger.error(f"Error collecting telemetry for node {node_id}: {e}")
             return 0, None
 
+    async def _collect_node_position_history(
+        self,
+        client: httpx.AsyncClient,
+        headers: dict,
+        node_id: str,
+        node_num: int,
+        since_ms: int | None = None,
+        limit: int = 1000,
+    ) -> tuple[int, bool]:
+        """Collect historical positions for a specific node.
+
+        Uses GET /api/v1/nodes/{nodeId}/position-history with offset pagination.
+
+        Args:
+            client: HTTP client
+            headers: Request headers including auth
+            node_id: Node ID (e.g., "!a2e4ff4c")
+            node_num: Numeric node ID for database inserts
+            since_ms: Only fetch records after this timestamp (milliseconds)
+            limit: Maximum records per request
+
+        Returns:
+            Tuple of (records_collected, endpoint_available).
+            endpoint_available is False when the endpoint returns 404
+            (older MeshMonitor without this feature).
+        """
+        from uuid import uuid4
+
+        from app.models.telemetry import TelemetryType
+
+        total_collected = 0
+        offset = 0
+        encoded_node_id = quote(node_id, safe="")
+
+        try:
+            while True:
+                params: dict = {"limit": limit, "offset": offset}
+                if since_ms:
+                    params["since"] = since_ms
+
+                response = await self._api_get(
+                    client,
+                    f"{self.source.url}/api/v1/nodes/{encoded_node_id}/position-history",
+                    headers,
+                    params=params,
+                )
+
+                if response.status_code == 404:
+                    return 0, False
+
+                if response.status_code != 200:
+                    logger.warning(
+                        f"Failed to fetch position history for node {node_id}: "
+                        f"{response.status_code}"
+                    )
+                    return total_collected, True
+
+                data = response.json()
+                if isinstance(data, dict) and "data" in data:
+                    positions = data.get("data", [])
+                    total_available = data.get("total", 0)
+                    count = data.get("count", len(positions))
+                elif isinstance(data, list):
+                    positions = data
+                    total_available = len(positions)
+                    count = len(positions)
+                else:
+                    positions = []
+                    total_available = 0
+                    count = 0
+
+                if not positions:
+                    break
+
+                async with async_session_maker() as db:
+                    for pos in positions:
+                        timestamp_ms = pos.get("timestamp")
+                        if not timestamp_ms:
+                            continue
+
+                        received_at = datetime.fromtimestamp(
+                            timestamp_ms / 1000, tz=UTC
+                        )
+                        lat = pos.get("latitude")
+                        lon = pos.get("longitude")
+                        packet_id = pos.get("packetId")
+
+                        values = {
+                            "id": str(uuid4()),
+                            "source_id": self.source.id,
+                            "node_num": node_num,
+                            "metric_name": "position",
+                            "telemetry_type": TelemetryType.POSITION,
+                            "received_at": received_at,
+                            "latitude": lat,
+                            "longitude": lon,
+                            "meshtastic_id": packet_id,
+                            "raw_value": None,
+                        }
+
+                        stmt = (
+                            pg_insert(Telemetry)
+                            .values(**values)
+                            .on_conflict_do_nothing(
+                                index_elements=[
+                                    "source_id",
+                                    "node_num",
+                                    "received_at",
+                                    "metric_name",
+                                ]
+                            )
+                        )
+                        await db.execute(stmt)
+                    await db.commit()
+
+                total_collected += len(positions)
+
+                # Check if there are more pages
+                if total_available > offset + count:
+                    offset += count
+                else:
+                    break
+
+            return total_collected, True
+
+        except Exception as e:
+            logger.error(f"Error collecting position history for node {node_id}: {e}")
+            return total_collected, True
+
+    async def _collect_position_history(
+        self,
+        client: httpx.AsyncClient,
+        headers: dict,
+    ) -> int:
+        """Collect position history for all nodes from this source.
+
+        Queries the local Node table, then fetches position history
+        for each node. Stops early if the endpoint returns 404
+        (older MeshMonitor without position-history support).
+
+        Args:
+            client: HTTP client
+            headers: Request headers including auth
+
+        Returns:
+            Total number of position records collected
+        """
+        # Determine since_ms from last_poll_at
+        async with async_session_maker() as db:
+            result = await db.execute(select(Source).where(Source.id == self.source.id))
+            source = result.scalar()
+            if source and source.last_poll_at:
+                since_ms = int(source.last_poll_at.timestamp() * 1000)
+            else:
+                # First run: go back 24 hours
+                since_ms = int(
+                    (datetime.now(UTC) - timedelta(hours=24)).timestamp() * 1000
+                )
+
+            # Get all nodes for this source that have a node_id
+            nodes_result = await db.execute(
+                select(Node.node_id, Node.node_num).where(
+                    Node.source_id == self.source.id,
+                    Node.node_id.isnot(None),
+                )
+            )
+            nodes = nodes_result.all()
+
+        if not nodes:
+            return 0
+
+        total_collected = 0
+        for node_id, node_num in nodes:
+            count, available = await self._collect_node_position_history(
+                client,
+                headers,
+                node_id,
+                node_num,
+                since_ms=since_ms,
+            )
+            total_collected += count
+
+            if not available:
+                logger.debug(
+                    "Position history endpoint not available, "
+                    "skipping remaining nodes"
+                )
+                break
+
+            if count > 0:
+                await asyncio.sleep(0.5)
+
+        if total_collected > 0:
+            logger.debug(f"Collected {total_collected} position history records")
+
+        return total_collected
+
     async def collect_node_historical_telemetry(
         self,
         node_id: str,
@@ -2124,6 +2324,28 @@ class MeshMonitorCollector(BaseCollector):
                     if count > 0:
                         await asyncio.sleep(0.5)
 
+                # Collect position history for each node since last_poll_at
+                for node in nodes:
+                    node_id = node.get("nodeId") or node.get("id")
+                    node_num = node.get("nodeNum") or node.get("num")
+                    if not node_id or not node_num:
+                        continue
+
+                    count, available = await self._collect_node_position_history(
+                        client,
+                        headers,
+                        node_id,
+                        node_num,
+                        since_ms=since_ms,
+                    )
+                    total_collected += count
+
+                    if not available:
+                        break
+
+                    if count > 0:
+                        await asyncio.sleep(0.5)
+
                 # Also catch up solar data
                 solar_count = await self._collect_solar_since(client, headers, since_ms)
                 total_collected += solar_count
@@ -2209,6 +2431,78 @@ class MeshMonitorCollector(BaseCollector):
         if collect_history:
             self._historical_task = asyncio.create_task(self._collect_historical_background())
 
+    async def _collect_historical_positions(self, days_back: int = 7) -> int:
+        """Collect historical position data for all nodes.
+
+        Args:
+            days_back: How many days of history to fetch
+
+        Returns:
+            Total number of position records collected
+        """
+        if not self.source.url:
+            return 0
+
+        since_ms = int(
+            (datetime.now(UTC) - timedelta(days=days_back)).timestamp() * 1000
+        )
+
+        logger.info(
+            f"Collecting historical positions for {self.source.name} "
+            f"(up to {days_back} days back)"
+        )
+
+        # Get all nodes for this source from the database
+        async with async_session_maker() as db:
+            nodes_result = await db.execute(
+                select(Node.node_id, Node.node_num).where(
+                    Node.source_id == self.source.id,
+                    Node.node_id.isnot(None),
+                )
+            )
+            nodes = nodes_result.all()
+
+        if not nodes:
+            return 0
+
+        total_collected = 0
+
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                headers = self._get_headers()
+
+                for node_id, node_num in nodes:
+                    if not self._running:
+                        break
+
+                    count, available = await self._collect_node_position_history(
+                        client,
+                        headers,
+                        node_id,
+                        node_num,
+                        since_ms=since_ms,
+                    )
+                    total_collected += count
+
+                    if not available:
+                        logger.debug(
+                            "Position history endpoint not available, "
+                            "skipping remaining nodes"
+                        )
+                        break
+
+                    if count > 0:
+                        await asyncio.sleep(0.5)
+
+        except Exception as e:
+            logger.error(f"Error collecting historical positions: {e}")
+
+        logger.info(
+            f"Historical position collection complete for {self.source.name}: "
+            f"{total_collected} records"
+        )
+        return total_collected
+
     async def _collect_historical_background(self) -> None:
         """Background task for historical data collection using per-node API."""
         try:
@@ -2235,6 +2529,10 @@ class MeshMonitorCollector(BaseCollector):
             await self.collect_messages_historical(
                 batch_size=500,
                 delay_seconds=2.0,
+            )
+            # Also collect historical position data
+            await self._collect_historical_positions(
+                days_back=self.source.historical_days_back,
             )
         except asyncio.CancelledError:
             logger.info(f"Historical collection cancelled for {self.source.name}")

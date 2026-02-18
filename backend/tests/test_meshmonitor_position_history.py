@@ -315,7 +315,8 @@ class TestCollectNodePositionHistory:
                 node_num=123,
             )
 
-        # count includes all items from data list, but only 1 was inserted
+        # count should reflect only actually inserted records (not skipped ones)
+        assert count == 1
         assert available is True
         # Only 1 execute call (the record with a timestamp)
         assert mock_db.execute.call_count == 1

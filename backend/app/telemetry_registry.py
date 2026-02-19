@@ -256,6 +256,37 @@ SUBMESSAGE_TYPE_MAP: dict[str, TelemetryType] = {
 
 
 # ---------------------------------------------------------------------------
+# Non-mesh metrics (MeshMonitor metadata, not actual Meshtastic packets)
+# ---------------------------------------------------------------------------
+
+NON_MESH_METRICS: frozenset[str] = frozenset({
+    # Position fields stored as DEVICE by MeshMonitor (already counted via POSITION telemetry)
+    "latitude",
+    "longitude",
+    "altitude",
+    "sats_in_view",
+    "ground_track",
+    "ground_speed",
+    # MeshMonitor neighbor/link metadata (not mesh packets)
+    "linkQuality",
+    "messageHops",
+    "snr_local",
+    "snr_remote",
+    "rssi",
+    # MeshMonitor estimated/internal
+    "estimated_latitude",
+    "estimated_longitude",
+    "timeOffset",
+    # MeshMonitor unknown flat-format metrics
+    "envCurrent",
+    "envVoltage",
+})
+"""Metric names that represent MeshMonitor metadata rather than actual Meshtastic
+mesh packets.  These are excluded from Message Utilization packet counts but
+still stored for graphs/dashboards."""
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 

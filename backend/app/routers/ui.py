@@ -24,7 +24,7 @@ from app.models.telemetry import TelemetryType
 from app.schemas.node import NodeResponse, NodeSummary
 from app.schemas.telemetry import TelemetryHistory, TelemetryHistoryPoint, TelemetryResponse
 from app.services.collector_manager import collector_manager
-from app.telemetry_registry import CAMEL_TO_METRIC, METRIC_REGISTRY
+from app.telemetry_registry import CAMEL_TO_METRIC, METRIC_REGISTRY, NON_MESH_METRICS
 
 router = APIRouter(prefix="/api", tags=["ui"])
 
@@ -2064,6 +2064,9 @@ async def analyze_message_utilization(
 
         seen_telemetry: set[tuple] = set()
         for t in telemetry_rows:
+            # Skip MeshMonitor metadata metrics (not actual mesh packets)
+            if t.metric_name in NON_MESH_METRICS:
+                continue
             # Skip telemetry from locally connected nodes if flag is set
             if exclude_local_nodes and (t.source_id, t.node_num) in local_nodes:
                 continue

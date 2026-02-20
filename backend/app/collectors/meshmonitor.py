@@ -132,6 +132,7 @@ class MeshMonitorCollector(BaseCollector):
         self._task: asyncio.Task | None = None
         self._historical_task: asyncio.Task | None = None
         self.collection_status = CollectionStatus()
+        self._local_node_num: int | None = None
 
     def _get_headers(self) -> dict[str, str]:
         """Get HTTP headers for API requests."""
@@ -328,6 +329,17 @@ class MeshMonitorCollector(BaseCollector):
                 for node_data in nodes_data:
                     await self._upsert_node(db, node_data)
                 await db.commit()
+
+                # Cache the local node (hops_away=0) for gateway resolution
+                local_result = await db.execute(
+                    select(Node.node_num).where(
+                        Node.source_id == self.source.id,
+                        Node.hops_away == 0,
+                    ).limit(1)
+                )
+                local_num = local_result.scalar()
+                if local_num is not None:
+                    self._local_node_num = local_num
 
             logger.debug(f"Collected {len(nodes_data)} nodes")
         except Exception as e:
@@ -747,7 +759,7 @@ class MeshMonitorCollector(BaseCollector):
             "rx_snr": msg_data.get("rxSnr"),
             "rx_rssi": msg_data.get("rxRssi"),
             "relay_node": msg_data.get("relayNode") or None,
-            "gateway_node_num": None,  # MeshMonitor messages have no gateway
+            "gateway_node_num": self._local_node_num,  # Use local node as gateway
             "rx_time": rx_time,
             "received_at": received_at,
         }

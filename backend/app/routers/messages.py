@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.middleware import require_tab_access
 from app.database import get_db
 from app.models import Channel, Message, Node, Source
+from app.models.source import SourceType
 
 # Roles that never relay packets (should be excluded from relay node resolution)
 _MUTE_ROLES = {"1", "CLIENT_MUTE", "8", "CLIENT_HIDDEN"}
@@ -412,6 +413,7 @@ async def get_message_sources(
         select(
             Message.source_id,
             Source.name.label("source_name"),
+            Source.type.label("source_type"),
             Message.rx_snr,
             Message.rx_rssi,
             Message.hop_limit,
@@ -483,5 +485,36 @@ async def get_message_sources(
                 received_at=row.received_at,
             )
         )
+
+    # Resolve gateway for MeshMonitor sources that have no gateway_node_num.
+    # Each MeshMonitor instance IS a gateway — the local node (hops_away=0).
+    mm_sources = [
+        s for s, row in zip(sources, rows)
+        if row.source_type == SourceType.MESHMONITOR and s.gateway_node_num is None
+    ]
+    if mm_sources:
+        # Batch-query: find the local node (hops_away=0) with position for each source
+        mm_source_ids = list({s.source_id for s in mm_sources})
+        local_q = await db.execute(
+            select(
+                Node.source_id,
+                Node.node_num,
+                func.coalesce(Node.long_name, Node.short_name).label("node_name"),
+            )
+            .where(
+                Node.source_id.in_(mm_source_ids),
+                Node.hops_away == 0,
+                Node.latitude.isnot(None),
+                Node.longitude.isnot(None),
+            )
+            .distinct(Node.source_id)
+        )
+        local_nodes = {str(r.source_id): r for r in local_q.all()}
+
+        for s in mm_sources:
+            local = local_nodes.get(s.source_id)
+            if local:
+                s.gateway_node_num = local.node_num
+                s.gateway_node_name = local.node_name
 
     return sources

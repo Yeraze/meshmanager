@@ -503,8 +503,6 @@ async def get_message_sources(
             .where(
                 Node.source_id.in_(mm_source_ids),
                 Node.hops_away == 0,
-                Node.latitude.isnot(None),
-                Node.longitude.isnot(None),
             )
             .distinct(Node.source_id)
             .order_by(Node.source_id)

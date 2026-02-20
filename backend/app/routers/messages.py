@@ -431,69 +431,16 @@ async def get_message_sources(
     result = await db.execute(query)
     rows = result.all()
 
-    sources = []
-    mm_sources = []  # Track MeshMonitor sources needing gateway resolution
-    for row in rows:
-        relay_node_name = None
-        if row.relay_node is not None:
-            relay_node_name = await _resolve_relay_node_name(
-                db,
-                str(row.source_id),
-                row.relay_node,
-                row.rx_rssi,
-                gateway_node_num=row.gateway_node_num,
-            )
-
-        # Resolve gateway node name if present (try same source first, then any source)
-        gateway_node_name = None
-        if row.gateway_node_num is not None:
-            gw_result = await db.execute(
-                select(func.coalesce(Node.long_name, Node.short_name))
-                .where(Node.source_id == row.source_id, Node.node_num == row.gateway_node_num)
-                .limit(1)
-            )
-            gateway_node_name = gw_result.scalar()
-            if not gateway_node_name:
-                # Fall back to any source that has a name for this node
-                gw_result = await db.execute(
-                    select(func.coalesce(Node.long_name, Node.short_name))
-                    .where(
-                        Node.node_num == row.gateway_node_num,
-                        func.coalesce(Node.long_name, Node.short_name).isnot(None),
-                    )
-                    .limit(1)
-                )
-                gateway_node_name = gw_result.scalar()
-
-        detail = MessageSourceDetail(
-            source_id=str(row.source_id),
-            source_name=row.source_name,
-            # Convert SNR from stored int (dB * 4) to actual dB
-            rx_snr=row.rx_snr / 4.0 if row.rx_snr is not None else None,
-            rx_rssi=row.rx_rssi,
-            hop_limit=row.hop_limit,
-            hop_start=row.hop_start,
-            # Calculate hop count if both values present
-            hop_count=(row.hop_start - row.hop_limit)
-            if row.hop_start is not None and row.hop_limit is not None
-            else None,
-            relay_node=row.relay_node,
-            relay_node_name=relay_node_name,
-            gateway_node_num=row.gateway_node_num,
-            gateway_node_name=gateway_node_name,
-            rx_time=row.rx_time,
-            received_at=row.received_at,
-        )
-        sources.append(detail)
-
-        # Collect MeshMonitor sources that need gateway resolution
-        if row.source_type == SourceType.MESHMONITOR and row.gateway_node_num is None:
-            mm_sources.append(detail)
-
-    # Resolve gateway for MeshMonitor sources that have no gateway_node_num.
-    # Each MeshMonitor instance IS a gateway — the local node (hops_away=0).
-    if mm_sources:
-        mm_source_ids = list({s.source_id for s in mm_sources})
+    # Pre-resolve MeshMonitor local nodes for gateway fallback.
+    # MeshMonitor sources where gateway_node_num is NULL need the local node
+    # (hops_away=0) as their gateway. We batch-query upfront so the per-row
+    # loop can construct immutable response objects with the correct values.
+    mm_source_ids = list({
+        str(row.source_id) for row in rows
+        if row.source_type == SourceType.MESHMONITOR and row.gateway_node_num is None
+    })
+    local_nodes: dict = {}
+    if mm_source_ids:
         local_q = await db.execute(
             select(
                 Node.source_id,
@@ -509,10 +456,67 @@ async def get_message_sources(
         )
         local_nodes = {str(r.source_id): r for r in local_q.all()}
 
-        for s in mm_sources:
-            local = local_nodes.get(s.source_id)
+    sources = []
+    for row in rows:
+        relay_node_name = None
+        if row.relay_node is not None:
+            relay_node_name = await _resolve_relay_node_name(
+                db,
+                str(row.source_id),
+                row.relay_node,
+                row.rx_rssi,
+                gateway_node_num=row.gateway_node_num,
+            )
+
+        # Resolve gateway: use stored value, or fall back to local node for MeshMonitor
+        gateway_node_num = row.gateway_node_num
+        gateway_node_name = None
+
+        if gateway_node_num is None and row.source_type == SourceType.MESHMONITOR:
+            local = local_nodes.get(str(row.source_id))
             if local:
-                s.gateway_node_num = local.node_num
-                s.gateway_node_name = local.node_name
+                gateway_node_num = local.node_num
+                gateway_node_name = local.node_name
+
+        if gateway_node_num is not None and gateway_node_name is None:
+            gw_result = await db.execute(
+                select(func.coalesce(Node.long_name, Node.short_name))
+                .where(Node.source_id == row.source_id, Node.node_num == gateway_node_num)
+                .limit(1)
+            )
+            gateway_node_name = gw_result.scalar()
+            if not gateway_node_name:
+                # Fall back to any source that has a name for this node
+                gw_result = await db.execute(
+                    select(func.coalesce(Node.long_name, Node.short_name))
+                    .where(
+                        Node.node_num == gateway_node_num,
+                        func.coalesce(Node.long_name, Node.short_name).isnot(None),
+                    )
+                    .limit(1)
+                )
+                gateway_node_name = gw_result.scalar()
+
+        sources.append(
+            MessageSourceDetail(
+                source_id=str(row.source_id),
+                source_name=row.source_name,
+                # Convert SNR from stored int (dB * 4) to actual dB
+                rx_snr=row.rx_snr / 4.0 if row.rx_snr is not None else None,
+                rx_rssi=row.rx_rssi,
+                hop_limit=row.hop_limit,
+                hop_start=row.hop_start,
+                # Calculate hop count if both values present
+                hop_count=(row.hop_start - row.hop_limit)
+                if row.hop_start is not None and row.hop_limit is not None
+                else None,
+                relay_node=row.relay_node,
+                relay_node_name=relay_node_name,
+                gateway_node_num=gateway_node_num,
+                gateway_node_name=gateway_node_name,
+                rx_time=row.rx_time,
+                received_at=row.received_at,
+            )
+        )
 
     return sources

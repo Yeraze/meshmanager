@@ -158,7 +158,7 @@ class MeshMonitorCollector(BaseCollector):
                         f"Resolved local node for {self.source.name}: {local_num}"
                     )
         except Exception as e:
-            logger.warning(f"Could not resolve local node for {self.source.name}: {e}")
+            logger.error(f"Could not resolve local node for {self.source.name}: {e}")
 
     async def _api_get(
         self,

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.middleware import require_tab_access
 from app.database import get_db
 from app.models import Channel, Message, Node, Source
+from app.models.source import SourceType
 
 # Roles that never relay packets (should be excluded from relay node resolution)
 _MUTE_ROLES = {"1", "CLIENT_MUTE", "8", "CLIENT_HIDDEN"}
@@ -412,6 +413,7 @@ async def get_message_sources(
         select(
             Message.source_id,
             Source.name.label("source_name"),
+            Source.type.label("source_type"),
             Message.rx_snr,
             Message.rx_rssi,
             Message.hop_limit,
@@ -429,6 +431,31 @@ async def get_message_sources(
     result = await db.execute(query)
     rows = result.all()
 
+    # Pre-resolve MeshMonitor local nodes for gateway fallback.
+    # MeshMonitor sources where gateway_node_num is NULL need the local node
+    # (hops_away=0) as their gateway. We batch-query upfront so the per-row
+    # loop can construct immutable response objects with the correct values.
+    mm_source_ids = list({
+        str(row.source_id) for row in rows
+        if row.source_type == SourceType.MESHMONITOR and row.gateway_node_num is None
+    })
+    local_nodes: dict = {}
+    if mm_source_ids:
+        local_q = await db.execute(
+            select(
+                Node.source_id,
+                Node.node_num,
+                func.coalesce(Node.long_name, Node.short_name).label("node_name"),
+            )
+            .where(
+                Node.source_id.in_(mm_source_ids),
+                Node.hops_away == 0,
+            )
+            .distinct(Node.source_id)
+            .order_by(Node.source_id)
+        )
+        local_nodes = {str(r.source_id): r for r in local_q.all()}
+
     sources = []
     for row in rows:
         relay_node_name = None
@@ -441,12 +468,20 @@ async def get_message_sources(
                 gateway_node_num=row.gateway_node_num,
             )
 
-        # Resolve gateway node name if present (try same source first, then any source)
+        # Resolve gateway: use stored value, or fall back to local node for MeshMonitor
+        gateway_node_num = row.gateway_node_num
         gateway_node_name = None
-        if row.gateway_node_num is not None:
+
+        if gateway_node_num is None and row.source_type == SourceType.MESHMONITOR:
+            local = local_nodes.get(str(row.source_id))
+            if local:
+                gateway_node_num = local.node_num
+                gateway_node_name = local.node_name
+
+        if gateway_node_num is not None and gateway_node_name is None:
             gw_result = await db.execute(
                 select(func.coalesce(Node.long_name, Node.short_name))
-                .where(Node.source_id == row.source_id, Node.node_num == row.gateway_node_num)
+                .where(Node.source_id == row.source_id, Node.node_num == gateway_node_num)
                 .limit(1)
             )
             gateway_node_name = gw_result.scalar()
@@ -455,7 +490,7 @@ async def get_message_sources(
                 gw_result = await db.execute(
                     select(func.coalesce(Node.long_name, Node.short_name))
                     .where(
-                        Node.node_num == row.gateway_node_num,
+                        Node.node_num == gateway_node_num,
                         func.coalesce(Node.long_name, Node.short_name).isnot(None),
                     )
                     .limit(1)
@@ -477,7 +512,7 @@ async def get_message_sources(
                 else None,
                 relay_node=row.relay_node,
                 relay_node_name=relay_node_name,
-                gateway_node_num=row.gateway_node_num,
+                gateway_node_num=gateway_node_num,
                 gateway_node_name=gateway_node_name,
                 rx_time=row.rx_time,
                 received_at=row.received_at,

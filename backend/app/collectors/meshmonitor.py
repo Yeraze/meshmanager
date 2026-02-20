@@ -132,6 +132,7 @@ class MeshMonitorCollector(BaseCollector):
         self._task: asyncio.Task | None = None
         self._historical_task: asyncio.Task | None = None
         self.collection_status = CollectionStatus()
+        self._local_node_num: int | None = None
 
     def _get_headers(self) -> dict[str, str]:
         """Get HTTP headers for API requests."""
@@ -139,6 +140,25 @@ class MeshMonitorCollector(BaseCollector):
         if self.source.api_token:
             headers["Authorization"] = f"Bearer {self.source.api_token}"
         return headers
+
+    async def _resolve_local_node(self) -> None:
+        """Look up the local node (hops_away=0) for this source and cache it."""
+        try:
+            async with async_session_maker() as db:
+                result = await db.execute(
+                    select(Node.node_num).where(
+                        Node.source_id == self.source.id,
+                        Node.hops_away == 0,
+                    ).order_by(Node.node_num).limit(1)
+                )
+                local_num = result.scalar()
+                if local_num is not None:
+                    self._local_node_num = local_num
+                    logger.debug(
+                        f"Resolved local node for {self.source.name}: {local_num}"
+                    )
+        except Exception as e:
+            logger.error(f"Could not resolve local node for {self.source.name}: {e}")
 
     async def _api_get(
         self,
@@ -328,6 +348,9 @@ class MeshMonitorCollector(BaseCollector):
                 for node_data in nodes_data:
                     await self._upsert_node(db, node_data)
                 await db.commit()
+
+            # Refresh cached local node (may have changed after upsert)
+            await self._resolve_local_node()
 
             logger.debug(f"Collected {len(nodes_data)} nodes")
         except Exception as e:
@@ -747,7 +770,7 @@ class MeshMonitorCollector(BaseCollector):
             "rx_snr": msg_data.get("rxSnr"),
             "rx_rssi": msg_data.get("rxRssi"),
             "relay_node": msg_data.get("relayNode") or None,
-            "gateway_node_num": None,  # MeshMonitor messages have no gateway
+            "gateway_node_num": self._local_node_num,  # Use local node as gateway
             "rx_time": rx_time,
             "received_at": received_at,
         }
@@ -2434,6 +2457,10 @@ class MeshMonitorCollector(BaseCollector):
         """
         if self._running:
             return
+
+        # Eagerly resolve the local node before any collection tasks start
+        # so that _insert_message always uses a consistent gateway_node_num.
+        await self._resolve_local_node()
 
         self._running = True
         self._task = asyncio.create_task(self._poll_loop())

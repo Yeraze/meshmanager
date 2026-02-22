@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuthContext } from '../../contexts/AuthContext'
 import ConfigExportImport from './ConfigExportImport'
+import RetentionSettings from './RetentionSettings'
 import DisplaySettings from './DisplaySettings'
 import SourcesSettings from './SourcesSettings'
 import UsersManagement from './UsersManagement'
@@ -54,6 +55,7 @@ export default function SettingsPage() {
         {activeTab === 'display' && (
           <>
             <DisplaySettings />
+            {canWriteSettings && <RetentionSettings />}
             {canWriteSettings && <ConfigExportImport />}
           </>
         )}

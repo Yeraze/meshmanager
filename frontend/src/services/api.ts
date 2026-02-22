@@ -540,6 +540,23 @@ export async function testSolarNotification(): Promise<{ success: boolean; messa
   return response.data
 }
 
+// Retention Settings
+export interface RetentionSettings {
+  messages: number
+  telemetry: number
+  traceroutes: number
+}
+
+export async function getRetentionSettings(): Promise<RetentionSettings> {
+  const response = await api.get<RetentionSettings>('/api/settings/retention')
+  return response.data
+}
+
+export async function updateRetentionSettings(settings: RetentionSettings): Promise<RetentionSettings> {
+  const response = await api.put<RetentionSettings>('/api/settings/retention', settings)
+  return response.data
+}
+
 // Message Utilization Analysis
 export interface MessageUtilizationNode {
   node_num: number

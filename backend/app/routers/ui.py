@@ -24,6 +24,7 @@ from app.models.telemetry import TelemetryType
 from app.schemas.node import NodeResponse, NodeSummary
 from app.schemas.telemetry import TelemetryHistory, TelemetryHistoryPoint, TelemetryResponse
 from app.services.collector_manager import collector_manager
+from app.services.retention import DEFAULT_RETENTION
 from app.telemetry_registry import CAMEL_TO_METRIC, METRIC_REGISTRY, NON_MESH_METRICS
 
 router = APIRouter(prefix="/api", tags=["ui"])
@@ -2196,3 +2197,57 @@ async def analyze_message_utilization(
         },
         "local_nodes_excluded": len(local_nodes) if exclude_local_nodes else 0,
     }
+
+
+# Data retention settings
+
+
+@router.get("/settings/retention")
+async def get_retention_settings(
+    db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("settings")),
+) -> dict:
+    """Get data retention settings (days per data type)."""
+    result = await db.execute(
+        select(SystemSetting).where(SystemSetting.key.like("retention.%"))
+    )
+    settings = result.scalars().all()
+
+    retention = DEFAULT_RETENTION.copy()
+    for setting in settings:
+        key = setting.key.replace("retention.", "")
+        if key in retention and isinstance(setting.value, dict):
+            retention[key] = setting.value.get("days", retention[key])
+
+    return retention
+
+
+@router.put("/settings/retention")
+async def update_retention_settings(
+    settings: dict,
+    db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("settings", "write")),
+) -> dict:
+    """Update data retention settings.
+
+    Each value is clamped to 1-365 days.
+    """
+    validated = {}
+    for key in DEFAULT_RETENTION:
+        raw = settings.get(key, DEFAULT_RETENTION[key])
+        validated[key] = min(max(int(raw), 1), 365)
+
+    for key, days in validated.items():
+        db_key = f"retention.{key}"
+        result = await db.execute(
+            select(SystemSetting).where(SystemSetting.key == db_key)
+        )
+        setting = result.scalar_one_or_none()
+
+        if setting:
+            setting.value = {"days": days}
+        else:
+            db.add(SystemSetting(key=db_key, value={"days": days}))
+
+    await db.commit()
+    return validated

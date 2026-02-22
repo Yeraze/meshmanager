@@ -64,6 +64,7 @@ export default function RetentionSettings() {
 
         <div className="form-group">
           <label className="form-label">Messages</label>
+          <p className="settings-hint">Text messages, replies, and reactions.</p>
           <div className="custom-hours-input">
             <input
               type="number"
@@ -79,6 +80,7 @@ export default function RetentionSettings() {
 
         <div className="form-group">
           <label className="form-label">Telemetry</label>
+          <p className="settings-hint">Device, environment, power, air quality, position, local stats, health, and host metrics.</p>
           <div className="custom-hours-input">
             <input
               type="number"
@@ -94,6 +96,7 @@ export default function RetentionSettings() {
 
         <div className="form-group">
           <label className="form-label">Traceroutes</label>
+          <p className="settings-hint">Route paths, SNR data, and node positions at time of trace.</p>
           <div className="custom-hours-input">
             <input
               type="number"

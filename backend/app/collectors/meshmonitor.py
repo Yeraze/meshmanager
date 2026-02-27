@@ -793,7 +793,7 @@ class MeshMonitorCollector(BaseCollector):
         return result.rowcount > 0
 
     async def collect_messages_historical(
-        self, batch_size: int = 500, delay_seconds: float = 2.0, max_batches: int = 100
+        self, batch_size: int = 500, delay_seconds: float = 4.0, max_batches: int = 100
     ) -> None:
         """Collect historical messages in batches to avoid rate limiting.
 
@@ -1372,7 +1372,7 @@ class MeshMonitorCollector(BaseCollector):
     async def collect_solar_historical(
         self,
         batch_size: int = 500,
-        delay_seconds: float = 2.0,
+        delay_seconds: float = 4.0,
         max_batches: int = 100,
     ) -> int:
         """Collect all historical solar production data.
@@ -1463,7 +1463,7 @@ class MeshMonitorCollector(BaseCollector):
         return total_collected
 
     async def collect_historical_batch(
-        self, batch_size: int = 500, delay_seconds: float = 5.0, max_batches: int = 20
+        self, batch_size: int = 500, delay_seconds: float = 10.0, max_batches: int = 20
     ) -> None:
         """Collect historical data in batches to avoid rate limiting.
 
@@ -1568,7 +1568,7 @@ class MeshMonitorCollector(BaseCollector):
             logger.debug(f"Could not get telemetry count: {e}")
             return None
 
-    async def sync_all_data(self, batch_size: int = 500, delay_seconds: float = 5.0) -> None:
+    async def sync_all_data(self, batch_size: int = 500, delay_seconds: float = 10.0) -> None:
         """Sync all data from the source, skipping duplicates.
 
         This fetches ALL telemetry data (no batch limit) and inserts only
@@ -2013,7 +2013,7 @@ class MeshMonitorCollector(BaseCollector):
                 break
 
             if count > 0:
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(1.0)
 
         if total_collected > 0:
             logger.debug(f"Collected {total_collected} position history records")
@@ -2025,7 +2025,7 @@ class MeshMonitorCollector(BaseCollector):
         node_id: str,
         days_back: int = 7,
         batch_size: int = 500,
-        delay_seconds: float = 2.0,
+        delay_seconds: float = 4.0,
         max_batches: int = 100,
     ) -> int:
         """Collect historical telemetry for a specific node.
@@ -2108,8 +2108,8 @@ class MeshMonitorCollector(BaseCollector):
         self,
         days_back: int = 7,
         batch_size: int = 500,
-        delay_seconds: float = 2.0,
-        max_concurrent: int = 10,
+        delay_seconds: float = 4.0,
+        max_concurrent: int = 5,
     ) -> int:
         """Collect historical telemetry for all known nodes.
 
@@ -2517,25 +2517,23 @@ class MeshMonitorCollector(BaseCollector):
             await asyncio.sleep(10)
             # Collect historical data for all nodes using per-node API
             # Use the source's configured historical_days_back value
-            # Balanced approach considering:
-            # - SQLite performance: avoid overwhelming MeshMonitor's database
-            # - API token rate limits: ~10% of normal user limits
-            # - Reasonable collection speed for initial sync
+            # Conservative approach: use ~50% of rate limit headroom so users
+            # accessing the same MeshMonitor (localhost / shared NAT) aren't blocked.
             await self.collect_all_nodes_historical_telemetry(
                 days_back=self.source.historical_days_back,  # Use source configuration
                 batch_size=500,
-                delay_seconds=1.0,  # Balanced delay: faster than 2.0s but safer than 0.3s
-                max_concurrent=5,  # Reduced from 10 to be gentler on SQLite and rate limits
+                delay_seconds=2.0,  # Half rate-limit headroom for shared-IP scenarios
+                max_concurrent=3,  # Low parallelism to leave capacity for other users
             )
             # Also collect historical solar data
             await self.collect_solar_historical(
                 batch_size=500,
-                delay_seconds=2.0,
+                delay_seconds=4.0,
             )
             # Also collect historical messages
             await self.collect_messages_historical(
                 batch_size=500,
-                delay_seconds=2.0,
+                delay_seconds=4.0,
             )
             # Also collect historical position data
             await self._collect_historical_positions(

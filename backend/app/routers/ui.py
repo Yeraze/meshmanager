@@ -265,7 +265,12 @@ async def get_available_metrics(
             if resolved:
                 metric_def = METRIC_REGISTRY.get(resolved)
 
-        canonical = metric_def.name if metric_def else metric_name
+        # Skip metrics not in the registry (e.g. position fields, link metadata)
+        # These have data in the DB but no history endpoint support
+        if not metric_def:
+            continue
+
+        canonical = metric_def.name
         type_key = telem_type.value if telem_type else "device"
 
         if canonical in consolidated:
@@ -273,8 +278,8 @@ async def get_available_metrics(
         else:
             consolidated[canonical] = {
                 "name": canonical,
-                "label": metric_def.label if metric_def else metric_name,
-                "unit": metric_def.unit if metric_def else "",
+                "label": metric_def.label,
+                "unit": metric_def.unit,
                 "type_key": type_key,
                 "count": count,
             }

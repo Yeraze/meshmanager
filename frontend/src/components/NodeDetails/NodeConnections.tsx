@@ -1,9 +1,10 @@
-import { useMemo, useRef, useState, useEffect } from 'react'
+import { useMemo, useRef, useState, useEffect, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchConnections } from '../../services/api'
 import { getHardwareInfo, getRoleName } from '../../utils/meshtastic'
 import styles from './NodeConnections.module.css'
 import ForceGraph2D, { ForceGraphMethods } from 'react-force-graph-2d'
+import EdgeDetailModal from './EdgeDetailModal'
 
 interface GraphNode {
   id: number
@@ -42,6 +43,7 @@ export default function NodeConnections({ nodeNum, hours = 24 }: NodeConnections
   const [selectedNode, setSelectedNode] = useState<number | null>(null)
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null)
   const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number } | null>(null)
+  const [clickedEdge, setClickedEdge] = useState<{ nodeA: number; nodeB: number } | null>(null)
   const graphRef = useRef<ForceGraphMethods<GraphNode, GraphLink> | undefined>(undefined)
   const containerRef = useRef<HTMLDivElement>(null)
   const mousePositionRef = useRef<{ x: number; y: number } | null>(null)
@@ -220,6 +222,60 @@ export default function NodeConnections({ nodeNum, hours = 24 }: NodeConnections
     }
   }
 
+  const handleLinkClick = useCallback((link: GraphLink) => {
+    const sourceId = typeof link.source === 'object' ? link.source.id : link.source
+    const targetId = typeof link.target === 'object' ? link.target.id : link.target
+    if (sourceId !== undefined && targetId !== undefined) {
+      setClickedEdge({ nodeA: sourceId, nodeB: targetId })
+    }
+  }, [])
+
+  const handleLinkHover = useCallback((link: GraphLink | null) => {
+    const container = containerRef.current
+    if (container) {
+      container.style.cursor = link ? 'pointer' : ''
+    }
+  }, [])
+
+  // Manual edge proximity detection for clicks near nodes where the shadow canvas
+  // paints the node on top of the link, preventing onLinkClick from firing.
+  const findNearestLink = useCallback((screenX: number, screenY: number): GraphLink | null => {
+    if (!graphRef.current || !graphData.links.length) return null
+
+    const { x: gx, y: gy } = graphRef.current.screen2GraphCoords(screenX, screenY)
+    // Compute threshold in graph coords: 15px worth of graph distance at current zoom
+    const { x: gx2 } = graphRef.current.screen2GraphCoords(screenX + 15, screenY)
+    const threshold = Math.abs(gx2 - gx)
+
+    let bestDist = Infinity
+    let bestLink: GraphLink | null = null
+
+    for (const link of graphData.links) {
+      const src = link.source as unknown as GraphNode
+      const tgt = link.target as unknown as GraphNode
+      if (!src?.x || !src?.y || !tgt?.x || !tgt?.y) continue
+
+      // Point-to-segment distance
+      const dx = tgt.x - src.x
+      const dy = tgt.y - src.y
+      const lenSq = dx * dx + dy * dy
+      let dist: number
+      if (lenSq === 0) {
+        dist = Math.hypot(gx - src.x, gy - src.y)
+      } else {
+        const t = Math.max(0, Math.min(1, ((gx - src.x) * dx + (gy - src.y) * dy) / lenSq))
+        dist = Math.hypot(gx - (src.x + t * dx), gy - (src.y + t * dy))
+      }
+
+      if (dist < bestDist) {
+        bestDist = dist
+        bestLink = link
+      }
+    }
+
+    return bestDist <= threshold ? bestLink : null
+  }, [graphData.links])
+
   if (isLoading) {
     return (
       <div className={styles.loadingContainer}>
@@ -293,7 +349,7 @@ export default function NodeConnections({ nodeNum, hours = 24 }: NodeConnections
               nodeId="id"
               nodeColor={(node: GraphNode) => {
                 if (!node) return '#cdd6f4'
-                if (node.id === selectedNode) return '#cba6f7' // lavender for selected
+                if (node.id === nodeNum) return '#cba6f7' // lavender for origin node
                 // Color by connection count (hop count)
                 const count = nodeConnectionCounts.get(node.id) || 0
                 if (count === 0) return '#6c7086' // muted for no connections
@@ -346,7 +402,26 @@ export default function NodeConnections({ nodeNum, hours = 24 }: NodeConnections
                 ctx.fillText(label, node.x, labelY)
                 ctx.restore()
               }}
-              onNodeClick={(node: GraphNode | null) => {
+              onNodeClick={(node: GraphNode | null, event: MouseEvent) => {
+                // Check if the click was actually closer to an edge than the node center
+                const nearLink = findNearestLink(event.offsetX, event.offsetY)
+                if (nearLink && graphRef.current) {
+                  const { x: gx, y: gy } = graphRef.current.screen2GraphCoords(event.offsetX, event.offsetY)
+                  const nodeDist = node ? Math.hypot(gx - (node.x || 0), gy - (node.y || 0)) : Infinity
+                  const src = nearLink.source as GraphNode
+                  const tgt = nearLink.target as GraphNode
+                  if (src?.x != null && src?.y != null && tgt?.x != null && tgt?.y != null) {
+                    const dx = tgt.x - src.x, dy = tgt.y - src.y
+                    const lenSq = dx * dx + dy * dy
+                    const t = lenSq === 0 ? 0 : Math.max(0, Math.min(1, ((gx - src.x) * dx + (gy - src.y) * dy) / lenSq))
+                    const linkDist = Math.hypot(gx - (src.x + t * dx), gy - (src.y + t * dy))
+                    // If click is closer to the edge line than to the node center, open edge modal
+                    if (linkDist < nodeDist * 0.7) {
+                      handleLinkClick(nearLink)
+                      return
+                    }
+                  }
+                }
                 if (node) {
                   setSelectedNode(node.id === selectedNode ? null : node.id)
                 }
@@ -362,7 +437,13 @@ export default function NodeConnections({ nodeNum, hours = 24 }: NodeConnections
                   setHoverPosition(null)
                 }
               }}
-              onBackgroundClick={() => {
+              onBackgroundClick={(event: MouseEvent) => {
+                // Check if the click was near a link (shadow canvas may have missed it)
+                const nearLink = findNearestLink(event.offsetX, event.offsetY)
+                if (nearLink) {
+                  handleLinkClick(nearLink)
+                  return
+                }
                 setSelectedNode(null)
                 setHoveredNode(null)
                 setHoverPosition(null)
@@ -381,6 +462,9 @@ export default function NodeConnections({ nodeNum, hours = 24 }: NodeConnections
               onEngineStop={() => {
                 // Simulation stopped
               }}
+              linkHoverPrecision={8}
+              onLinkClick={handleLinkClick}
+              onLinkHover={handleLinkHover}
               />
             </div>
         ) : (
@@ -404,7 +488,25 @@ export default function NodeConnections({ nodeNum, hours = 24 }: NodeConnections
             </div>
           </div>
         )}
+        <div className={styles.legend}>
+          <div className={styles.legendTitle}>Connections</div>
+          <div className={styles.legendItem}><span className={styles.legendDot} style={{ background: '#cba6f7' }} /> This Node</div>
+          <div className={styles.legendItem}><span className={styles.legendDot} style={{ background: '#6c7086' }} /> None</div>
+          <div className={styles.legendItem}><span className={styles.legendDot} style={{ background: '#89b4fa' }} /> 1-2</div>
+          <div className={styles.legendItem}><span className={styles.legendDot} style={{ background: '#a6e3a1' }} /> 3-5</div>
+          <div className={styles.legendItem}><span className={styles.legendDot} style={{ background: '#f9e2af' }} /> 6-10</div>
+          <div className={styles.legendItem}><span className={styles.legendDot} style={{ background: '#f38ba8' }} /> 10+</div>
+        </div>
       </div>
+
+      {clickedEdge && (
+        <EdgeDetailModal
+          nodeA={clickedEdge.nodeA}
+          nodeB={clickedEdge.nodeB}
+          hours={hours}
+          onClose={() => setClickedEdge(null)}
+        />
+      )}
     </div>
   )
 }

@@ -116,6 +116,47 @@
   color: var(--ctp-subtext1);
 }
 
+.legend {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  z-index: 10;
+  background: var(--ctp-base);
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--ctp-surface2);
+  font-size: 0.8rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  pointer-events: auto;
+}
+
+.legendTitle {
+  font-weight: 600;
+  color: var(--ctp-text);
+  margin-bottom: 6px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+  color: var(--ctp-subtext1);
+}
+
+.legendItem:last-child {
+  margin-bottom: 0;
+}
+
+.legendDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
 .hoverTooltip {
   position: absolute;
   transform: translate(-50%, -100%);

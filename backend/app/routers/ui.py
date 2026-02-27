@@ -610,6 +610,134 @@ async def get_node_connections(
     }
 
 
+@router.get("/connections/edge-details")
+async def get_edge_details(
+    node_a: int = Query(description="First node number"),
+    node_b: int = Query(description="Second node number"),
+    hours: int = Query(default=24, ge=1, le=168, description="Hours of history"),
+    db: AsyncSession = Depends(get_db),
+    _access: None = Depends(require_tab_access("map")),
+) -> dict:
+    """Get details about a specific edge (connection between two nodes).
+
+    Returns usage count, SNR statistics, and recent traversals.
+    """
+    cutoff = datetime.now(UTC) - timedelta(hours=hours)
+    edge_pair = {node_a, node_b}
+
+    # Get traceroutes within time window
+    query = select(Traceroute).where(
+        Traceroute.received_at >= cutoff,
+        Traceroute.route_back.isnot(None),  # Only complete traceroutes
+    ).order_by(Traceroute.received_at.desc())
+
+    result = await db.execute(query)
+    traceroutes = result.scalars().all()
+
+    # Walk each traceroute to find hops matching the edge pair
+    traversals: list[dict] = []
+
+    for t in traceroutes:
+        # Check direct edge
+        if {t.from_node_num, t.to_node_num} == edge_pair:
+            snr_db = None
+            # Direct edge SNR: first entry of snr_towards if it exists
+            if t.snr_towards and len(t.snr_towards) > 0:
+                snr_db = t.snr_towards[0] / 4.0
+            traversals.append({
+                "from_node_num": t.from_node_num,
+                "to_node_num": t.to_node_num,
+                "direction": "towards",
+                "snr_db": snr_db,
+                "received_at": t.received_at.isoformat(),
+            })
+
+        # Walk forward route: from_node -> route hops
+        if t.route:
+            prev = t.from_node_num
+            for i, hop in enumerate(t.route):
+                if {prev, hop} == edge_pair:
+                    snr_db = None
+                    if t.snr_towards and i < len(t.snr_towards):
+                        snr_db = t.snr_towards[i] / 4.0
+                    traversals.append({
+                        "from_node_num": t.from_node_num,
+                        "to_node_num": t.to_node_num,
+                        "direction": "towards",
+                        "snr_db": snr_db,
+                        "received_at": t.received_at.isoformat(),
+                    })
+                prev = hop
+
+        # Walk backward route: to_node -> route_back hops
+        if t.route_back:
+            prev = t.to_node_num
+            for i, hop in enumerate(t.route_back):
+                if {prev, hop} == edge_pair:
+                    snr_db = None
+                    if t.snr_back and i < len(t.snr_back):
+                        snr_db = t.snr_back[i] / 4.0
+                    traversals.append({
+                        "from_node_num": t.from_node_num,
+                        "to_node_num": t.to_node_num,
+                        "direction": "back",
+                        "snr_db": snr_db,
+                        "received_at": t.received_at.isoformat(),
+                    })
+                prev = hop
+
+    # Collect all unique node nums (edge endpoints + traceroute endpoints)
+    all_node_nums = {node_a, node_b}
+    for t in traversals:
+        all_node_nums.add(t["from_node_num"])
+        all_node_nums.add(t["to_node_num"])
+
+    # Look up node names
+    node_result = await db.execute(
+        select(Node).where(Node.node_num.in_(all_node_nums))
+    )
+    node_map = {n.node_num: n for n in node_result.scalars().all()}
+
+    def node_name(num: int) -> str:
+        n = node_map.get(num)
+        return (n.long_name or n.short_name or f"!{num:08x}") if n else f"!{num:08x}"
+
+    def node_info(num: int) -> dict:
+        n = node_map.get(num)
+        return {
+            "node_num": num,
+            "name": (n.long_name or n.short_name or f"!{num:08x}") if n else f"!{num:08x}",
+            "short_name": n.short_name if n else None,
+        }
+
+    # Add node names to traversals
+    for t in traversals:
+        t["from_node_name"] = node_name(t["from_node_num"])
+        t["to_node_name"] = node_name(t["to_node_num"])
+
+    # SNR statistics
+    snr_values = [t["snr_db"] for t in traversals if t["snr_db"] is not None]
+    snr_stats = None
+    if snr_values:
+        snr_stats = {
+            "min_db": round(min(snr_values), 1),
+            "max_db": round(max(snr_values), 1),
+            "avg_db": round(sum(snr_values) / len(snr_values), 1),
+            "sample_count": len(snr_values),
+        }
+
+    # Cap recent traversals at 20
+    recent = traversals[:20]
+
+    return {
+        "node_a": node_info(node_a),
+        "node_b": node_info(node_b),
+        "usage_count": len(traversals),
+        "snr_stats": snr_stats,
+        "recent_traversals": recent,
+    }
+
+
 def _analyze_metric_for_solar_patterns(
     values: list[dict],
     is_battery: bool,

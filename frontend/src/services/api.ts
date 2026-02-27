@@ -235,6 +235,48 @@ export async function fetchConnections(hours?: number, nodeNum?: number): Promis
   return response.data
 }
 
+// Edge Details
+export interface EdgeNodeInfo {
+  node_num: number
+  name: string
+  short_name: string | null
+}
+
+export interface EdgeSnrStats {
+  min_db: number
+  max_db: number
+  avg_db: number
+  sample_count: number
+}
+
+export interface EdgeTraversal {
+  from_node_num: number
+  to_node_num: number
+  from_node_name: string
+  to_node_name: string
+  direction: string
+  snr_db: number | null
+  received_at: string
+}
+
+export interface EdgeDetails {
+  node_a: EdgeNodeInfo
+  node_b: EdgeNodeInfo
+  usage_count: number
+  snr_stats: EdgeSnrStats | null
+  recent_traversals: EdgeTraversal[]
+}
+
+export async function fetchEdgeDetails(nodeA: number, nodeB: number, hours?: number): Promise<EdgeDetails> {
+  const params = new URLSearchParams()
+  params.append('node_a', nodeA.toString())
+  params.append('node_b', nodeB.toString())
+  if (hours) params.append('hours', hours.toString())
+
+  const response = await api.get<EdgeDetails>(`/api/connections/edge-details?${params.toString()}`)
+  return response.data
+}
+
 // Node Roles
 export async function fetchNodeRoles(): Promise<string[]> {
   const response = await api.get<string[]>('/api/nodes/roles')

@@ -1,6 +1,6 @@
 [project]
 name = "meshmanager"
-version = "0.7.6"
+version = "0.7.7"
 description = "Management and oversight application for MeshMonitor and Meshtastic MQTT"
 requires-python = ">=3.11"
 dependencies = [

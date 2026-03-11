@@ -160,7 +160,7 @@ class MeshMonitorCollector(BaseCollector):
                     data = response.json()
                     connection = data.get("connection", {})
                     local_node = connection.get("localNode")
-                    if local_node and local_node.get("nodeNum"):
+                    if local_node and local_node.get("nodeNum") is not None:
                         local_num = local_node["nodeNum"]
                         self._local_node_num = local_num
                         # Persist to the source row for API-level fallback
@@ -180,27 +180,20 @@ class MeshMonitorCollector(BaseCollector):
         except Exception as e:
             logger.warning(
                 f"Could not fetch /api/status for {self.source.name}: {e}, "
-                f"falling back to hops_away heuristic"
+                f"falling back to previously stored value"
             )
 
         # Fallback: use stored value from a previous successful fetch
         if self._local_node_num is not None:
             return
 
-        # Last resort: check the DB for a previously persisted value
-        try:
-            async with async_session_maker() as db:
-                result = await db.execute(
-                    select(Source.local_node_num).where(Source.id == self.source.id)
-                )
-                stored = result.scalar()
-                if stored is not None:
-                    self._local_node_num = stored
-                    logger.debug(
-                        f"Using stored local node for {self.source.name}: {stored}"
-                    )
-        except Exception as e:
-            logger.error(f"Could not resolve local node for {self.source.name}: {e}")
+        # Last resort: use the value already on the source object (loaded at startup)
+        if self.source.local_node_num is not None:
+            self._local_node_num = self.source.local_node_num
+            logger.debug(
+                f"Using stored local node for {self.source.name}: "
+                f"{self.source.local_node_num}"
+            )
 
     async def _api_get(
         self,

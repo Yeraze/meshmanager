@@ -142,20 +142,62 @@ class MeshMonitorCollector(BaseCollector):
         return headers
 
     async def _resolve_local_node(self) -> None:
-        """Look up the local node (hops_away=0) for this source and cache it."""
+        """Fetch the local node number from MeshMonitor's /api/status endpoint.
+
+        The /api/status endpoint returns the authoritative local node number
+        via connection.localNode.nodeNum.  We persist it on the Source row so
+        the API fallback (for old messages without gateway_node_num) can use
+        it without making an HTTP call.
+        """
+        # Try fetching from the MeshMonitor /api/status endpoint
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    f"{self.source.url}/api/status",
+                    headers=self._get_headers(),
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    connection = data.get("connection", {})
+                    local_node = connection.get("localNode")
+                    if local_node and local_node.get("nodeNum"):
+                        local_num = local_node["nodeNum"]
+                        self._local_node_num = local_num
+                        # Persist to the source row for API-level fallback
+                        async with async_session_maker() as db:
+                            result = await db.execute(
+                                select(Source).where(Source.id == self.source.id)
+                            )
+                            source = result.scalar()
+                            if source:
+                                source.local_node_num = local_num
+                                await db.commit()
+                        logger.debug(
+                            f"Resolved local node for {self.source.name} "
+                            f"from /api/status: {local_num}"
+                        )
+                        return
+        except Exception as e:
+            logger.warning(
+                f"Could not fetch /api/status for {self.source.name}: {e}, "
+                f"falling back to hops_away heuristic"
+            )
+
+        # Fallback: use stored value from a previous successful fetch
+        if self._local_node_num is not None:
+            return
+
+        # Last resort: check the DB for a previously persisted value
         try:
             async with async_session_maker() as db:
                 result = await db.execute(
-                    select(Node.node_num).where(
-                        Node.source_id == self.source.id,
-                        Node.hops_away == 0,
-                    ).order_by(Node.node_num).limit(1)
+                    select(Source.local_node_num).where(Source.id == self.source.id)
                 )
-                local_num = result.scalar()
-                if local_num is not None:
-                    self._local_node_num = local_num
+                stored = result.scalar()
+                if stored is not None:
+                    self._local_node_num = stored
                     logger.debug(
-                        f"Resolved local node for {self.source.name}: {local_num}"
+                        f"Using stored local node for {self.source.name}: {stored}"
                     )
         except Exception as e:
             logger.error(f"Could not resolve local node for {self.source.name}: {e}")

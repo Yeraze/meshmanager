@@ -433,8 +433,8 @@ async def get_message_sources(
 
     # Pre-resolve MeshMonitor local nodes for gateway fallback.
     # MeshMonitor sources where gateway_node_num is NULL need the local node
-    # (hops_away=0) as their gateway. We batch-query upfront so the per-row
-    # loop can construct immutable response objects with the correct values.
+    # as their gateway. We use Source.local_node_num (fetched from MeshMonitor's
+    # /api/status endpoint) rather than guessing from hops_away=0.
     mm_source_ids = list({
         str(row.source_id) for row in rows
         if row.source_type == SourceType.MESHMONITOR and row.gateway_node_num is None
@@ -443,16 +443,18 @@ async def get_message_sources(
     if mm_source_ids:
         local_q = await db.execute(
             select(
-                Node.source_id,
-                Node.node_num,
+                Source.id.label("source_id"),
+                Source.local_node_num.label("node_num"),
                 func.coalesce(Node.long_name, Node.short_name).label("node_name"),
             )
-            .where(
-                Node.source_id.in_(mm_source_ids),
-                Node.hops_away == 0,
+            .outerjoin(
+                Node,
+                (Node.source_id == Source.id) & (Node.node_num == Source.local_node_num),
             )
-            .distinct(Node.source_id)
-            .order_by(Node.source_id)
+            .where(
+                Source.id.in_(mm_source_ids),
+                Source.local_node_num.isnot(None),
+            )
         )
         local_nodes = {str(r.source_id): r for r in local_q.all()}
 

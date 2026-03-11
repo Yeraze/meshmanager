@@ -4,7 +4,7 @@ import enum
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, Enum, Integer, String, Text, text
+from sqlalchemy import BigInteger, Boolean, DateTime, Enum, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -52,6 +52,7 @@ class Source(Base):
     last_poll_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
     remote_version: Mapped[str | None] = mapped_column(String(50))  # Version from remote source
+    local_node_num: Mapped[int | None] = mapped_column(BigInteger)  # Local node number from MeshMonitor
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utc_now,

@@ -34,13 +34,13 @@ def test_set_missing_server_defaults_revision_exists():
     )
 
 
-def test_add_meshtastic_id_columns_is_head():
-    """The add_meshtastic_id_columns migration should be the current head."""
+def test_add_local_node_num_to_sources_is_head():
+    """The add_local_node_num_to_sources migration should be the current head."""
     cfg = _get_alembic_cfg()
     script_dir = ScriptDirectory.from_config(cfg)
 
     heads = script_dir.get_heads()
-    assert "b2c3d4e5f6g7" in heads, f"Expected b2c3d4e5f6g7 in heads, got {heads}"
+    assert "c3d4e5f6g7h8" in heads, f"Expected c3d4e5f6g7h8 in heads, got {heads}"
 
 
 def test_model_server_defaults_present():
